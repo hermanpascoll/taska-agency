@@ -1,0 +1,98 @@
+import { expect, test } from "@playwright/test";
+
+test.beforeEach(async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() => window.localStorage.clear());
+  await page.reload();
+});
+
+test("crea una tarea y conserva el cambio al recargar", async ({ page }) => {
+  await expect(
+    page.getByRole("heading", { name: /Buenos días/i }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Nueva tarea" }).click();
+  await page.getByLabel("Nombre de la tarea").fill("Revisar home Apple");
+  await page
+    .getByLabel("Descripción")
+    .fill("Validar jerarquía, espaciado y estados del Finder.");
+  await page.getByRole("button", { name: "Crear tarea" }).click();
+  await expect(page.getByLabel("Título de la tarea")).toHaveValue(
+    "Revisar home Apple",
+  );
+  await page.getByRole("button", { name: "Cerrar", exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        window.localStorage
+          .getItem("taska-demo-workspace-v2")
+          ?.includes("Revisar home Apple"),
+      ),
+    )
+    .toBe(true);
+  await page.reload();
+  await page.getByRole("button", { name: "Todas las tareas" }).click();
+  await expect(
+    page
+      .getByRole("heading", { name: "Revisar home Apple", level: 3 })
+      .first(),
+  ).toBeVisible();
+});
+
+test("mueve una tarjeta con drag-and-drop real", async ({ page }) => {
+  await page.getByRole("button", { name: "Todas las tareas" }).click();
+  await page.getByRole("button", { name: "Tablero" }).last().click();
+  const card = page.getByTestId("kanban-card-task-1");
+  const target = page.getByTestId("kanban-column-esperando");
+  await expect(card).toBeVisible();
+  const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
+  await card.dispatchEvent("dragstart", { dataTransfer });
+  await target.dispatchEvent("dragenter", { dataTransfer });
+  await target.dispatchEvent("dragover", { dataTransfer });
+  await target.dispatchEvent("drop", { dataTransfer });
+  await card.dispatchEvent("dragend", { dataTransfer });
+  await expect(
+    target.getByText("AG-142"),
+  ).toBeVisible();
+});
+
+test("administra integrantes e invitaciones desde Preferencias", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Configuración" }).click();
+  await page.getByRole("button", { name: "Integrantes" }).click();
+  await page.getByPlaceholder("persona@empresa.com").fill("nuevo@taska.test");
+  await page.getByRole("button", { name: "Invitar" }).click();
+  await expect(page.getByText("nuevo@taska.test")).toBeVisible();
+  await expect(page.getByText("Invitaciones pendientes")).toBeVisible();
+});
+
+test("registra tiempo y exporta la auditoría con permisos", async ({ page }) => {
+  await page.getByRole("button", { name: "Todas las tareas" }).click();
+  await page
+    .getByRole("button", {
+      name: /AG-142 Lanzamiento Aura Adaptar campaña/,
+    })
+    .click();
+  await page
+    .getByPlaceholder("¿En qué estás trabajando?")
+    .fill("Revisión visual automatizada");
+  await page.getByRole("button", { name: "Iniciar timer" }).click();
+  await expect(
+    page.getByRole("button", { name: "Detener timer activo" }),
+  ).toBeVisible();
+  await page.waitForTimeout(1100);
+  await page
+    .getByRole("button", { name: "Detener timer de la tarea" })
+    .click();
+  await expect(page.getByText("2 registros")).toBeVisible();
+  await page.getByRole("button", { name: "Cerrar", exact: true }).click();
+
+  await page.getByRole("button", { name: "Reportes de tiempo" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Auditoría de tiempo y costos" }),
+  ).toBeVisible();
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Exportar CSV" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/^taska-tiempo-.*\.csv$/);
+});
