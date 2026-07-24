@@ -20,12 +20,23 @@ export type Workspace = {
   currency: string;
 };
 
+export type Client = {
+  id: string;
+  name: string;
+  email: string;
+  notes: string;
+  workspaceId: string;
+  archived: boolean;
+};
+
 export type Project = {
   id: string;
   name: string;
   color: string;
   workspaceId: string;
   description?: string;
+  clientId: string | null;
+  clientName: string | null;
   archived: boolean;
 };
 
@@ -54,6 +65,7 @@ export type Task = {
   title: string;
   description: string;
   project: Project;
+  projects: Project[];
   parentTaskId: string | null;
   status: TaskStatus;
   priority: TaskPriority;
@@ -139,6 +151,7 @@ export type NewTaskInput = {
   title: string;
   description: string;
   projectId: string;
+  projectIds: string[];
   parentTaskId?: string;
   status?: TaskStatus;
   priority: TaskPriority;
@@ -154,6 +167,7 @@ export type UpdateTaskInput = {
   status?: TaskStatus;
   priority?: TaskPriority;
   assigneeId?: string | null;
+  projectIds?: string[];
   startDate?: string | null;
   dueDate?: string | null;
 };
@@ -163,12 +177,28 @@ export type NewProjectInput = {
   color: string;
   workspaceId: string;
   description?: string;
+  clientId?: string;
 };
 
 export type UpdateProjectInput = {
   name?: string;
   color?: string;
   description?: string;
+  clientId?: string | null;
+  archived?: boolean;
+};
+
+export type NewClientInput = {
+  name: string;
+  email: string;
+  notes: string;
+  workspaceId: string;
+};
+
+export type UpdateClientInput = {
+  name?: string;
+  email?: string;
+  notes?: string;
   archived?: boolean;
 };
 

@@ -14,15 +14,18 @@ import {
   Clock3,
   Columns3,
   CircleDollarSign,
+  ContactRound,
   Download,
   FileDown,
   FileText,
+  FolderKanban,
   GitBranch,
   GripVertical,
   Inbox,
   LayoutDashboard,
   ListFilter,
   ListTodo,
+  LoaderCircle,
   LogOut,
   Menu,
   MessageSquare,
@@ -71,6 +74,8 @@ import type {
   AdvancedFilters,
   AppNotification,
   AppSettings,
+  Client,
+  NewClientInput,
   NewManualTimeEntryInput,
   NewProjectInput,
   NewTaskInput,
@@ -83,6 +88,7 @@ import type {
   TeamInvitation,
   TeamRole,
   TimeEntry,
+  UpdateClientInput,
   UpdateProjectInput,
   UpdateTaskInput,
   UpdateWorkspaceInput,
@@ -254,6 +260,7 @@ function Sidebar({
   onProjectSettings,
   onSettings,
   onAdmin,
+  onClients,
   onSignOut,
   onTimeReports,
   canViewTimeReports,
@@ -276,6 +283,7 @@ function Sidebar({
   onProjectSettings: (projectId: string) => void;
   onSettings: () => void;
   onAdmin: () => void;
+  onClients: () => void;
   onSignOut: () => void;
   onTimeReports: () => void;
   canViewTimeReports: boolean;
@@ -443,6 +451,16 @@ function Sidebar({
               Reportes de tiempo
             </button>
           )}
+          <button
+            onClick={() => {
+              onClients();
+              onClose();
+            }}
+            className="focus-ring flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium text-slate-600 transition hover:bg-black/[0.045] hover:text-slate-900"
+          >
+            <ContactRound className="size-[17px] text-[#0a84ff]" />
+            Clientes
+          </button>
         </nav>
 
         <div className="my-5 h-px bg-black/[0.06]" />
@@ -694,6 +712,11 @@ function TaskList({
                   <span className="truncate text-[10px] font-medium text-slate-400">
                     {task.project.name}
                   </span>
+                  {task.projects.length > 1 && (
+                    <span className="shrink-0 rounded-full bg-[#0a84ff]/10 px-1.5 py-0.5 text-[8px] font-bold text-[#0879ea]">
+                      +{task.projects.length - 1}
+                    </span>
+                  )}
                 </div>
                 <h3
                   className={clsx(
@@ -747,6 +770,9 @@ function TaskList({
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-[10px] font-bold text-slate-400">
                     {task.code} · {task.project.name}
+                    {task.projects.length > 1
+                      ? ` +${task.projects.length - 1}`
+                      : ""}
                   </span>
                   <Avatar person={task.assignee} size="sm" />
                 </div>
@@ -1196,6 +1222,7 @@ function TaskDrawer({
   timeEntries,
   activeTimeEntry,
   people,
+  projects,
   currentPerson,
   currentUserId,
   currency,
@@ -1223,6 +1250,7 @@ function TaskDrawer({
   timeEntries: TimeEntry[];
   activeTimeEntry: TimeEntry | null;
   people: Person[];
+  projects: Project[];
   currentPerson: Person | null;
   currentUserId: string;
   currency: string;
@@ -1334,6 +1362,11 @@ function TaskDrawer({
                 style={{ background: task.project.color }}
               />
               {task.project.name}
+              {task.projects.length > 1 && (
+                <span className="rounded-full bg-[#0a84ff]/10 px-1.5 py-0.5 text-[8px] font-bold text-[#0879ea]">
+                  +{task.projects.length - 1}
+                </span>
+              )}
             </span>
           </div>
           <h2 className="mt-3">
@@ -1369,6 +1402,54 @@ function TaskDrawer({
                 </option>
               ))}
             </select>
+
+            <span className="flex items-center gap-2 text-slate-400">
+              <FolderKanban className="size-3.5" />
+              Proyectos
+            </span>
+            <div className="flex flex-wrap gap-2">
+              {projects.map((project) => {
+                const checked = task.projects.some(
+                  (item) => item.id === project.id,
+                );
+                return (
+                  <label
+                    key={project.id}
+                    className={clsx(
+                      "flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[9px] font-semibold",
+                      checked
+                        ? "border-[#0a84ff]/30 bg-[#0a84ff]/8 text-[#0879ea]"
+                        : "border-slate-200 text-slate-500",
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={checked && task.projects.length === 1}
+                      onChange={(event) => {
+                        const projectIds = event.target.checked
+                          ? [
+                              ...new Set([
+                                ...task.projects.map((item) => item.id),
+                                project.id,
+                              ]),
+                            ]
+                          : task.projects
+                              .filter((item) => item.id !== project.id)
+                              .map((item) => item.id);
+                        onTaskUpdate({ projectIds });
+                      }}
+                      className="accent-[#0a84ff]"
+                    />
+                    <span
+                      className="size-1.5 rounded-full"
+                      style={{ backgroundColor: project.color }}
+                    />
+                    {project.name}
+                  </label>
+                );
+              })}
+            </div>
 
             <span className="flex items-center gap-2 text-slate-400">
               <Building2 className="size-3.5" />
@@ -1769,10 +1850,12 @@ function NewTaskModal({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState(projects[0]?.id ?? "");
+  const [projectIds, setProjectIds] = useState<string[]>(
+    projects[0] ? [projects[0].id] : [],
+  );
   const [status, setStatus] = useState<TaskStatus>(defaultStatus);
   const [priority, setPriority] = useState<TaskPriority>("media");
   const [assigneeId, setAssigneeId] = useState(people[0]?.id ?? "");
-  const [client, setClient] = useState("");
   const [startDate, setStartDate] = useState(() =>
     new Date().toISOString().slice(0, 10),
   );
@@ -1789,10 +1872,13 @@ function NewTaskModal({
       title: title.trim(),
       description: description.trim(),
       projectId,
+      projectIds,
       status,
       priority,
       assigneeId,
-      client: client.trim(),
+      client:
+        projects.find((project) => project.id === projectId)?.clientName ??
+        "",
       startDate,
       dueDate,
     });
@@ -1862,7 +1948,15 @@ function NewTaskModal({
               <select
                 required
                 value={projectId}
-                onChange={(event) => setProjectId(event.target.value)}
+                onChange={(event) => {
+                  const nextProjectId = event.target.value;
+                  setProjectId(nextProjectId);
+                  setProjectIds((current) =>
+                    current.includes(nextProjectId)
+                      ? current
+                      : [nextProjectId, ...current],
+                  );
+                }}
                 className="focus-ring w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-[12px] text-slate-700"
               >
                 {projects.map((project) => (
@@ -1872,6 +1966,46 @@ function NewTaskModal({
                 ))}
               </select>
             </label>
+            <fieldset className="sm:col-span-2">
+              <legend className="mb-2 block text-[11px] font-bold text-slate-600">
+                Proyectos vinculados
+              </legend>
+              <div className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:grid-cols-2">
+                {projects.map((project) => {
+                  const checked = projectIds.includes(project.id);
+                  return (
+                    <label
+                      key={project.id}
+                      className="flex cursor-pointer items-center gap-2 rounded-lg bg-white px-3 py-2 text-[10px] font-semibold text-slate-600 shadow-sm"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={project.id === projectId}
+                        onChange={(event) =>
+                          setProjectIds((current) =>
+                            event.target.checked
+                              ? [...new Set([...current, project.id])]
+                              : current.filter((id) => id !== project.id),
+                          )
+                        }
+                        className="accent-[#0a84ff]"
+                      />
+                      <span
+                        className="size-2 rounded-full"
+                        style={{ backgroundColor: project.color }}
+                      />
+                      <span className="truncate">{project.name}</span>
+                      {project.id === projectId && (
+                        <span className="ml-auto text-[8px] text-[#0879ea]">
+                          Principal
+                        </span>
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+            </fieldset>
             <label>
               <span className="mb-2 block text-[11px] font-bold text-slate-600">
                 Estado
@@ -1961,10 +2095,13 @@ function NewTaskModal({
               Cliente
             </span>
             <input
-              value={client}
-              onChange={(event) => setClient(event.target.value)}
-              placeholder="Marca o contacto que solicitó el trabajo"
-              className="focus-ring w-full rounded-xl border border-slate-200 px-4 py-3 text-[13px] text-slate-800 placeholder:text-slate-400"
+              value={
+                projects.find((project) => project.id === projectId)
+                  ?.clientName ?? ""
+              }
+              readOnly
+              placeholder="Definilo desde el proyecto"
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-[13px] text-slate-600 placeholder:text-slate-400"
             />
           </label>
         </div>
@@ -1989,16 +2126,19 @@ function NewTaskModal({
 
 function NewProjectModal({
   workspaceId,
+  clients,
   onClose,
   onCreate,
 }: {
   workspaceId: string;
+  clients: Client[];
   onClose: () => void;
   onCreate: (input: NewProjectInput) => void;
 }) {
   const [name, setName] = useState("");
   const [color, setColor] = useState("#6556EE");
   const [description, setDescription] = useState("");
+  const [clientId, setClientId] = useState("");
   const colors = [
     "#6556EE",
     "#EF6A67",
@@ -2015,6 +2155,7 @@ function NewProjectModal({
       name: name.trim(),
       color,
       description: description.trim(),
+      clientId: clientId || undefined,
       workspaceId,
     });
   }
@@ -2064,6 +2205,25 @@ function NewProjectModal({
         </label>
         <label className="mt-4 block">
           <span className="mb-2 block text-[11px] font-bold text-slate-600">
+            Cliente
+          </span>
+          <select
+            value={clientId}
+            onChange={(event) => setClientId(event.target.value)}
+            className="focus-ring w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-[12px] text-slate-700"
+          >
+            <option value="">Sin cliente</option>
+            {clients
+              .filter((client) => !client.archived)
+              .map((client) => (
+                <option key={client.id} value={client.id}>
+                  {client.name}
+                </option>
+              ))}
+          </select>
+        </label>
+        <label className="mt-4 block">
+          <span className="mb-2 block text-[11px] font-bold text-slate-600">
             Descripción
           </span>
           <textarea
@@ -2110,6 +2270,272 @@ function NewProjectModal({
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+function ClientsModal({
+  clients,
+  workspaceId,
+  canManage,
+  onClose,
+  onCreate,
+  onUpdate,
+  onDelete,
+}: {
+  clients: Client[];
+  workspaceId: string;
+  canManage: boolean;
+  onClose: () => void;
+  onCreate: (input: NewClientInput) => Promise<unknown>;
+  onUpdate: (clientId: string, input: UpdateClientInput) => Promise<void>;
+  onDelete: (clientId: string) => Promise<void>;
+}) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [deletingClient, setDeletingClient] = useState<Client | null>(null);
+
+  function clearForm() {
+    setEditingId(null);
+    setName("");
+    setEmail("");
+    setNotes("");
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!name.trim() || !canManage) return;
+    setSaving(true);
+    try {
+      if (editingId) {
+        await onUpdate(editingId, {
+          name: name.trim(),
+          email: email.trim(),
+          notes: notes.trim(),
+        });
+      } else {
+        await onCreate({
+          name: name.trim(),
+          email: email.trim(),
+          notes: notes.trim(),
+          workspaceId,
+        });
+      }
+      clearForm();
+    } catch {
+      // El contenedor muestra el error y el formulario conserva los datos.
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[90] flex bg-slate-950/45 p-0 backdrop-blur-sm sm:p-5">
+      <section className="mac-window m-auto flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-none border border-black/10 bg-[#f6f7f9] shadow-2xl sm:rounded-2xl">
+        <header className="flex items-center border-b border-black/[0.07] bg-white/90 px-5 py-4 backdrop-blur-xl">
+          <span className="grid size-10 place-items-center rounded-xl bg-[#0a84ff]/10 text-[#0a84ff]">
+            <ContactRound className="size-5" />
+          </span>
+          <div className="ml-3">
+            <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-[#0879ea]">
+              Directorio comercial
+            </p>
+            <h2 className="text-[16px] font-bold text-slate-900">Clientes</h2>
+          </div>
+          <button
+            onClick={onClose}
+            className="focus-ring ml-auto rounded-lg p-2 text-slate-400 hover:bg-slate-100"
+            aria-label="Cerrar clientes"
+          >
+            <X className="size-5" />
+          </button>
+        </header>
+
+        <div className="grid min-h-0 flex-1 lg:grid-cols-[340px_1fr]">
+          <form
+            onSubmit={(event) => void submit(event)}
+            className="border-b border-black/[0.06] bg-white/70 p-5 lg:border-b-0 lg:border-r"
+          >
+            <h3 className="text-[12px] font-bold text-slate-800">
+              {editingId ? "Editar cliente" : "Nuevo cliente"}
+            </h3>
+            <p className="mt-1 text-[9px] leading-4 text-slate-500">
+              Después podrás seleccionarlo al crear o editar un proyecto.
+            </p>
+            <label className="mt-5 block">
+              <span className="mb-2 block text-[10px] font-bold text-slate-600">
+                Nombre
+              </span>
+              <input
+                required
+                disabled={!canManage}
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Ej. Aura Cosmética"
+                className="mac-input focus-ring w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-[11px]"
+              />
+            </label>
+            <label className="mt-4 block">
+              <span className="mb-2 block text-[10px] font-bold text-slate-600">
+                Correo de contacto
+              </span>
+              <input
+                type="email"
+                disabled={!canManage}
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="marketing@cliente.com"
+                className="mac-input focus-ring w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-[11px]"
+              />
+            </label>
+            <label className="mt-4 block">
+              <span className="mb-2 block text-[10px] font-bold text-slate-600">
+                Notas
+              </span>
+              <textarea
+                disabled={!canManage}
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                placeholder="Contacto, facturación o contexto de la cuenta…"
+                className="mac-input focus-ring min-h-24 w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-3 text-[11px]"
+              />
+            </label>
+            <div className="mt-5 flex gap-2">
+              {editingId && (
+                <button
+                  type="button"
+                  onClick={clearForm}
+                  className="focus-ring rounded-lg border border-slate-200 px-3 py-2.5 text-[10px] font-semibold text-slate-600"
+                >
+                  Cancelar
+                </button>
+              )}
+              <button
+                disabled={saving || !canManage || name.trim().length < 2}
+                className="mac-button-primary focus-ring flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-[10px] font-bold text-white disabled:opacity-45"
+              >
+                {saving ? (
+                  <LoaderCircle className="size-3.5 animate-spin" />
+                ) : (
+                  <Plus className="size-3.5" />
+                )}
+                {editingId ? "Guardar cambios" : "Crear cliente"}
+              </button>
+            </div>
+            {!canManage && (
+              <p className="mt-4 rounded-lg bg-amber-50 p-3 text-[9px] leading-4 text-amber-700">
+                Sólo propietarios y administradores pueden modificar clientes.
+              </p>
+            )}
+          </form>
+
+          <div className="soft-scrollbar min-h-0 overflow-y-auto p-4 sm:p-6">
+            <div className="flex items-center">
+              <div>
+                <h3 className="text-[13px] font-bold text-slate-800">
+                  Directorio del espacio
+                </h3>
+                <p className="mt-1 text-[9px] text-slate-400">
+                  {clients.length} {clients.length === 1 ? "cliente" : "clientes"}
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 xl:grid-cols-2">
+              {clients.map((client) => (
+                <article
+                  key={client.id}
+                  className={clsx(
+                    "rounded-2xl border bg-white p-4 shadow-sm",
+                    client.archived
+                      ? "border-slate-200 opacity-65"
+                      : "border-black/[0.07]",
+                  )}
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#0a84ff]/10 text-[#0879ea]">
+                      <Building2 className="size-5" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <h4 className="truncate text-[12px] font-bold text-slate-800">
+                          {client.name}
+                        </h4>
+                        {client.archived && (
+                          <span className="rounded-full bg-slate-100 px-2 py-1 text-[8px] font-bold text-slate-500">
+                            Archivado
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-1 truncate text-[9px] text-slate-400">
+                        {client.email || "Sin correo"}
+                      </p>
+                    </div>
+                  </div>
+                  <p className="mt-3 min-h-8 text-[9px] leading-4 text-slate-500">
+                    {client.notes || "Sin notas adicionales."}
+                  </p>
+                  {canManage && (
+                    <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+                      <button
+                        onClick={() => {
+                          setEditingId(client.id);
+                          setName(client.name);
+                          setEmail(client.email);
+                          setNotes(client.notes);
+                        }}
+                        className="focus-ring rounded-lg border border-slate-200 px-3 py-2 text-[9px] font-semibold text-slate-600 hover:bg-slate-50"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        onClick={() => {
+                          void onUpdate(client.id, {
+                            archived: !client.archived,
+                          }).catch(() => undefined);
+                        }}
+                        className="focus-ring rounded-lg border border-slate-200 px-3 py-2 text-[9px] font-semibold text-slate-600 hover:bg-slate-50"
+                      >
+                        {client.archived ? "Restaurar" : "Archivar"}
+                      </button>
+                      <button
+                        onClick={() => setDeletingClient(client)}
+                        className="focus-ring ml-auto rounded-lg px-3 py-2 text-[9px] font-semibold text-rose-600 hover:bg-rose-50"
+                      >
+                        Eliminar
+                      </button>
+                    </div>
+                  )}
+                </article>
+              ))}
+              {!clients.length && (
+                <div className="col-span-full rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center">
+                  <ContactRound className="mx-auto size-7 text-slate-300" />
+                  <p className="mt-3 text-[11px] font-semibold text-slate-500">
+                    Todavía no hay clientes cargados.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {deletingClient && (
+        <ConfirmDialog
+          title={`¿Eliminar ${deletingClient.name}?`}
+          description="Los proyectos se conservarán, pero quedarán sin cliente asignado."
+          confirmLabel="Eliminar cliente"
+          onCancel={() => setDeletingClient(null)}
+          onConfirm={() => {
+            void onDelete(deletingClient.id).catch(() => undefined);
+            setDeletingClient(null);
+            if (editingId === deletingClient.id) clearForm();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -2246,12 +2672,14 @@ function ConfirmDialog({
 
 function ProjectSettingsModal({
   project,
+  clients,
   onClose,
   onSave,
   onArchive,
   onDelete,
 }: {
   project: Project;
+  clients: Client[];
   onClose: () => void;
   onSave: (input: UpdateProjectInput) => void;
   onArchive: () => void;
@@ -2260,6 +2688,7 @@ function ProjectSettingsModal({
   const [name, setName] = useState(project.name);
   const [description, setDescription] = useState(project.description ?? "");
   const [color, setColor] = useState(project.color);
+  const [clientId, setClientId] = useState(project.clientId ?? "");
   const [confirmAction, setConfirmAction] = useState<
     "archive" | "delete" | null
   >(null);
@@ -2282,7 +2711,12 @@ function ProjectSettingsModal({
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          onSave({ name: name.trim(), description: description.trim(), color });
+          onSave({
+            name: name.trim(),
+            description: description.trim(),
+            color,
+            clientId: clientId || null,
+          });
         }}
         className="mac-window animate-enter relative w-full max-w-[500px] overflow-hidden rounded-2xl border border-white/80 bg-white/95 shadow-[0_30px_90px_rgba(15,23,42,.25)] backdrop-blur-2xl"
       >
@@ -2309,6 +2743,25 @@ function ProjectSettingsModal({
               onChange={(event) => setName(event.target.value)}
               className="mac-input focus-ring w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-[12px]"
             />
+          </label>
+          <label className="block">
+            <span className="mb-2 block text-[11px] font-semibold text-slate-600">
+              Cliente
+            </span>
+            <select
+              value={clientId}
+              onChange={(event) => setClientId(event.target.value)}
+              className="mac-input focus-ring w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-[12px]"
+            >
+              <option value="">Sin cliente</option>
+              {clients
+                .filter((client) => !client.archived)
+                .map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.name}
+                  </option>
+                ))}
+            </select>
           </label>
           <label className="block">
             <span className="mb-2 block text-[11px] font-semibold text-slate-600">
@@ -2392,7 +2845,7 @@ function ProjectSettingsModal({
           }
           description={
             confirmAction === "delete"
-              ? "También se eliminarán sus tareas, subtareas, comentarios y adjuntos. Esta acción no se puede deshacer."
+              ? "Se eliminarán las tareas exclusivas de este proyecto. Las tareas vinculadas también a otros proyectos se conservarán allí."
               : "Las tareas se conservarán y el proyecto dejará de aparecer en las vistas activas."
           }
           confirmLabel={
@@ -3464,6 +3917,7 @@ export function TaskaApp() {
   const {
     tasks,
     projects,
+    clients,
     workspaces,
     people,
     members,
@@ -3475,6 +3929,7 @@ export function TaskaApp() {
     settings,
     mode,
     syncing,
+    initializing,
     setActiveWorkspaceId,
     updateTask,
     updateStatus,
@@ -3485,6 +3940,9 @@ export function TaskaApp() {
     createProject,
     updateProject,
     deleteProject,
+    createClient: createCatalogClient,
+    updateClient,
+    deleteClient,
     createWorkspace,
     updateWorkspace,
     deleteWorkspace,
@@ -3518,6 +3976,7 @@ export function TaskaApp() {
   const [showNewWorkspace, setShowNewWorkspace] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
+  const [clientsOpen, setClientsOpen] = useState(false);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -3725,6 +4184,7 @@ export function TaskaApp() {
   async function signOut() {
     const supabase = createClient();
     if (!supabase) return;
+    await supabase.rpc("clear_presence");
     await supabase.auth.signOut();
     window.location.href = "/login";
   }
@@ -3737,6 +4197,17 @@ export function TaskaApp() {
         : view === "board"
           ? "Tablero creativo"
           : "Cronograma del espacio";
+
+  if (initializing) {
+    return (
+      <div className="mac-wallpaper grid min-h-screen place-items-center bg-[#f1f3f6]">
+        <div className="mac-window flex items-center gap-3 rounded-2xl border border-white/80 bg-white/85 px-5 py-4 text-[12px] font-semibold text-slate-600 shadow-xl backdrop-blur-xl">
+          <LoaderCircle className="size-5 animate-spin text-[#0a84ff]" />
+          Cargando tu espacio de trabajo…
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -3764,6 +4235,7 @@ export function TaskaApp() {
         onProjectSettings={setProjectSettingsId}
         onSettings={() => setSettingsOpen(true)}
         onAdmin={() => setAdminOpen(true)}
+        onClients={() => setClientsOpen(true)}
         onSignOut={() => void signOut()}
         onTimeReports={() => setTimeReportsOpen(true)}
         canViewTimeReports={canAuditTime}
@@ -4182,6 +4654,7 @@ export function TaskaApp() {
           timeEntries={selectedTimeEntries}
           activeTimeEntry={activeTimeEntry}
           people={people}
+          projects={projects}
           currentPerson={currentPerson}
           currentUserId={currentUserId}
           currency={activeWorkspace?.currency ?? "USD"}
@@ -4216,6 +4689,9 @@ export function TaskaApp() {
                   title,
                   description: "",
                   projectId: selectedTask.project.id,
+                  projectIds: selectedTask.projects.map(
+                    (project) => project.id,
+                  ),
                   parentTaskId: parentId,
                   status: "nuevo",
                   priority: selectedTask.priority,
@@ -4317,6 +4793,7 @@ export function TaskaApp() {
       {showNewProject && (
         <NewProjectModal
           workspaceId={activeWorkspaceId}
+          clients={clients}
           onClose={() => setShowNewProject(false)}
           onCreate={(input) => void handleCreateProject(input)}
         />
@@ -4335,6 +4812,7 @@ export function TaskaApp() {
             project={
               projects.find((project) => project.id === projectSettingsId)!
             }
+            clients={clients}
             onClose={() => setProjectSettingsId(null)}
             onSave={(input) => {
               void updateProject(projectSettingsId, input);
@@ -4361,6 +4839,55 @@ export function TaskaApp() {
             }}
           />
         )}
+
+      {clientsOpen && activeWorkspace && (
+        <ClientsModal
+          clients={clients}
+          workspaceId={activeWorkspace.id}
+          canManage={["owner", "admin"].includes(activeWorkspace.role)}
+          onClose={() => setClientsOpen(false)}
+          onCreate={async (input) => {
+            try {
+              const client = await createCatalogClient(input);
+              notify("Cliente creado");
+              return client;
+            } catch (error) {
+              notify(
+                error instanceof Error
+                  ? error.message
+                  : "No se pudo crear el cliente",
+              );
+              throw error;
+            }
+          }}
+          onUpdate={async (clientId, input) => {
+            try {
+              await updateClient(clientId, input);
+              notify("Cliente actualizado");
+            } catch (error) {
+              notify(
+                error instanceof Error
+                  ? error.message
+                  : "No se pudo actualizar el cliente",
+              );
+              throw error;
+            }
+          }}
+          onDelete={async (clientId) => {
+            try {
+              await deleteClient(clientId);
+              notify("Cliente eliminado");
+            } catch (error) {
+              notify(
+                error instanceof Error
+                  ? error.message
+                  : "No se pudo eliminar el cliente",
+              );
+              throw error;
+            }
+          }}
+        />
+      )}
 
       {settingsOpen && activeWorkspace && (
         <SettingsModal

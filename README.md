@@ -7,12 +7,18 @@ espacio compartido.
 
 ## Funcionalidades
 
-- Autenticación con email/contraseña y Google SSO mediante Supabase Auth.
+- Acceso productivo exclusivamente con Google SSO mediante Supabase Auth.
 - Espacios de trabajo seleccionables, editables, archivables y eliminables.
 - Invitaciones, integrantes y roles (`owner`, `admin`, `agent`, `viewer`) desde la interfaz.
 - Panel global protegido para promover superadministradores, administrar
-  usuarios y gestionar integrantes e invitaciones de todos los espacios.
+  usuarios, ver presencia reciente y gestionar integrantes e invitaciones de
+  todos los espacios.
+- Alta forzada de usuarios registrados en cualquier espacio desde el panel
+  global, sin requerir aceptación de invitación.
+- Directorio de clientes por espacio, con edición, archivo y asignación a proyectos.
 - Creación, edición, archivo y eliminación de campañas organizadas como proyectos.
+- Una tarea puede estar vinculada a varios proyectos del mismo espacio sin
+  duplicar responsables, comentarios, adjuntos ni registros de tiempo.
 - Tareas y subtareas con responsable, cliente, prioridad, estado, etiquetas,
   fecha de inicio y fecha de entrega.
 - Edición completa y eliminación de tareas, subtareas y comentarios.
@@ -71,12 +77,12 @@ Los cambios de la demo se conservan en `localStorage` entre recargas.
    - `supabase/migrations/202607240003_time_tracking.sql`
    - `supabase/migrations/202607240004_platform_admins.sql`
    - `supabase/migrations/202607240005_task_start_dates.sql`
+   - `supabase/migrations/202607240006_clients_multi_project_presence.sql`
 
-3. En Authentication, habilitá Email/Password.
-4. Para Google SSO, habilitá Google en Authentication → Providers, copiá allí
+3. Habilitá Google en Authentication → Providers, copiá allí
    el Client ID y Client Secret de Google Cloud, y configurá en Google la
    callback que muestra Supabase (`https://<project-ref>.supabase.co/auth/v1/callback`).
-5. Copiá la URL y la clave pública (`anon`) del proyecto en `.env.local`:
+4. Copiá la URL y la clave pública (`anon`) del proyecto en `.env.local`:
 
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://tu-proyecto.supabase.co
@@ -128,6 +134,8 @@ Usá la URL y la `anon key` informadas por `supabase status` en `.env.local`.
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - `NEXT_PUBLIC_APP_URL` con el dominio final, por ejemplo
      `https://taska-agency.vercel.app`
+   - `SUPABASE_SECRET_KEY` para invitaciones y administración global
+   - `TASKA_PLATFORM_ADMIN_EMAILS` con los correos de administradores raíz
 
 5. En Supabase → Authentication → URL Configuration agregá:
 
@@ -148,7 +156,7 @@ pnpm test:supabase # auth + escritura/lectura real (requiere variables de test)
 pnpm db:test   # políticas/esquema pgTAP con Supabase local
 pnpm build     # build de producción
 pnpm start     # ejecutar el build
-pnpm check     # TypeScript + lint + build
+pnpm check     # TypeScript + lint + tests + build
 ```
 
 ## Estructura principal

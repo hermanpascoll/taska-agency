@@ -67,6 +67,21 @@ describe("task utils", () => {
     ).toBe(true);
   });
 
+  it("encuentra una tarea desde cualquiera de sus proyectos vinculados", () => {
+    const task = initialTasks.find((item) => item.projects.length > 1)!;
+    const secondaryProject = task.projects.find(
+      (project) => project.id !== task.project.id,
+    )!;
+    expect(
+      matchesTaskFilters(task, {
+        query: "",
+        priority: "todas",
+        projectId: secondaryProject.id,
+        advanced: noAdvancedFilters,
+      }),
+    ).toBe(true);
+  });
+
   it("filtra vencimientos y archivos de forma segura", () => {
     const overdueTask = {
       ...initialTasks[0],

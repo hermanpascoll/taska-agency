@@ -107,6 +107,47 @@ test("administra integrantes e invitaciones desde Preferencias", async ({
   await expect(page.getByText("Invitaciones pendientes")).toBeVisible();
 });
 
+test("crea clientes y vincula una tarea a varios proyectos", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Clientes" }).click();
+  await page.getByPlaceholder("Ej. Aura Cosmética").fill("Cliente E2E");
+  await page
+    .getByPlaceholder("marketing@cliente.com")
+    .fill("cliente@taska.test");
+  await page.getByRole("button", { name: "Crear cliente" }).click();
+  await expect(page.getByRole("heading", { name: "Cliente E2E" })).toBeVisible();
+  await page.getByRole("button", { name: "Cerrar clientes" }).click();
+
+  await page.getByRole("button", { name: "Crear proyecto" }).last().click();
+  await page.getByLabel("Nombre del proyecto").fill("Proyecto Cliente E2E");
+  await page.getByLabel("Cliente").selectOption({ label: "Cliente E2E" });
+  await page.getByRole("button", { name: "Crear proyecto" }).last().click();
+  await expect(
+    page.getByRole("button", { name: "Proyecto Cliente E2E", exact: true }),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Nueva tarea" }).click();
+  await page.getByLabel("Nombre de la tarea").fill("Tarea multiproyecto E2E");
+  await page.getByLabel("Campaña").selectOption({
+    label: "Proyecto Cliente E2E",
+  });
+  const projectCheckboxes = page.getByRole("checkbox");
+  await projectCheckboxes.first().check();
+  await page.getByRole("button", { name: "Crear tarea" }).click();
+
+  await expect(page.getByLabel("Título de la tarea")).toHaveValue(
+    "Tarea multiproyecto E2E",
+  );
+  await expect(page.getByText("Cliente E2E", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("checkbox", { name: "Lanzamiento Aura" }),
+  ).toBeChecked();
+  await expect(
+    page.getByRole("checkbox", { name: "Proyecto Cliente E2E" }),
+  ).toBeChecked();
+});
+
 test("registra tiempo y exporta la auditoría con permisos", async ({ page }) => {
   await page.getByRole("button", { name: "Todas las tareas" }).click();
   await page

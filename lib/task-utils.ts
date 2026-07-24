@@ -68,7 +68,8 @@ export function matchesTaskFilters(
   const matchesPriority =
     priority === "todas" || task.priority === priority;
   const matchesProject =
-    projectId === "todos" || task.project.id === projectId;
+    projectId === "todos" ||
+    task.projects.some((project) => project.id === projectId);
   const matchesStatus =
     advanced.status === "todos" || task.status === advanced.status;
   const matchesAssignee =

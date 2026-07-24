@@ -17,6 +17,8 @@ const overview: PlatformAdminOverview = {
       rootAdmin: true,
       createdAt: "2026-07-20T10:00:00.000Z",
       lastSignInAt: "2026-07-24T13:00:00.000Z",
+      lastSeenAt: "2026-07-24T13:59:30.000Z",
+      online: true,
       providers: ["google"],
       suspended: false,
       memberships: [
@@ -36,6 +38,8 @@ const overview: PlatformAdminOverview = {
       rootAdmin: false,
       createdAt: "2026-07-21T10:00:00.000Z",
       lastSignInAt: null,
+      lastSeenAt: null,
+      online: false,
       providers: ["email"],
       suspended: false,
       memberships: [
@@ -45,6 +49,21 @@ const overview: PlatformAdminOverview = {
           role: "agent",
         },
       ],
+    },
+    {
+      id: "user-3",
+      name: "Bruno Nuevo",
+      email: "bruno@taska.test",
+      title: "Producción",
+      superAdmin: false,
+      rootAdmin: false,
+      createdAt: "2026-07-22T10:00:00.000Z",
+      lastSignInAt: "2026-07-24T12:00:00.000Z",
+      lastSeenAt: null,
+      online: false,
+      providers: ["google"],
+      suspended: false,
+      memberships: [],
     },
   ],
   workspaces: [
@@ -67,6 +86,7 @@ const overview: PlatformAdminOverview = {
           email: "root@taska.test",
           title: "Dirección",
           role: "owner",
+          online: true,
         },
         {
           userId: "user-2",
@@ -74,6 +94,7 @@ const overview: PlatformAdminOverview = {
           email: "ana@taska.test",
           title: "Diseño",
           role: "agent",
+          online: false,
         },
       ],
       invitations: [
@@ -120,10 +141,12 @@ describe("Panel global de administración", () => {
       name: "Superadmin raíz",
     });
     expect(rootButton).toBeDisabled();
+    expect(screen.getByLabelText("Usuario en línea")).toBeInTheDocument();
 
-    await user.click(
-      await screen.findByRole("button", { name: "Hacer superadmin" }),
-    );
+    const promoteButtons = await screen.findAllByRole("button", {
+      name: "Hacer superadmin",
+    });
+    await user.click(promoteButtons[0]);
     await waitFor(() => {
       const patchCall = fetchMock.mock.calls.find(
         ([, options]) => (options as RequestInit | undefined)?.method === "PATCH",
@@ -152,6 +175,35 @@ describe("Panel global de administración", () => {
     expect(
       screen.getByLabelText("Rol de Ana Equipo en Agencia Test"),
     ).toHaveValue("agent");
+
+    await user.selectOptions(
+      screen.getByLabelText("Usuario para agregar directamente"),
+      "user-3",
+    );
+    await user.selectOptions(
+      screen.getByLabelText("Rol del acceso directo"),
+      "admin",
+    );
+    await user.click(screen.getByRole("button", { name: "Agregar ahora" }));
+    await waitFor(() => {
+      const directAddCall = fetchMock.mock.calls.find(([, options]) => {
+        const body = String((options as RequestInit | undefined)?.body ?? "");
+        return body.includes('"workspace-member-add"');
+      });
+      expect(directAddCall).toBeTruthy();
+      expect(
+        JSON.parse(
+          String(
+            (directAddCall?.[1] as RequestInit | undefined)?.body,
+          ),
+        ),
+      ).toMatchObject({
+        action: "workspace-member-add",
+        workspaceId: "workspace-1",
+        userId: "user-3",
+        role: "admin",
+      });
+    });
 
     await user.type(
       screen.getByLabelText("Correo para invitar"),

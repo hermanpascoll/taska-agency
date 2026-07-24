@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  clients as demoClients,
   initialTasks,
   invitations as demoInvitations,
   notifications as demoNotifications,
@@ -13,6 +14,7 @@ import {
 } from "@/lib/demo-data";
 import {
   addRemoteComment,
+  createRemoteClient,
   createRemoteInvitation,
   createRemoteManualTimeEntry,
   createRemoteProject,
@@ -20,6 +22,7 @@ import {
   createRemoteWorkspace,
   deleteRemoteAttachment,
   deleteRemoteComment,
+  deleteRemoteClient,
   deleteRemoteProject,
   deleteRemoteTask,
   deleteRemoteTimeEntry,
@@ -32,6 +35,8 @@ import {
   revokeRemoteInvitation,
   startRemoteTimer,
   stopRemoteTimer,
+  touchRemotePresence,
+  updateRemoteClient,
   updateRemoteMemberHourlyRate,
   updateRemoteMemberRole,
   updateRemoteProfile,
@@ -45,6 +50,8 @@ import { formatDueLabel, nextTaskCode } from "@/lib/task-utils";
 import type {
   AppNotification,
   AppSettings,
+  Client,
+  NewClientInput,
   NewManualTimeEntryInput,
   NewProjectInput,
   NewTaskInput,
@@ -56,6 +63,7 @@ import type {
   TeamInvitation,
   TeamRole,
   TimeEntry,
+  UpdateClientInput,
   UpdateProjectInput,
   UpdateTaskInput,
   UpdateWorkspaceInput,
@@ -86,29 +94,52 @@ function readFileAsDataUrl(file: File) {
 }
 
 export function useTaskWorkspace() {
-  const [allTasks, setAllTasks] = useState<Task[]>(initialTasks);
-  const [allProjects, setAllProjects] = useState<Project[]>(demoProjects);
-  const [workspaces, setWorkspaces] = useState<Workspace[]>(demoWorkspaces);
-  const [allPeople, setAllPeople] = useState<Person[]>(demoPeople);
-  const [members, setMembers] = useState<WorkspaceMember[]>(demoMembers);
+  const supabaseConfigured = isSupabaseConfigured();
+  const [allTasks, setAllTasks] = useState<Task[]>(
+    supabaseConfigured ? [] : initialTasks,
+  );
+  const [allProjects, setAllProjects] = useState<Project[]>(
+    supabaseConfigured ? [] : demoProjects,
+  );
+  const [allClients, setAllClients] = useState<Client[]>(
+    supabaseConfigured ? [] : demoClients,
+  );
+  const [workspaces, setWorkspaces] = useState<Workspace[]>(
+    supabaseConfigured ? [] : demoWorkspaces,
+  );
+  const [allPeople, setAllPeople] = useState<Person[]>(
+    supabaseConfigured ? [] : demoPeople,
+  );
+  const [members, setMembers] = useState<WorkspaceMember[]>(
+    supabaseConfigured ? [] : demoMembers,
+  );
   const [invitations, setInvitations] =
-    useState<TeamInvitation[]>(demoInvitations);
+    useState<TeamInvitation[]>(supabaseConfigured ? [] : demoInvitations);
   const [notifications, setNotifications] =
-    useState<AppNotification[]>(demoNotifications);
+    useState<AppNotification[]>(supabaseConfigured ? [] : demoNotifications);
   const [allTimeEntries, setAllTimeEntries] =
-    useState<TimeEntry[]>(demoTimeEntries);
+    useState<TimeEntry[]>(supabaseConfigured ? [] : demoTimeEntries);
   const [peopleByWorkspace, setPeopleByWorkspace] = useState<
     Record<string, string[]>
-  >({
-    [demoWorkspaces[0].id]: demoPeople.map((person) => person.id),
-  });
-  const [currentUserId, setCurrentUserId] = useState("martina");
+  >(
+    supabaseConfigured
+      ? {}
+      : {
+          [demoWorkspaces[0].id]: demoPeople.map((person) => person.id),
+        },
+  );
+  const [currentUserId, setCurrentUserId] = useState(
+    supabaseConfigured ? "" : "martina",
+  );
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(
-    demoWorkspaces[0].id,
+    supabaseConfigured ? "" : demoWorkspaces[0].id,
   );
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
-  const [mode, setMode] = useState<"demo" | "supabase">("demo");
-  const [syncing, setSyncing] = useState(isSupabaseConfigured());
+  const [mode, setMode] = useState<"demo" | "supabase">(
+    supabaseConfigured ? "supabase" : "demo",
+  );
+  const [syncing, setSyncing] = useState(supabaseConfigured);
+  const [initializing, setInitializing] = useState(supabaseConfigured);
   const [demoReady, setDemoReady] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -118,6 +149,7 @@ export function useTaskWorkspace() {
       if (!workspace) return;
       setAllTasks(workspace.tasks);
       setAllProjects(workspace.projects);
+      setAllClients(workspace.clients);
       setWorkspaces(workspace.workspaces);
       setAllPeople(workspace.people);
       setPeopleByWorkspace(workspace.peopleByWorkspace);
@@ -138,6 +170,7 @@ export function useTaskWorkspace() {
       console.error("No se pudo sincronizar Supabase:", error);
     } finally {
       setSyncing(false);
+      setInitializing(false);
     }
   }, []);
 
@@ -154,6 +187,7 @@ export function useTaskWorkspace() {
           const snapshot = JSON.parse(stored) as {
             tasks?: Task[];
             projects?: Project[];
+            clients?: Client[];
             workspaces?: Workspace[];
             people?: Person[];
             members?: WorkspaceMember[];
@@ -171,6 +205,10 @@ export function useTaskWorkspace() {
             setAllTasks(
               snapshot.tasks.map((task) => ({
                 ...task,
+                projects:
+                  task.projects?.length
+                    ? task.projects
+                    : [task.project],
                 startDate:
                   task.startDate ??
                   demoDates.get(task.id) ??
@@ -180,8 +218,15 @@ export function useTaskWorkspace() {
             );
           }
           if (Array.isArray(snapshot.projects)) {
-            setAllProjects(snapshot.projects);
+            setAllProjects(
+              snapshot.projects.map((project) => ({
+                ...project,
+                clientId: project.clientId ?? null,
+                clientName: project.clientName ?? null,
+              })),
+            );
           }
+          if (Array.isArray(snapshot.clients)) setAllClients(snapshot.clients);
           if (Array.isArray(snapshot.workspaces) && snapshot.workspaces.length) {
             setWorkspaces(
               snapshot.workspaces.map((workspace) => ({
@@ -228,12 +273,29 @@ export function useTaskWorkspace() {
   }, [refresh]);
 
   useEffect(() => {
+    if (!supabaseConfigured || initializing) return;
+    const touch = () => {
+      if (document.visibilityState === "visible") {
+        void touchRemotePresence().catch(() => undefined);
+      }
+    };
+    touch();
+    const intervalId = window.setInterval(touch, 60_000);
+    document.addEventListener("visibilitychange", touch);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", touch);
+    };
+  }, [initializing, supabaseConfigured]);
+
+  useEffect(() => {
     if (mode !== "demo" || !demoReady) return;
     window.localStorage.setItem(
       demoStorageKey,
       JSON.stringify({
         tasks: allTasks,
         projects: allProjects,
+        clients: allClients,
         workspaces,
         people: allPeople,
         members,
@@ -247,6 +309,7 @@ export function useTaskWorkspace() {
     );
   }, [
     activeWorkspaceId,
+    allClients,
     allPeople,
     allProjects,
     allTasks,
@@ -288,12 +351,22 @@ export function useTaskWorkspace() {
       ),
     [activeWorkspaceId, allProjects],
   );
+  const clients = useMemo(
+    () =>
+      allClients.filter(
+        (client) => client.workspaceId === activeWorkspaceId,
+      ),
+    [activeWorkspaceId, allClients],
+  );
   const projectIds = useMemo(
     () => new Set(projects.map((project) => project.id)),
     [projects],
   );
   const tasks = useMemo(
-    () => allTasks.filter((task) => projectIds.has(task.project.id)),
+    () =>
+      allTasks.filter((task) =>
+        task.projects.some((project) => projectIds.has(project.id)),
+      ),
     [allTasks, projectIds],
   );
   const timeEntries = useMemo(
@@ -309,6 +382,7 @@ export function useTaskWorkspace() {
       setAllTasks((current) =>
         current.map((task) => {
           if (task.id !== taskId) return task;
+          const { projectIds: nextProjectIds, ...taskInput } = input;
           const assignee =
             input.assigneeId === undefined
               ? task.assignee
@@ -319,10 +393,22 @@ export function useTaskWorkspace() {
             input.dueDate === undefined ? task.dueDate : input.dueDate;
           const nextStartDate =
             input.startDate === undefined ? task.startDate : input.startDate;
+          const nextProjects =
+            nextProjectIds === undefined
+              ? task.projects
+              : nextProjectIds
+                  .map((projectId) =>
+                    allProjects.find((project) => project.id === projectId),
+                  )
+                  .filter((project): project is Project => Boolean(project));
+          const primaryProject = nextProjects[0] ?? task.project;
           return {
             ...task,
-            ...input,
+            ...taskInput,
             assignee,
+            project: primaryProject,
+            projects: nextProjects.length ? nextProjects : task.projects,
+            client: primaryProject.clientName ?? task.client,
             startDate: nextStartDate,
             dueDate: nextDueDate,
             dueLabel: formatDueLabel(nextDueDate),
@@ -339,7 +425,7 @@ export function useTaskWorkspace() {
         }
       }
     },
-    [allPeople, mode, refresh],
+    [allPeople, allProjects, mode, refresh],
   );
 
   const updateStatus = useCallback(
@@ -446,8 +532,15 @@ export function useTaskWorkspace() {
 
   const createTask = useCallback(
     async (input: NewTaskInput) => {
+      const selectedProjects = input.projectIds
+        .map((projectId) =>
+          allProjects.find((item) => item.id === projectId),
+        )
+        .filter((project): project is Project => Boolean(project));
       const project =
-        allProjects.find((item) => item.id === input.projectId) ?? projects[0];
+        selectedProjects.find((item) => item.id === input.projectId) ??
+        selectedProjects[0] ??
+        projects[0];
       if (!project) throw new Error("Creá un proyecto antes de sumar tareas.");
       const assignee =
         allPeople.find((person) => person.id === input.assigneeId) ?? null;
@@ -457,11 +550,12 @@ export function useTaskWorkspace() {
         title: input.title,
         description: input.description,
         project,
+        projects: selectedProjects.length ? selectedProjects : [project],
         parentTaskId: input.parentTaskId ?? null,
         status: input.status ?? "nuevo",
         priority: input.priority,
         assignee,
-        client: input.client || "Sin cliente",
+        client: project.clientName || input.client || "Sin cliente",
         startDate: input.startDate || null,
         dueDate: input.dueDate || null,
         dueLabel: formatDueLabel(input.dueDate || null),
@@ -499,27 +593,63 @@ export function useTaskWorkspace() {
         color: input.color,
         description: input.description,
         workspaceId: input.workspaceId,
+        clientId: input.clientId ?? null,
+        clientName:
+          allClients.find((client) => client.id === input.clientId)?.name ??
+          null,
         archived: false,
       };
       setAllProjects((current) => [...current, project]);
       return project;
     },
-    [mode, refresh],
+    [allClients, mode, refresh],
   );
 
   const updateProject = useCallback(
     async (projectId: string, input: UpdateProjectInput) => {
+      const clientName =
+        input.clientId === undefined
+          ? undefined
+          : (allClients.find((client) => client.id === input.clientId)?.name ??
+            null);
       setAllProjects((current) =>
         current.map((project) =>
-          project.id === projectId ? { ...project, ...input } : project,
+          project.id === projectId
+            ? {
+                ...project,
+                ...input,
+                ...(clientName !== undefined ? { clientName } : {}),
+              }
+            : project,
         ),
       );
       setAllTasks((current) =>
-        current.map((task) =>
-          task.project.id === projectId
-            ? { ...task, project: { ...task.project, ...input } }
-            : task,
-        ),
+        current.map((task) => {
+          if (!task.projects.some((project) => project.id === projectId)) {
+            return task;
+          }
+          const nextProjects = task.projects.map((project) =>
+            project.id === projectId
+              ? {
+                  ...project,
+                  ...input,
+                  ...(clientName !== undefined ? { clientName } : {}),
+                }
+              : project,
+          );
+          const primaryProject =
+            nextProjects.find((project) => project.id === task.project.id) ??
+            nextProjects[0];
+          return {
+            ...task,
+            project: primaryProject,
+            projects: nextProjects,
+            client:
+              task.project.id === projectId && clientName !== undefined
+                ? (clientName ?? "Sin cliente")
+                : task.client,
+          };
+        }),
       );
       if (mode === "supabase") {
         try {
@@ -530,7 +660,7 @@ export function useTaskWorkspace() {
         }
       }
     },
-    [mode, refresh],
+    [allClients, mode, refresh],
   );
 
   const deleteProject = useCallback(
@@ -538,15 +668,114 @@ export function useTaskWorkspace() {
       setAllProjects((current) =>
         current.filter((project) => project.id !== projectId),
       );
+      const deletedTaskIds = new Set(
+        allTasks
+          .filter(
+            (task) =>
+              task.projects.length === 1 &&
+              task.projects[0].id === projectId,
+          )
+          .map((task) => task.id),
+      );
       setAllTasks((current) =>
-        current.filter((task) => task.project.id !== projectId),
+        current
+          .filter((task) => !deletedTaskIds.has(task.id))
+          .map((task) => {
+            if (!task.projects.some((project) => project.id === projectId)) {
+              return task;
+            }
+            const nextProjects = task.projects.filter(
+              (project) => project.id !== projectId,
+            );
+            return {
+              ...task,
+              project: nextProjects[0],
+              projects: nextProjects,
+              client: nextProjects[0].clientName ?? task.client,
+            };
+          }),
       );
       setAllTimeEntries((current) =>
-        current.filter((entry) => entry.projectId !== projectId),
+        current.filter((entry) => !deletedTaskIds.has(entry.taskId)),
       );
       if (mode === "supabase") {
         try {
           await deleteRemoteProject(projectId);
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [allTasks, mode, refresh],
+  );
+
+  const createClient = useCallback(
+    async (input: NewClientInput) => {
+      if (mode === "supabase") {
+        const client = await createRemoteClient(input);
+        await refresh();
+        return client;
+      }
+      const client: Client = {
+        id: localId("client"),
+        name: input.name,
+        email: input.email,
+        notes: input.notes,
+        workspaceId: input.workspaceId,
+        archived: false,
+      };
+      setAllClients((current) => [...current, client]);
+      return client;
+    },
+    [mode, refresh],
+  );
+
+  const updateClient = useCallback(
+    async (clientId: string, input: UpdateClientInput) => {
+      setAllClients((current) =>
+        current.map((client) =>
+          client.id === clientId ? { ...client, ...input } : client,
+        ),
+      );
+      if (input.name !== undefined) {
+        setAllProjects((current) =>
+          current.map((project) =>
+            project.clientId === clientId
+              ? { ...project, clientName: input.name! }
+              : project,
+          ),
+        );
+      }
+      if (mode === "supabase") {
+        try {
+          await updateRemoteClient(clientId, input);
+          await refresh();
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [mode, refresh],
+  );
+
+  const deleteClient = useCallback(
+    async (clientId: string) => {
+      setAllClients((current) =>
+        current.filter((client) => client.id !== clientId),
+      );
+      setAllProjects((current) =>
+        current.map((project) =>
+          project.clientId === clientId
+            ? { ...project, clientId: null, clientName: null }
+            : project,
+        ),
+      );
+      if (mode === "supabase") {
+        try {
+          await deleteRemoteClient(clientId);
+          await refresh();
         } catch (error) {
           await refresh();
           throw error;
@@ -1110,6 +1339,7 @@ export function useTaskWorkspace() {
     window.localStorage.removeItem(demoStorageKey);
     setAllTasks(initialTasks);
     setAllProjects(demoProjects);
+    setAllClients(demoClients);
     setWorkspaces(demoWorkspaces);
     setAllPeople(demoPeople);
     setMembers(demoMembers);
@@ -1126,6 +1356,7 @@ export function useTaskWorkspace() {
   return {
     tasks,
     projects,
+    clients,
     workspaces,
     people,
     members: workspaceMembers,
@@ -1137,6 +1368,7 @@ export function useTaskWorkspace() {
     settings,
     mode,
     syncing,
+    initializing,
     setActiveWorkspaceId,
     updateTask,
     updateStatus,
@@ -1147,6 +1379,9 @@ export function useTaskWorkspace() {
     createProject,
     updateProject,
     deleteProject,
+    createClient,
+    updateClient,
+    deleteClient,
     createWorkspace,
     updateWorkspace,
     deleteWorkspace,

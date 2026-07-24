@@ -31,6 +31,28 @@ describe.skipIf(!configured)("Supabase real: autenticación y persistencia", () 
     expect(workspace.error).toBeNull();
     createdWorkspaceId = workspace.data as string;
 
+    const presence = await supabase!.rpc("touch_presence");
+    expect(presence.error).toBeNull();
+    const profile = await supabase!
+      .from("profiles")
+      .select("last_seen_at")
+      .eq("id", auth.data.user!.id)
+      .single();
+    expect(profile.error).toBeNull();
+    expect(profile.data?.last_seen_at).toBeTruthy();
+
+    const client = await supabase!
+      .from("clients")
+      .insert({
+        team_id: createdWorkspaceId,
+        name: "Cliente E2E",
+        email: "cliente@taska.test",
+        notes: "Creado por la suite de integración.",
+      })
+      .select("id")
+      .single();
+    expect(client.error).toBeNull();
+
     const project = await supabase!
       .from("projects")
       .insert({
@@ -38,10 +60,24 @@ describe.skipIf(!configured)("Supabase real: autenticación y persistencia", () 
         name: "Proyecto E2E",
         slug: `proyecto-e2e-${Date.now()}`,
         color: "#0A84FF",
+        client_id: client.data!.id,
+      })
+      .select("id, client_id")
+      .single();
+    expect(project.error).toBeNull();
+    expect(project.data?.client_id).toBe(client.data!.id);
+
+    const secondaryProject = await supabase!
+      .from("projects")
+      .insert({
+        team_id: createdWorkspaceId,
+        name: "Proyecto secundario E2E",
+        slug: `proyecto-secundario-e2e-${Date.now()}`,
+        color: "#30D158",
       })
       .select("id")
       .single();
-    expect(project.error).toBeNull();
+    expect(secondaryProject.error).toBeNull();
 
     const title = `Persistencia E2E ${Date.now()}`;
     const created = await supabase!
@@ -57,6 +93,19 @@ describe.skipIf(!configured)("Supabase real: autenticación y persistencia", () 
       .select("id")
       .single();
     expect(created.error).toBeNull();
+
+    const relation = await supabase!.from("task_projects").upsert({
+      task_id: created.data!.id,
+      project_id: secondaryProject.data!.id,
+      team_id: createdWorkspaceId,
+    });
+    expect(relation.error).toBeNull();
+    const relatedProjects = await supabase!
+      .from("task_projects")
+      .select("project_id")
+      .eq("task_id", created.data!.id);
+    expect(relatedProjects.error).toBeNull();
+    expect(relatedProjects.data).toHaveLength(2);
 
     const persisted = await supabase!
       .from("tasks")
@@ -84,5 +133,21 @@ describe.skipIf(!configured)("Supabase real: autenticación y persistencia", () 
     expect(persistedTime.error).toBeNull();
     expect(persistedTime.data?.description).toBe("Timer de integración");
     expect(persistedTime.data?.ended_at).toBeTruthy();
+
+    const removedPrimaryProject = await supabase!
+      .from("projects")
+      .delete()
+      .eq("id", project.data!.id);
+    expect(removedPrimaryProject.error).toBeNull();
+    const preservedTask = await supabase!
+      .from("tasks")
+      .select("id, project_id")
+      .eq("id", created.data!.id)
+      .single();
+    expect(preservedTask.error).toBeNull();
+    expect(preservedTask.data?.project_id).toBe(secondaryProject.data!.id);
+
+    const clearedPresence = await supabase!.rpc("clear_presence");
+    expect(clearedPresence.error).toBeNull();
   });
 });

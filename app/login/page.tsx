@@ -4,25 +4,18 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
-  Eye,
-  EyeOff,
   LoaderCircle,
   ShieldCheck,
   Sparkles,
   Zap,
 } from "lucide-react";
-import { FormEvent, Suspense, useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [mode, setMode] = useState<"login" | "signup">("login");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(() =>
     searchParams.get("error") === "auth_callback"
@@ -57,8 +50,7 @@ function LoginContent() {
       options: {
         redirectTo,
         queryParams: {
-          access_type: "offline",
-          prompt: "consent",
+          prompt: "select_account",
         },
       },
     });
@@ -66,54 +58,6 @@ function LoginContent() {
       setMessage(error.message);
       setLoading(false);
     }
-  }
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    const supabase = createClient();
-    if (!supabase) {
-      router.push("/");
-      return;
-    }
-
-    setLoading(true);
-    setMessage(null);
-
-    if (mode === "login") {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-      if (error) {
-        setMessage(
-          error.message === "Invalid login credentials"
-            ? "El correo o la contraseña no son correctos."
-            : error.message,
-        );
-        setLoading(false);
-        return;
-      }
-      router.push(nextPath);
-      router.refresh();
-      return;
-    }
-
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { full_name: name },
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
-      },
-    });
-    if (error) {
-      setMessage(error.message);
-    } else {
-      setMessage(
-        "Cuenta creada. Revisá tu correo para confirmar el acceso.",
-      );
-    }
-    setLoading(false);
   }
 
   return (
@@ -204,44 +148,12 @@ function LoginContent() {
               Bienvenido
             </p>
             <h2 className="mt-2 text-[30px] font-bold tracking-[-0.04em] text-slate-900">
-              {mode === "login"
-                ? "Volvé a tu equipo"
-                : "Creá tu espacio creativo"}
+              Volvé a tu equipo
             </h2>
             <p className="mt-2 text-[13px] leading-6 text-slate-500">
-              {mode === "login"
-                ? "Ingresá para continuar gestionando tus campañas."
-                : "Empezá con un equipo y campañas de ejemplo."}
+              Ingresá con tu cuenta de Google para continuar gestionando tus
+              campañas.
             </p>
-          </div>
-
-          <div className="mt-8 grid grid-cols-2 rounded-xl bg-slate-200/60 p-1">
-            <button
-              onClick={() => {
-                setMode("login");
-                setMessage(null);
-              }}
-              className={`focus-ring rounded-lg py-2.5 text-[11px] font-semibold transition ${
-                mode === "login"
-                  ? "bg-white text-slate-800 shadow-sm"
-                  : "text-slate-500"
-              }`}
-            >
-              Iniciar sesión
-            </button>
-            <button
-              onClick={() => {
-                setMode("signup");
-                setMessage(null);
-              }}
-              className={`focus-ring rounded-lg py-2.5 text-[11px] font-semibold transition ${
-                mode === "signup"
-                  ? "bg-white text-slate-800 shadow-sm"
-                  : "text-slate-500"
-              }`}
-            >
-              Crear cuenta
-            </button>
           </div>
 
           {!configured ? (
@@ -263,7 +175,7 @@ function LoginContent() {
               </button>
             </div>
           ) : (
-            <div className="mt-6">
+            <div className="mt-8">
               <button
                 type="button"
                 disabled={loading}
@@ -290,92 +202,15 @@ function LoginContent() {
                 </svg>
                 Continuar con Google
               </button>
-              <div className="my-5 flex items-center gap-3">
-                <span className="h-px flex-1 bg-slate-200" />
-                <span className="text-[9px] font-medium uppercase tracking-wide text-slate-400">
-                  o con correo
-                </span>
-                <span className="h-px flex-1 bg-slate-200" />
-              </div>
-              <form onSubmit={submit} className="space-y-4">
-              {mode === "signup" && (
-                <label className="block">
-                  <span className="mb-2 block text-[11px] font-bold text-slate-600">
-                    Nombre completo
-                  </span>
-                  <input
-                    required
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                    placeholder="Martina Silva"
-                    className="focus-ring w-full rounded-xl border border-slate-200 bg-white px-4 py-3.5 text-[13px] text-slate-800 placeholder:text-slate-400"
-                  />
-                </label>
-              )}
-              <label className="block">
-                <span className="mb-2 block text-[11px] font-bold text-slate-600">
-                  Correo de trabajo
-                </span>
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  placeholder="martina@empresa.com"
-                  className="focus-ring w-full rounded-xl border border-slate-200 bg-white px-4 py-3.5 text-[13px] text-slate-800 placeholder:text-slate-400"
-                />
-              </label>
-              <label className="block">
-                <span className="mb-2 block text-[11px] font-bold text-slate-600">
-                  Contraseña
-                </span>
-                <span className="relative block">
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    required
-                    minLength={8}
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    placeholder="Mínimo 8 caracteres"
-                    className="focus-ring w-full rounded-xl border border-slate-200 bg-white px-4 py-3.5 pr-12 text-[13px] text-slate-800 placeholder:text-slate-400"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((current) => !current)}
-                    className="focus-ring absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-slate-400 hover:text-slate-700"
-                    aria-label={
-                      showPassword ? "Ocultar contraseña" : "Mostrar contraseña"
-                    }
-                  >
-                    {showPassword ? (
-                      <EyeOff className="size-4" />
-                    ) : (
-                      <Eye className="size-4" />
-                    )}
-                  </button>
-                </span>
-              </label>
-
               {message && (
-                <p className="rounded-lg bg-slate-100 p-3 text-[11px] leading-5 text-slate-600">
+                <p className="mt-4 rounded-lg bg-slate-100 p-3 text-[11px] leading-5 text-slate-600">
                   {message}
                 </p>
               )}
-
-              <button
-                disabled={loading}
-                className="mac-button-primary focus-ring flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3.5 text-[12px] font-bold text-white disabled:opacity-60"
-              >
-                {loading ? (
-                  <LoaderCircle className="size-4 animate-spin" />
-                ) : (
-                  <>
-                    {mode === "login" ? "Ingresar" : "Crear mi espacio"}
-                    <ArrowRight className="size-4" />
-                  </>
-                )}
-              </button>
-              </form>
+              <p className="mt-5 text-center text-[10px] leading-5 text-slate-500">
+                Si todavía no tenés cuenta, Google la crea automáticamente en
+                tu primer acceso.
+              </p>
             </div>
           )}
 

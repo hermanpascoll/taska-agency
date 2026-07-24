@@ -1,5 +1,6 @@
 import type {
   AppNotification,
+  Client,
   Person,
   Project,
   Task,
@@ -55,12 +56,49 @@ export const people: Person[] = [
   },
 ];
 
+export const clients: Client[] = [
+  {
+    id: "client-aura",
+    name: "Aura Cosmética",
+    email: "marketing@aura.com",
+    notes: "Marca de belleza y cuidado personal.",
+    workspaceId: "prisma",
+    archived: false,
+  },
+  {
+    id: "client-brava",
+    name: "Brava Bebidas",
+    email: "equipo@brava.com",
+    notes: "Campañas estacionales y contenido social.",
+    workspaceId: "prisma",
+    archived: false,
+  },
+  {
+    id: "client-marca-sur",
+    name: "Marca Sur",
+    email: "hola@marcasur.com",
+    notes: "Proyecto de identidad y rebranding.",
+    workspaceId: "prisma",
+    archived: false,
+  },
+  {
+    id: "client-nexo",
+    name: "Nexo Educación",
+    email: "marketing@nexo.edu",
+    notes: "Cuenta always-on de educación.",
+    workspaceId: "prisma",
+    archived: false,
+  },
+];
+
 export const projects: Project[] = [
   {
     id: "aura",
     name: "Lanzamiento Aura",
     color: "#6556EE",
     workspaceId: "prisma",
+    clientId: clients[0].id,
+    clientName: clients[0].name,
     archived: false,
   },
   {
@@ -68,6 +106,8 @@ export const projects: Project[] = [
     name: "Verano Brava",
     color: "#EF6A67",
     workspaceId: "prisma",
+    clientId: clients[1].id,
+    clientName: clients[1].name,
     archived: false,
   },
   {
@@ -75,6 +115,8 @@ export const projects: Project[] = [
     name: "Marca Sur",
     color: "#19A38C",
     workspaceId: "prisma",
+    clientId: clients[2].id,
+    clientName: clients[2].name,
     archived: false,
   },
   {
@@ -82,6 +124,8 @@ export const projects: Project[] = [
     name: "Always-on Nexo",
     color: "#3C8FD5",
     workspaceId: "prisma",
+    clientId: clients[3].id,
+    clientName: clients[3].name,
     archived: false,
   },
 ];
@@ -94,6 +138,7 @@ export const initialTasks: Task[] = [
     description:
       "Preparar seis piezas verticales a partir del key visual aprobado. Incluir versiones con y sin precio para pauta y orgánico.",
     project: projects[0],
+    projects: [projects[0]],
     parentTaskId: null,
     status: "en_progreso",
     priority: "urgente",
@@ -141,6 +186,7 @@ export const initialTasks: Task[] = [
     description:
       "Redactar concepto, copy principal y variantes cortas para Meta Ads. El tono debe ser cercano, optimista y directo.",
     project: projects[1],
+    projects: [projects[1]],
     parentTaskId: null,
     status: "nuevo",
     priority: "alta",
@@ -162,6 +208,7 @@ export const initialTasks: Task[] = [
     description:
       "El cliente pidió dar más presencia al producto, reducir el logo secundario y probar una alternativa con fondo marfil.",
     project: projects[2],
+    projects: [projects[2]],
     parentTaskId: null,
     status: "esperando",
     priority: "media",
@@ -189,6 +236,7 @@ export const initialTasks: Task[] = [
     description:
       "Preparar estructura de campañas, audiencias y distribución de presupuesto. Dejar todo en borrador para revisión.",
     project: projects[3],
+    projects: [projects[3]],
     parentTaskId: null,
     status: "en_progreso",
     priority: "alta",
@@ -209,6 +257,7 @@ export const initialTasks: Task[] = [
     description:
       "Generar masters horizontal y vertical con subtítulos, placa legal y compresión para cada plataforma.",
     project: projects[1],
+    projects: [projects[1]],
     parentTaskId: null,
     status: "nuevo",
     priority: "media",
@@ -229,6 +278,7 @@ export const initialTasks: Task[] = [
     description:
       "Revisión final de piezas, copies y fechas de publicación del calendario mensual.",
     project: projects[3],
+    projects: [projects[3]],
     parentTaskId: null,
     status: "resuelto",
     priority: "baja",
@@ -249,6 +299,7 @@ export const initialTasks: Task[] = [
     description:
       "Cerrar la presentación con las dos rutas de identidad, aplicaciones principales y racional creativo.",
     project: projects[2],
+    projects: [projects[2]],
     parentTaskId: null,
     status: "en_progreso",
     priority: "urgente",
@@ -269,6 +320,7 @@ export const initialTasks: Task[] = [
     description:
       "Actualizar conclusiones, sumar benchmark de industria y traducir los aprendizajes a próximos pasos accionables.",
     project: projects[0],
+    projects: [projects[0], projects[2]],
     parentTaskId: null,
     status: "esperando",
     priority: "baja",
@@ -288,6 +340,7 @@ export const initialTasks: Task[] = [
     title: "Exportar versión sin precio",
     description: "",
     project: projects[0],
+    projects: [projects[0]],
     parentTaskId: "task-1",
     status: "resuelto",
     priority: "media",
@@ -307,6 +360,7 @@ export const initialTasks: Task[] = [
     title: "Revisar safe areas para stories",
     description: "",
     project: projects[0],
+    projects: [projects[0]],
     parentTaskId: "task-1",
     status: "en_progreso",
     priority: "alta",

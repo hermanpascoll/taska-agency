@@ -92,9 +92,11 @@ function hierarchyForProject(tasks: Task[]) {
 function groupTasks(tasks: Task[]): ProjectGroup[] {
   const projects = new Map<string, { project: Project; tasks: Task[] }>();
   tasks.forEach((task) => {
-    const current = projects.get(task.project.id);
-    if (current) current.tasks.push(task);
-    else projects.set(task.project.id, { project: task.project, tasks: [task] });
+    task.projects.forEach((project) => {
+      const current = projects.get(project.id);
+      if (current) current.tasks.push(task);
+      else projects.set(project.id, { project, tasks: [task] });
+    });
   });
   return [...projects.values()].map((group) => ({
     project: group.project,

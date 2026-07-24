@@ -18,6 +18,7 @@ type ProfileRow = {
   email: string | null;
   role: string | null;
   created_at: string;
+  last_seen_at: string | null;
 };
 
 type WorkspaceRow = {
@@ -119,7 +120,7 @@ export async function GET() {
     admin.auth.admin.listUsers({ page: 1, perPage: 1000 }),
     admin
       .from("profiles")
-      .select("id, full_name, email, role, created_at"),
+      .select("id, full_name, email, role, created_at, last_seen_at"),
     admin
       .from("teams")
       .select("id, name, slug, created_by, archived, currency, created_at"),
@@ -178,6 +179,11 @@ export async function GET() {
         rootAdmin: isPlatformAdminEmail(profile?.email || user.email),
         createdAt: user.created_at,
         lastSignInAt: user.last_sign_in_at ?? null,
+        lastSeenAt: profile?.last_seen_at ?? null,
+        online: Boolean(
+          profile?.last_seen_at &&
+            Date.now() - new Date(profile.last_seen_at).getTime() < 120_000,
+        ),
         providers: Array.isArray(user.app_metadata?.providers)
           ? user.app_metadata.providers.map(String)
           : [],
@@ -246,6 +252,11 @@ export async function GET() {
               email: profile?.email || "Sin correo",
               title: profile?.role || "Equipo creativo",
               role: membership.role,
+              online: Boolean(
+                profile?.last_seen_at &&
+                  Date.now() - new Date(profile.last_seen_at).getTime() <
+                    120_000,
+              ),
             };
           })
           .sort((a, b) => a.name.localeCompare(b.name)),
@@ -293,6 +304,7 @@ export async function PATCH(request: Request) {
       | "user-status"
       | "superadmin-status"
       | "membership-role"
+      | "workspace-member-add"
       | "workspace-member-remove"
       | "workspace-invite"
       | "invitation-revoke"
@@ -387,6 +399,54 @@ export async function PATCH(request: Request) {
         { status: 400 },
       );
     }
+    return NextResponse.json({ ok: true });
+  }
+
+  if (
+    body.action === "workspace-member-add" &&
+    body.userId &&
+    body.workspaceId &&
+    body.role &&
+    ["admin", "agent", "viewer"].includes(body.role)
+  ) {
+    const [userResult, workspaceResult] = await Promise.all([
+      admin.from("profiles").select("id").eq("id", body.userId).single(),
+      admin.from("teams").select("id").eq("id", body.workspaceId).single(),
+    ]);
+    if (userResult.error || workspaceResult.error) {
+      return NextResponse.json(
+        { error: "El usuario o el espacio no existe." },
+        { status: 404 },
+      );
+    }
+    const result = await admin.from("team_members").upsert(
+      {
+        team_id: body.workspaceId,
+        user_id: body.userId,
+        role: body.role,
+      },
+      { onConflict: "team_id,user_id" },
+    );
+    if (result.error) {
+      return NextResponse.json(
+        { error: result.error.message },
+        { status: 400 },
+      );
+    }
+    await admin
+      .from("team_invitations")
+      .delete()
+      .eq("team_id", body.workspaceId)
+      .eq(
+        "email",
+        (
+          await admin
+            .from("profiles")
+            .select("email")
+            .eq("id", body.userId)
+            .single()
+        ).data?.email ?? "",
+      );
     return NextResponse.json({ ok: true });
   }
 

@@ -2,6 +2,8 @@ import { createClient } from "@/lib/supabase/client";
 import { formatDueLabel, safeStorageName } from "@/lib/task-utils";
 import type {
   AppNotification,
+  Client,
+  NewClientInput,
   NewManualTimeEntryInput,
   NewProjectInput,
   NewTaskInput,
@@ -15,6 +17,7 @@ import type {
   TeamInvitation,
   TeamRole,
   TimeEntry,
+  UpdateClientInput,
   UpdateProjectInput,
   UpdateTaskInput,
   UpdateWorkspaceInput,
@@ -35,6 +38,17 @@ type RemoteProject = {
   color: string;
   team_id: string;
   description: string | null;
+  client_id: string | null;
+  client: RemoteClient | RemoteClient[] | null;
+  archived: boolean;
+};
+
+type RemoteClient = {
+  id: string;
+  team_id: string;
+  name: string;
+  email: string | null;
+  notes: string | null;
   archived: boolean;
 };
 
@@ -71,6 +85,11 @@ type RemoteTask = {
   tags: string[] | null;
   parent_task_id: string | null;
   projects: RemoteProject | RemoteProject[] | null;
+  task_projects:
+    | {
+        project: RemoteProject | RemoteProject[] | null;
+      }[]
+    | null;
   assignee: RemotePerson | RemotePerson[] | null;
   comments: RemoteComment[] | null;
   attachments: RemoteAttachment[] | null;
@@ -120,6 +139,7 @@ type RemoteTimeEntry = {
 export type LoadedWorkspace = {
   currentUserId: string;
   workspaces: Workspace[];
+  clients: Client[];
   projects: Project[];
   people: Person[];
   peopleByWorkspace: Record<string, string[]>;
@@ -141,6 +161,17 @@ const avatarColors = [
 
 function one<T>(value: T | T[] | null): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value;
+}
+
+function mapClient(row: RemoteClient): Client {
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email ?? "",
+    notes: row.notes ?? "",
+    workspaceId: row.team_id,
+    archived: row.archived,
+  };
 }
 
 function initials(name: string) {
@@ -181,12 +212,15 @@ function relativeTime(value: string) {
 }
 
 function mapProject(project: RemoteProject): Project {
+  const client = one(project.client);
   return {
     id: project.id,
     name: project.name,
     color: project.color,
     workspaceId: project.team_id,
     description: project.description ?? undefined,
+    clientId: project.client_id,
+    clientName: client?.name ?? null,
     archived: project.archived,
   };
 }
@@ -226,8 +260,18 @@ function mapTask(row: RemoteTask, index: number): Task {
         name: "Sin proyecto",
         color: "#8E8E93",
         workspaceId: "unknown",
+        clientId: null,
+        clientName: null,
         archived: false,
       } satisfies Project);
+  const relatedProjects = (row.task_projects ?? [])
+    .map((relation) => one(relation.project))
+    .filter((item): item is RemoteProject => Boolean(item))
+    .map(mapProject);
+  const projects = [project, ...relatedProjects].filter(
+    (item, itemIndex, items) =>
+      items.findIndex((candidate) => candidate.id === item.id) === itemIndex,
+  );
 
   const comments: TaskComment[] = (row.comments ?? []).map((comment, i) => ({
     id: comment.id,
@@ -243,11 +287,12 @@ function mapTask(row: RemoteTask, index: number): Task {
     title: row.title,
     description: row.description ?? "",
     project,
+    projects,
     parentTaskId: row.parent_task_id,
     status: row.status,
     priority: row.priority,
     assignee: personFromRemote(one(row.assignee), index),
-    client: row.client_name || "Sin cliente",
+    client: project.clientName || row.client_name || "Sin cliente",
     clientEmail: row.client_email ?? undefined,
     startDate: row.start_date,
     dueDate: row.due_date,
@@ -294,6 +339,7 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     { data: sessionData },
     workspacesResult,
     membershipsResult,
+    clientsResult,
     projectsResult,
     profilesResult,
     tasksResult,
@@ -312,8 +358,14 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
         "team_id, user_id, role, joined_at, hourly_rate, profiles(id, full_name, email, role)",
       ),
     supabase
+      .from("clients")
+      .select("id, team_id, name, email, notes, archived")
+      .order("name"),
+    supabase
       .from("projects")
-      .select("id, team_id, name, color, description, archived")
+      .select(
+        "id, team_id, name, color, description, archived, client_id, client:clients(id, team_id, name, email, notes, archived)",
+      )
       .order("name"),
     supabase
       .from("profiles")
@@ -322,7 +374,7 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     supabase
       .from("tasks")
       .select(
-        "id, task_number, title, description, status, priority, start_date, due_date, client_name, client_email, updated_at, tags, parent_task_id, projects(id, name, color, team_id, description, archived), assignee:profiles!tasks_assignee_id_fkey(id, full_name, email, role), comments(id, body, created_at, author:profiles!comments_author_id_fkey(id, full_name, email, role)), attachments:task_attachments(id, task_id, name, size_bytes, mime_type, storage_path, created_at, uploader:profiles!task_attachments_uploaded_by_fkey(id, full_name, email, role))",
+        "id, task_number, title, description, status, priority, start_date, due_date, client_name, client_email, updated_at, tags, parent_task_id, projects(id, name, color, team_id, description, archived, client_id, client:clients(id, team_id, name, email, notes, archived)), task_projects(project:projects(id, name, color, team_id, description, archived, client_id, client:clients(id, team_id, name, email, notes, archived))), assignee:profiles!tasks_assignee_id_fkey(id, full_name, email, role), comments(id, body, created_at, author:profiles!comments_author_id_fkey(id, full_name, email, role)), attachments:task_attachments(id, task_id, name, size_bytes, mime_type, storage_path, created_at, uploader:profiles!task_attachments_uploaded_by_fkey(id, full_name, email, role))",
       )
       .order("updated_at", { ascending: false }),
     supabase
@@ -348,6 +400,7 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
   for (const result of [
     workspacesResult,
     membershipsResult,
+    clientsResult,
     projectsResult,
     profilesResult,
     tasksResult,
@@ -432,6 +485,7 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
       archived: workspace.archived,
       currency: workspace.currency || "USD",
     })),
+    clients: ((clientsResult.data ?? []) as RemoteClient[]).map(mapClient),
     projects: ((projectsResult.data ?? []) as RemoteProject[]).map(mapProject),
     people,
     peopleByWorkspace,
@@ -464,17 +518,29 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
 export async function createRemoteTask(input: NewTaskInput) {
   const supabase = createClient();
   if (!supabase) return;
-  const { data: project, error: projectError } = await supabase
+  const projectIds = [...new Set(input.projectIds)].filter(Boolean);
+  if (!projectIds.length || !projectIds.includes(input.projectId)) {
+    throw new Error("Seleccioná al menos un proyecto válido.");
+  }
+  const { data: selectedProjects, error: projectError } = await supabase
     .from("projects")
-    .select("team_id")
-    .eq("id", input.projectId)
-    .single();
+    .select("id, team_id")
+    .in("id", projectIds);
   if (projectError) throw projectError;
+  const teamIds = new Set(
+    ((selectedProjects ?? []) as { id: string; team_id: string }[]).map(
+      (project) => project.team_id,
+    ),
+  );
+  if ((selectedProjects?.length ?? 0) !== projectIds.length || teamIds.size !== 1) {
+    throw new Error("Todos los proyectos deben pertenecer al mismo espacio.");
+  }
+  const teamId = selectedProjects![0].team_id;
 
   const { data, error } = await supabase
     .from("tasks")
     .insert({
-      team_id: project.team_id,
+      team_id: teamId,
       project_id: input.projectId,
       assignee_id: input.assigneeId || null,
       title: input.title,
@@ -489,12 +555,57 @@ export async function createRemoteTask(input: NewTaskInput) {
     .select("id")
     .single();
   if (error) throw error;
+  const relations = projectIds.map((projectId) => ({
+    task_id: data.id,
+    project_id: projectId,
+    team_id: teamId,
+  }));
+  const relationResult = await supabase.from("task_projects").upsert(relations);
+  if (relationResult.error) throw relationResult.error;
   return data.id as string;
 }
 
 export async function updateRemoteTask(id: string, input: UpdateTaskInput) {
   const supabase = createClient();
   if (!supabase) return;
+  if (input.projectIds !== undefined) {
+    const projectIds = [...new Set(input.projectIds)].filter(Boolean);
+    if (!projectIds.length) {
+      throw new Error("La tarea debe pertenecer al menos a un proyecto.");
+    }
+    const { data: selectedProjects, error: projectsError } = await supabase
+      .from("projects")
+      .select("id, team_id")
+      .in("id", projectIds);
+    if (projectsError) throw projectsError;
+    const teamIds = new Set(
+      ((selectedProjects ?? []) as { id: string; team_id: string }[]).map(
+        (project) => project.team_id,
+      ),
+    );
+    if ((selectedProjects?.length ?? 0) !== projectIds.length || teamIds.size !== 1) {
+      throw new Error("Todos los proyectos deben pertenecer al mismo espacio.");
+    }
+    const teamId = selectedProjects![0].team_id;
+    const deleteResult = await supabase
+      .from("task_projects")
+      .delete()
+      .eq("task_id", id);
+    if (deleteResult.error) throw deleteResult.error;
+    const primaryResult = await supabase
+      .from("tasks")
+      .update({ project_id: projectIds[0] })
+      .eq("id", id);
+    if (primaryResult.error) throw primaryResult.error;
+    const relationResult = await supabase.from("task_projects").upsert(
+      projectIds.map((projectId) => ({
+        task_id: id,
+        project_id: projectId,
+        team_id: teamId,
+      })),
+    );
+    if (relationResult.error) throw relationResult.error;
+  }
   const payload: Record<string, string | null> = {};
   if (input.title !== undefined) payload.title = input.title;
   if (input.description !== undefined) payload.description = input.description;
@@ -503,6 +614,7 @@ export async function updateRemoteTask(id: string, input: UpdateTaskInput) {
   if (input.assigneeId !== undefined) payload.assignee_id = input.assigneeId;
   if (input.startDate !== undefined) payload.start_date = input.startDate;
   if (input.dueDate !== undefined) payload.due_date = input.dueDate;
+  if (!Object.keys(payload).length) return;
   const { error } = await supabase.from("tasks").update(payload).eq("id", id);
   if (error) throw error;
 }
@@ -530,10 +642,13 @@ export async function createRemoteProject(input: NewProjectInput) {
       team_id: input.workspaceId,
       name: input.name,
       description: input.description || null,
+      client_id: input.clientId || null,
       slug: `${slugBase}-${Date.now().toString(36)}`,
       color: input.color,
     })
-    .select("id, team_id, name, color, description, archived")
+    .select(
+      "id, team_id, name, color, description, archived, client_id, client:clients(id, team_id, name, email, notes, archived)",
+    )
     .single();
   if (error) throw error;
   return mapProject(data as RemoteProject);
@@ -545,7 +660,54 @@ export async function updateRemoteProject(
 ) {
   const supabase = createClient();
   if (!supabase) return;
-  const { error } = await supabase.from("projects").update(input).eq("id", id);
+  const payload: Record<string, string | boolean | null> = {};
+  if (input.name !== undefined) payload.name = input.name;
+  if (input.color !== undefined) payload.color = input.color;
+  if (input.description !== undefined) payload.description = input.description;
+  if (input.clientId !== undefined) payload.client_id = input.clientId;
+  if (input.archived !== undefined) payload.archived = input.archived;
+  const { error } = await supabase.from("projects").update(payload).eq("id", id);
+  if (error) throw error;
+}
+
+export async function createRemoteClient(input: NewClientInput) {
+  const supabase = createClient();
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from("clients")
+    .insert({
+      team_id: input.workspaceId,
+      name: input.name,
+      email: input.email || null,
+      notes: input.notes,
+    })
+    .select("id, team_id, name, email, notes, archived")
+    .single();
+  if (error) throw error;
+  return mapClient(data as RemoteClient);
+}
+
+export async function updateRemoteClient(
+  id: string,
+  input: UpdateClientInput,
+) {
+  const supabase = createClient();
+  if (!supabase) return;
+  const { error } = await supabase.from("clients").update(input).eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteRemoteClient(id: string) {
+  const supabase = createClient();
+  if (!supabase) return;
+  const { error } = await supabase.from("clients").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function touchRemotePresence() {
+  const supabase = createClient();
+  if (!supabase) return;
+  const { error } = await supabase.rpc("touch_presence");
   if (error) throw error;
 }
 

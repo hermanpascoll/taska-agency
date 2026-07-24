@@ -15,6 +15,8 @@ export type PlatformAdminUser = {
   rootAdmin: boolean;
   createdAt: string;
   lastSignInAt: string | null;
+  lastSeenAt: string | null;
+  online: boolean;
   providers: string[];
   suspended: boolean;
   memberships: PlatformAdminMembership[];
@@ -26,6 +28,7 @@ export type PlatformAdminWorkspaceMember = {
   email: string;
   title: string;
   role: TeamRole;
+  online: boolean;
 };
 
 export type PlatformAdminInvitation = {
