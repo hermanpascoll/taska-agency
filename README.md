@@ -10,6 +10,7 @@ espacio compartido.
 - Autenticación con email/contraseña y Google SSO mediante Supabase Auth.
 - Espacios de trabajo seleccionables, editables, archivables y eliminables.
 - Invitaciones, integrantes y roles (`owner`, `admin`, `agent`, `viewer`) desde la interfaz.
+- Panel global protegido para administrar usuarios, accesos, roles y espacios.
 - Creación, edición, archivo y eliminación de campañas organizadas como proyectos.
 - Tareas y subtareas con responsable, cliente, prioridad, estado, etiquetas y fecha de entrega.
 - Edición completa y eliminación de tareas, subtareas y comentarios.
@@ -75,11 +76,17 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=tu-clave-publica
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 # Opcional: solo servidor; hace que Auth envíe el email de invitación.
 SUPABASE_SECRET_KEY=tu-secret-key
+# Sólo servidor: administradores globales separados por comas.
+TASKA_PLATFORM_ADMIN_EMAILS=owner@tu-dominio.com
 ```
 
 Si no configurás `SUPABASE_SECRET_KEY`, la invitación igualmente se crea y la
 interfaz permite copiar su enlace. Nunca expongas esa clave con el prefijo
 `NEXT_PUBLIC_`.
+
+`TASKA_PLATFORM_ADMIN_EMAILS` habilita el panel global de administración. Es
+independiente de los roles de cada espacio y debe mantenerse como variable de
+servidor. El acceso aparece en el menú del perfil del usuario autorizado.
 
 Al registrarse por primera vez, Taska crea de forma segura una agencia inicial,
 tres campañas y algunas tareas de referencia. Las políticas RLS garantizan que

@@ -58,7 +58,10 @@ test("mueve una tarjeta con drag-and-drop real", async ({ page }) => {
 test("administra integrantes e invitaciones desde Preferencias", async ({
   page,
 }) => {
-  await page.getByRole("button", { name: "Configuración" }).click();
+  await page.getByRole("button", { name: "Abrir menú de perfil" }).click();
+  await page
+    .getByRole("button", { name: "Mi perfil y apariencia" })
+    .click();
   await page.getByRole("button", { name: "Integrantes" }).click();
   await page.getByPlaceholder("persona@empresa.com").fill("nuevo@taska.test");
   await page.getByRole("button", { name: "Invitar" }).click();

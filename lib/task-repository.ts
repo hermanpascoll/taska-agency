@@ -814,15 +814,17 @@ export async function markAllRemoteNotificationsRead() {
   if (error) throw error;
 }
 
-export async function updateRemoteProfile(name: string) {
+export async function updateRemoteProfile(name: string, title: string) {
   const supabase = createClient();
   if (!supabase) return;
   const { data } = await supabase.auth.getUser();
   if (!data.user) throw new Error("No hay una sesión activa.");
   const { error } = await supabase
     .from("profiles")
-    .update({ full_name: name })
+    .update({ full_name: name, role: title })
     .eq("id", data.user.id);
   if (error) throw error;
-  await supabase.auth.updateUser({ data: { full_name: name } });
+  await supabase.auth.updateUser({
+    data: { full_name: name, role: title },
+  });
 }

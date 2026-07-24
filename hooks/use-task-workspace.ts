@@ -876,13 +876,14 @@ export function useTaskWorkspace() {
   }, [mode]);
 
   const updateProfile = useCallback(
-    async (name: string) => {
+    async (name: string, title: string) => {
       setAllPeople((current) =>
         current.map((person) =>
           person.id === currentUserId
             ? {
                 ...person,
                 name,
+                role: title,
                 initials: name
                   .split(" ")
                   .filter(Boolean)
@@ -896,7 +897,7 @@ export function useTaskWorkspace() {
       );
       if (mode === "supabase") {
         try {
-          await updateRemoteProfile(name);
+          await updateRemoteProfile(name, title);
         } catch (error) {
           await refresh();
           throw error;

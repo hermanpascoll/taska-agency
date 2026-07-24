@@ -52,6 +52,7 @@ import {
   useState,
 } from "react";
 import { clsx } from "clsx";
+import { AdminPanel } from "@/components/admin-panel";
 import { useTaskWorkspace } from "@/hooks/use-task-workspace";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -249,8 +250,11 @@ function Sidebar({
   onProjectSelect,
   onProjectSettings,
   onSettings,
+  onAdmin,
+  onSignOut,
   onTimeReports,
   canViewTimeReports,
+  isPlatformAdmin,
 }: {
   view: View;
   onViewChange: (view: View) => void;
@@ -268,10 +272,14 @@ function Sidebar({
   onProjectSelect: (projectId: string) => void;
   onProjectSettings: (projectId: string) => void;
   onSettings: () => void;
+  onAdmin: () => void;
+  onSignOut: () => void;
   onTimeReports: () => void;
   canViewTimeReports: boolean;
+  isPlatformAdmin: boolean;
 }) {
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const activeWorkspace =
     workspaces.find((workspace) => workspace.id === activeWorkspaceId) ??
     workspaces[0];
@@ -503,24 +511,74 @@ function Sidebar({
           </div>
         )}
 
-        <div className="flex items-center gap-2 border-t border-black/[0.06] pt-4">
-          <Avatar
-            person={currentPerson}
-          />
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-[11px] font-semibold">
-              {currentPerson?.name ?? "Integrante"}
-            </span>
-            <span className="block truncate text-[9px] text-slate-500">
-              {currentPerson?.role ?? "Equipo creativo"}
-            </span>
-          </span>
+        <div className="relative border-t border-black/[0.06] pt-3">
+          {profileOpen && (
+            <div className="mac-popover absolute inset-x-0 bottom-[calc(100%+8px)] z-30 rounded-xl border border-black/10 bg-white/95 p-1.5 shadow-xl backdrop-blur-xl">
+              <div className="border-b border-slate-100 px-3 py-2">
+                <p className="truncate text-[10px] font-bold text-slate-700">
+                  {currentPerson?.name ?? "Integrante"}
+                </p>
+                <p className="mt-0.5 truncate text-[8px] text-slate-400">
+                  {currentPerson?.email ?? currentPerson?.role ?? "Equipo creativo"}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setProfileOpen(false);
+                  onSettings();
+                }}
+                className="focus-ring mt-1 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[10px] font-semibold text-slate-600 hover:bg-slate-100"
+              >
+                <UserRound className="size-3.5" />
+                Mi perfil y apariencia
+              </button>
+              {isPlatformAdmin && (
+                <button
+                  onClick={() => {
+                    setProfileOpen(false);
+                    onAdmin();
+                  }}
+                  className="focus-ring flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[10px] font-semibold text-[#0879ea] hover:bg-[#0a84ff]/8"
+                >
+                  <Shield className="size-3.5" />
+                  Panel de administración
+                </button>
+              )}
+              {mode === "supabase" && (
+                <button
+                  onClick={() => {
+                    setProfileOpen(false);
+                    onSignOut();
+                  }}
+                  className="focus-ring mt-1 flex w-full items-center gap-2.5 border-t border-slate-100 px-3 py-2.5 text-left text-[10px] font-semibold text-rose-600 hover:bg-rose-50"
+                >
+                  <LogOut className="size-3.5" />
+                  Cerrar sesión
+                </button>
+              )}
+            </div>
+          )}
           <button
-            onClick={onSettings}
-            className="focus-ring rounded-lg p-2 text-slate-400 hover:bg-black/5 hover:text-slate-800"
-            aria-label="Configuración"
+            onClick={() => setProfileOpen((current) => !current)}
+            className="focus-ring flex w-full items-center gap-2 rounded-xl p-1.5 text-left hover:bg-black/[0.045]"
+            aria-expanded={profileOpen}
+            aria-label="Abrir menú de perfil"
           >
-            <Settings className="size-4" />
+            <Avatar person={currentPerson} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[11px] font-semibold">
+                {currentPerson?.name ?? "Integrante"}
+              </span>
+              <span className="block truncate text-[9px] text-slate-500">
+                {currentPerson?.role ?? "Equipo creativo"}
+              </span>
+            </span>
+            <ChevronDown
+              className={clsx(
+                "size-3.5 text-slate-400 transition",
+                profileOpen && "rotate-180",
+              )}
+            />
           </button>
         </div>
       </aside>
@@ -2801,7 +2859,7 @@ function SettingsModal({
   settings: AppSettings;
   mode: "demo" | "supabase";
   onClose: () => void;
-  onProfileUpdate: (name: string) => void;
+  onProfileUpdate: (name: string, title: string) => Promise<void>;
   onSettingsUpdate: (settings: Partial<AppSettings>) => void;
   onInvite: (
     email: string,
@@ -2818,6 +2876,9 @@ function SettingsModal({
 }) {
   const [tab, setTab] = useState<"general" | "team" | "workspace">("general");
   const [name, setName] = useState(currentPerson?.name ?? "");
+  const [profileTitle, setProfileTitle] = useState(
+    currentPerson?.role ?? "Equipo creativo",
+  );
   const [workspaceName, setWorkspaceName] = useState(workspace.name);
   const [currency, setCurrency] = useState(workspace.currency);
   const [email, setEmail] = useState("");
@@ -2924,21 +2985,44 @@ function SettingsModal({
                   <h3 className="text-[12px] font-bold text-slate-800">
                     Perfil
                   </h3>
-                  <div className="mt-3 flex items-center gap-3">
+                  <div className="mt-3 flex items-start gap-3">
                     <Avatar person={currentPerson} size="lg" />
-                    <label className="min-w-0 flex-1">
-                      <span className="sr-only">Nombre</span>
-                      <input
-                        value={name}
-                        onChange={(event) => setName(event.target.value)}
-                        className="mac-input focus-ring w-full rounded-lg border border-slate-200 px-3 py-2.5 text-[12px]"
-                      />
-                    </label>
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <label className="block">
+                        <span className="mb-1 block text-[9px] font-semibold text-slate-500">
+                          Nombre visible
+                        </span>
+                        <input
+                          value={name}
+                          onChange={(event) => setName(event.target.value)}
+                          className="mac-input focus-ring w-full rounded-lg border border-slate-200 px-3 py-2.5 text-[12px]"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-[9px] font-semibold text-slate-500">
+                          Cargo o descripción
+                        </span>
+                        <input
+                          value={profileTitle}
+                          onChange={(event) =>
+                            setProfileTitle(event.target.value)
+                          }
+                          className="mac-input focus-ring w-full rounded-lg border border-slate-200 px-3 py-2.5 text-[11px]"
+                        />
+                      </label>
+                    </div>
                     <button
                       onClick={() => {
-                        onProfileUpdate(name.trim());
-                        notify("Perfil actualizado");
+                        void onProfileUpdate(
+                          name.trim(),
+                          profileTitle.trim(),
+                        )
+                          .then(() => notify("Perfil actualizado"))
+                          .catch(() =>
+                            notify("No se pudo actualizar el perfil"),
+                          );
                       }}
+                      disabled={!name.trim() || !profileTitle.trim()}
                       className="mac-button-primary focus-ring rounded-lg px-3 py-2.5 text-[10px] font-bold text-white"
                     >
                       Guardar
@@ -3362,6 +3446,8 @@ export function TaskaApp() {
   const [showNewProject, setShowNewProject] = useState(false);
   const [showNewWorkspace, setShowNewWorkspace] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [timeReportsOpen, setTimeReportsOpen] = useState(false);
@@ -3375,6 +3461,29 @@ export function TaskaApp() {
     due: "todas",
   });
   const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (mode !== "supabase") return;
+
+    const controller = new AbortController();
+    void fetch("/api/admin/access", {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) return { isAdmin: false };
+        return (await response.json()) as { isAdmin?: boolean };
+      })
+      .then((result) => setIsPlatformAdmin(Boolean(result.isAdmin)))
+      .catch((reason: unknown) => {
+        if (reason instanceof DOMException && reason.name === "AbortError") {
+          return;
+        }
+        setIsPlatformAdmin(false);
+      });
+
+    return () => controller.abort();
+  }, [mode]);
 
   const activeWorkspace =
     workspaces.find((workspace) => workspace.id === activeWorkspaceId) ??
@@ -3571,8 +3680,11 @@ export function TaskaApp() {
         onCreateProject={() => setShowNewProject(true)}
         onProjectSettings={setProjectSettingsId}
         onSettings={() => setSettingsOpen(true)}
+        onAdmin={() => setAdminOpen(true)}
+        onSignOut={() => void signOut()}
         onTimeReports={() => setTimeReportsOpen(true)}
         canViewTimeReports={canAuditTime}
+        isPlatformAdmin={isPlatformAdmin}
         onProjectSelect={(nextProjectId) => {
           setProjectId(nextProjectId);
           setView("all_tasks");
@@ -3673,15 +3785,6 @@ export function TaskaApp() {
                   <span className="size-1.5 rounded-full bg-emerald-500" />
                   Carga saludable
                 </span>
-                {mode === "supabase" && (
-                  <button
-                    onClick={signOut}
-                    className="focus-ring rounded-lg border border-slate-200 p-2 text-slate-400 hover:bg-white hover:text-slate-700"
-                    aria-label="Cerrar sesión"
-                  >
-                    <LogOut className="size-4" />
-                  </button>
-                )}
               </div>
             </div>
 
@@ -4161,7 +4264,7 @@ export function TaskaApp() {
           settings={settings}
           mode={mode}
           onClose={() => setSettingsOpen(false)}
-          onProfileUpdate={(name) => void updateProfile(name)}
+          onProfileUpdate={updateProfile}
           onSettingsUpdate={updateSettings}
           onInvite={inviteMember}
           onInvitationRevoke={(id) => void revokeInvitation(id)}
@@ -4184,6 +4287,12 @@ export function TaskaApp() {
           notify={notify}
         />
       )}
+
+      <AdminPanel
+        open={adminOpen && isPlatformAdmin}
+        onClose={() => setAdminOpen(false)}
+        notify={notify}
+      />
 
       {timeReportsOpen && activeWorkspace && canAuditTime && (
         <TimeReportsModal
