@@ -40,7 +40,18 @@ function LoginContent() {
     }
     setLoading(true);
     setMessage(null);
-    const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`;
+    const safeNextPath =
+      nextPath.startsWith("/") && !nextPath.startsWith("//") ? nextPath : "/";
+    document.cookie = [
+      `taska_auth_next=${encodeURIComponent(safeNextPath)}`,
+      "Path=/",
+      "Max-Age=600",
+      "SameSite=Lax",
+      window.location.protocol === "https:" ? "Secure" : "",
+    ]
+      .filter(Boolean)
+      .join("; ");
+    const redirectTo = `${window.location.origin}/auth/callback`;
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
@@ -92,7 +103,7 @@ function LoginContent() {
       password,
       options: {
         data: { full_name: name },
-        emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`,
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
       },
     });
     if (error) {
