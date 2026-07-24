@@ -164,7 +164,21 @@ export function useTaskWorkspace() {
             activeWorkspaceId?: string;
             settings?: AppSettings;
           };
-          if (Array.isArray(snapshot.tasks)) setAllTasks(snapshot.tasks);
+          if (Array.isArray(snapshot.tasks)) {
+            const demoDates = new Map(
+              initialTasks.map((task) => [task.id, task.startDate]),
+            );
+            setAllTasks(
+              snapshot.tasks.map((task) => ({
+                ...task,
+                startDate:
+                  task.startDate ??
+                  demoDates.get(task.id) ??
+                  task.dueDate ??
+                  null,
+              })),
+            );
+          }
           if (Array.isArray(snapshot.projects)) {
             setAllProjects(snapshot.projects);
           }
@@ -303,10 +317,13 @@ export function useTaskWorkspace() {
                 ) ?? null);
           const nextDueDate =
             input.dueDate === undefined ? task.dueDate : input.dueDate;
+          const nextStartDate =
+            input.startDate === undefined ? task.startDate : input.startDate;
           return {
             ...task,
             ...input,
             assignee,
+            startDate: nextStartDate,
             dueDate: nextDueDate,
             dueLabel: formatDueLabel(nextDueDate),
             updatedAt: "Ahora",
@@ -445,6 +462,7 @@ export function useTaskWorkspace() {
         priority: input.priority,
         assignee,
         client: input.client || "Sin cliente",
+        startDate: input.startDate || null,
         dueDate: input.dueDate || null,
         dueLabel: formatDueLabel(input.dueDate || null),
         updatedAt: "Ahora",

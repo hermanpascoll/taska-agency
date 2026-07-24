@@ -13,10 +13,15 @@ espacio compartido.
 - Panel global protegido para promover superadministradores, administrar
   usuarios y gestionar integrantes e invitaciones de todos los espacios.
 - Creación, edición, archivo y eliminación de campañas organizadas como proyectos.
-- Tareas y subtareas con responsable, cliente, prioridad, estado, etiquetas y fecha de entrega.
+- Tareas y subtareas con responsable, cliente, prioridad, estado, etiquetas,
+  fecha de inicio y fecha de entrega.
 - Edición completa y eliminación de tareas, subtareas y comentarios.
 - Comentarios, notificaciones y adjuntos privados de hasta 10 MB.
-- Vistas de Mis tareas, lista completa y tablero Kanban.
+- Mis tareas incluye también las subtareas asignadas, aun cuando otra persona
+  sea responsable de la tarea padre.
+- Vistas de Mis tareas, lista completa, tablero Kanban y diagrama de Gantt.
+- Gantt por proyecto con jerarquía de subtareas, escalas día/semana/mes,
+  indicador de hoy y reprogramación por arrastre.
 - Drag-and-drop HTML5 real en Kanban, con selector accesible como alternativa.
 - Filtros por texto, prioridad, campaña, estado, responsable y vencimiento.
 - Preferencias de perfil, densidad de lista y visibilidad de tareas completadas.
@@ -64,6 +69,8 @@ Los cambios de la demo se conservan en `localStorage` entre recargas.
    - `supabase/migrations/202607240001_initial_schema.sql`
    - `supabase/migrations/202607240002_full_collaboration.sql`
    - `supabase/migrations/202607240003_time_tracking.sql`
+   - `supabase/migrations/202607240004_platform_admins.sql`
+   - `supabase/migrations/202607240005_task_start_dates.sql`
 
 3. En Authentication, habilitá Email/Password.
 4. Para Google SSO, habilitá Google en Authentication → Providers, copiá allí

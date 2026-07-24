@@ -30,6 +30,17 @@ export function nextTaskCode(tasks: Task[]) {
   return `AG-${highest + 1}`;
 }
 
+export function isTaskAssignedToCurrentUser(
+  task: Task,
+  currentUserId: string,
+  demoAssigneeId?: string,
+) {
+  return (
+    task.assignee?.id === currentUserId ||
+    Boolean(demoAssigneeId && task.assignee?.id === demoAssigneeId)
+  );
+}
+
 export function matchesTaskFilters(
   task: Task,
   {

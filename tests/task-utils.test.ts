@@ -6,6 +6,7 @@ import {
   buildTimeReportCsv,
   canAuditTimeReports,
   elapsedSeconds,
+  isTaskAssignedToCurrentUser,
   matchesTaskFilters,
   nextTaskCode,
   safeStorageName,
@@ -55,6 +56,15 @@ describe("task utils", () => {
         advanced: noAdvancedFilters,
       }),
     ).toBe(false);
+  });
+
+  it("incluye una subtarea asignada aunque el padre sea de otra persona", () => {
+    const parent = initialTasks.find((task) => task.id === "task-1")!;
+    const subtask = initialTasks.find((task) => task.id === "subtask-2")!;
+    expect(parent.assignee?.id).not.toBe(subtask.assignee?.id);
+    expect(
+      isTaskAssignedToCurrentUser(subtask, subtask.assignee!.id),
+    ).toBe(true);
   });
 
   it("filtra vencimientos y archivos de forma segura", () => {

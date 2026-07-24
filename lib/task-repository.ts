@@ -63,6 +63,7 @@ type RemoteTask = {
   description: string | null;
   status: TaskStatus;
   priority: TaskPriority;
+  start_date: string | null;
   due_date: string | null;
   client_name: string | null;
   client_email: string | null;
@@ -248,6 +249,7 @@ function mapTask(row: RemoteTask, index: number): Task {
     assignee: personFromRemote(one(row.assignee), index),
     client: row.client_name || "Sin cliente",
     clientEmail: row.client_email ?? undefined,
+    startDate: row.start_date,
     dueDate: row.due_date,
     dueLabel: formatDueLabel(row.due_date),
     updatedAt: relativeTime(row.updated_at),
@@ -320,7 +322,7 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     supabase
       .from("tasks")
       .select(
-        "id, task_number, title, description, status, priority, due_date, client_name, client_email, updated_at, tags, parent_task_id, projects(id, name, color, team_id, description, archived), assignee:profiles!tasks_assignee_id_fkey(id, full_name, email, role), comments(id, body, created_at, author:profiles!comments_author_id_fkey(id, full_name, email, role)), attachments:task_attachments(id, task_id, name, size_bytes, mime_type, storage_path, created_at, uploader:profiles!task_attachments_uploaded_by_fkey(id, full_name, email, role))",
+        "id, task_number, title, description, status, priority, start_date, due_date, client_name, client_email, updated_at, tags, parent_task_id, projects(id, name, color, team_id, description, archived), assignee:profiles!tasks_assignee_id_fkey(id, full_name, email, role), comments(id, body, created_at, author:profiles!comments_author_id_fkey(id, full_name, email, role)), attachments:task_attachments(id, task_id, name, size_bytes, mime_type, storage_path, created_at, uploader:profiles!task_attachments_uploaded_by_fkey(id, full_name, email, role))",
       )
       .order("updated_at", { ascending: false }),
     supabase
@@ -478,6 +480,7 @@ export async function createRemoteTask(input: NewTaskInput) {
       title: input.title,
       description: input.description,
       priority: input.priority,
+      start_date: input.startDate || null,
       due_date: input.dueDate || null,
       client_name: input.client,
       status: input.status ?? "nuevo",
@@ -498,6 +501,7 @@ export async function updateRemoteTask(id: string, input: UpdateTaskInput) {
   if (input.status !== undefined) payload.status = input.status;
   if (input.priority !== undefined) payload.priority = input.priority;
   if (input.assigneeId !== undefined) payload.assignee_id = input.assigneeId;
+  if (input.startDate !== undefined) payload.start_date = input.startDate;
   if (input.dueDate !== undefined) payload.due_date = input.dueDate;
   const { error } = await supabase.from("tasks").update(payload).eq("id", id);
   if (error) throw error;

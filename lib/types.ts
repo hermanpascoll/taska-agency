@@ -60,6 +60,7 @@ export type Task = {
   assignee: Person | null;
   client: string;
   clientEmail?: string;
+  startDate: string | null;
   dueDate: string | null;
   dueLabel: string;
   updatedAt: string;
@@ -143,6 +144,7 @@ export type NewTaskInput = {
   priority: TaskPriority;
   assigneeId: string;
   client: string;
+  startDate: string;
   dueDate: string;
 };
 
@@ -152,6 +154,7 @@ export type UpdateTaskInput = {
   status?: TaskStatus;
   priority?: TaskPriority;
   assigneeId?: string | null;
+  startDate?: string | null;
   dueDate?: string | null;
 };
 

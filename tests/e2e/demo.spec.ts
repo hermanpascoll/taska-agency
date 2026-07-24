@@ -55,6 +55,44 @@ test("mueve una tarjeta con drag-and-drop real", async ({ page }) => {
   ).toBeVisible();
 });
 
+test("muestra subtareas asignadas en Mis tareas y en Gantt", async ({
+  page,
+}) => {
+  await expect(
+    page.getByRole("heading", {
+      name: "Revisar safe areas para stories",
+      level: 3,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/Subtarea de Adaptar campaña/).first(),
+  ).toBeVisible();
+
+  await page.getByRole("button", { name: "Cronograma" }).click();
+  await expect(page.getByTestId("gantt-chart")).toBeVisible();
+  await expect(page.getByTestId("gantt-row-subtask-2")).toBeVisible();
+  await expect(page.getByTestId("gantt-bar-subtask-2")).toBeVisible();
+
+  const timeline = page.getByTestId("gantt-timeline");
+  const timelineBox = await timeline.boundingBox();
+  expect(timelineBox).not.toBeNull();
+  const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
+  const bar = page.getByTestId("gantt-bar-subtask-2");
+  await bar.dispatchEvent("dragstart", { dataTransfer });
+  await timeline.dispatchEvent("dragover", {
+    clientX: timelineBox!.x + 6 * 22,
+    dataTransfer,
+  });
+  await timeline.dispatchEvent("drop", {
+    clientX: timelineBox!.x + 6 * 22,
+    dataTransfer,
+  });
+  await bar.dispatchEvent("dragend", { dataTransfer });
+  await expect(page.getByTestId("gantt-row-subtask-2")).toContainText(
+    "21 jul. – 22 jul.",
+  );
+});
+
 test("administra integrantes e invitaciones desde Preferencias", async ({
   page,
 }) => {

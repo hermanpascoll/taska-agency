@@ -6,6 +6,7 @@ import {
   Bell,
   Building2,
   CalendarDays,
+  ChartGantt,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -53,6 +54,7 @@ import {
 } from "react";
 import { clsx } from "clsx";
 import { AdminPanel } from "@/components/admin-panel";
+import { GanttChart } from "@/components/gantt-chart";
 import { useTaskWorkspace } from "@/hooks/use-task-workspace";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -61,6 +63,7 @@ import {
   elapsedSeconds,
   formatBytes,
   formatDuration,
+  isTaskAssignedToCurrentUser,
   matchesTaskFilters,
   timeEntryCost,
 } from "@/lib/task-utils";
@@ -87,7 +90,7 @@ import type {
   WorkspaceMember,
 } from "@/lib/types";
 
-type View = "my_tasks" | "all_tasks" | "board";
+type View = "my_tasks" | "all_tasks" | "board" | "gantt";
 
 const statusMeta: Record<
   TaskStatus,
@@ -287,6 +290,7 @@ function Sidebar({
     { id: "my_tasks" as const, label: "Mis tareas", icon: CheckCircle2 },
     { id: "all_tasks" as const, label: "Todas las tareas", icon: Inbox },
     { id: "board" as const, label: "Tablero", icon: Columns3 },
+    { id: "gantt" as const, label: "Cronograma", icon: ChartGantt },
   ];
 
   function select(nextView: View) {
@@ -612,11 +616,13 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
 
 function TaskList({
   tasks,
+  parentTasks,
   onSelect,
   onComplete,
   compact = false,
 }: {
   tasks: Task[];
+  parentTasks: Map<string, Task>;
   onSelect: (task: Task) => void;
   onComplete: (task: Task) => void;
   compact?: boolean;
@@ -667,6 +673,17 @@ function TaskList({
                 className="focus-ring min-w-0 rounded-md text-left"
               >
                 <div className="flex items-center gap-2">
+                  {task.parentTaskId && (
+                    <>
+                      <GitBranch className="size-3 shrink-0 text-[#0a84ff]" />
+                      <span className="max-w-32 truncate text-[10px] font-medium text-[#0879ea]">
+                        Subtarea de{" "}
+                        {parentTasks.get(task.parentTaskId)?.title ??
+                          "otra tarea"}
+                      </span>
+                      <span className="text-slate-300">·</span>
+                    </>
+                  )}
                   <span className="text-[10px] font-bold text-slate-400">
                     {task.code}
                   </span>
@@ -733,6 +750,13 @@ function TaskList({
                   </span>
                   <Avatar person={task.assignee} size="sm" />
                 </div>
+                {task.parentTaskId && (
+                  <span className="mt-1 flex items-center gap-1 text-[10px] font-medium text-[#0879ea]">
+                    <GitBranch className="size-3" />
+                    Subtarea de{" "}
+                    {parentTasks.get(task.parentTaskId)?.title ?? "otra tarea"}
+                  </span>
+                )}
                 <h3 className="mt-1 text-sm font-semibold leading-snug text-slate-800">
                   {task.title}
                 </h3>
@@ -1398,11 +1422,35 @@ function TaskDrawer({
 
             <span className="flex items-center gap-2 text-slate-400">
               <CalendarDays className="size-3.5" />
+              Inicio
+            </span>
+            <input
+              type="date"
+              value={task.startDate ?? ""}
+              max={task.dueDate ?? undefined}
+              onChange={(event) => {
+                const startDate = event.target.value || null;
+                onTaskUpdate({
+                  startDate,
+                  ...(startDate &&
+                  task.dueDate &&
+                  startDate > task.dueDate
+                    ? { dueDate: startDate }
+                    : {}),
+                });
+              }}
+              className="focus-ring w-fit rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 font-semibold text-slate-700"
+              aria-label="Fecha de inicio"
+            />
+
+            <span className="flex items-center gap-2 text-slate-400">
+              <CalendarDays className="size-3.5" />
               Vencimiento
             </span>
             <input
               type="date"
               value={task.dueDate ?? ""}
+              min={task.startDate ?? undefined}
               onChange={(event) =>
                 onTaskUpdate({ dueDate: event.target.value || null })
               }
@@ -1725,6 +1773,9 @@ function NewTaskModal({
   const [priority, setPriority] = useState<TaskPriority>("media");
   const [assigneeId, setAssigneeId] = useState(people[0]?.id ?? "");
   const [client, setClient] = useState("");
+  const [startDate, setStartDate] = useState(() =>
+    new Date().toISOString().slice(0, 10),
+  );
   const [dueDate, setDueDate] = useState(() => {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -1742,6 +1793,7 @@ function NewTaskModal({
       priority,
       assigneeId,
       client: client.trim(),
+      startDate,
       dueDate,
     });
   }
@@ -1874,11 +1926,30 @@ function NewTaskModal({
             </label>
             <label>
               <span className="mb-2 block text-[11px] font-bold text-slate-600">
-                Fecha de entrega
+                Inicio
+              </span>
+              <input
+                type="date"
+                value={startDate}
+                max={dueDate || undefined}
+                onChange={(event) => {
+                  const nextStart = event.target.value;
+                  setStartDate(nextStart);
+                  if (dueDate && nextStart > dueDate) {
+                    setDueDate(nextStart);
+                  }
+                }}
+                className="focus-ring w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-[12px] text-slate-700"
+              />
+            </label>
+            <label>
+              <span className="mb-2 block text-[11px] font-bold text-slate-600">
+                Entrega
               </span>
               <input
                 type="date"
                 value={dueDate}
+                min={startDate || undefined}
                 onChange={(event) => setDueDate(event.target.value)}
                 className="focus-ring w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-[12px] text-slate-700"
               />
@@ -3504,6 +3575,10 @@ export function TaskaApp() {
     () => tasks.filter((task) => !task.parentTaskId),
     [tasks],
   );
+  const parentTasks = useMemo(
+    () => new Map(tasks.map((task) => [task.id, task])),
+    [tasks],
+  );
   const selectedTask =
     tasks.find((task) => task.id === selectedTaskId) ?? null;
   const selectedParentTask = selectedTask?.parentTaskId
@@ -3515,19 +3590,23 @@ export function TaskaApp() {
   const selectedTimeEntries = selectedTask
     ? timeEntries.filter((entry) => entry.taskId === selectedTask.id)
     : [];
-  const myTaskCount = topLevelTasks.filter(
-    (task) =>
-      task.assignee?.id === currentUserId ||
-      (mode === "demo" && task.assignee?.id === "martina"),
+  const demoAssigneeId = mode === "demo" ? "martina" : undefined;
+  const myTaskCount = tasks.filter((task) =>
+    isTaskAssignedToCurrentUser(task, currentUserId, demoAssigneeId),
   ).length;
 
   const filteredTasks = useMemo(
-    () =>
-      topLevelTasks.filter((task) => {
-      const isMine =
-        view !== "my_tasks" ||
-        task.assignee?.id === currentUserId ||
-        (mode === "demo" && task.assignee?.id === "martina");
+    () => {
+      const sourceTasks =
+        view === "my_tasks" || view === "gantt" ? tasks : topLevelTasks;
+      return sourceTasks.filter((task) => {
+        const isMine =
+          view !== "my_tasks" ||
+          isTaskAssignedToCurrentUser(
+            task,
+            currentUserId,
+            demoAssigneeId,
+          );
         return (
           isMine &&
           (settings.showCompleted || task.status !== "resuelto") &&
@@ -3539,15 +3618,17 @@ export function TaskaApp() {
             advanced: advancedFilters,
           })
         );
-      }),
+      });
+    },
     [
       advancedFilters,
       currentUserId,
-      mode,
+      demoAssigneeId,
       priority,
       projectId,
       query,
       settings.showCompleted,
+      tasks,
       topLevelTasks,
       view,
     ],
@@ -3653,7 +3734,9 @@ export function TaskaApp() {
       ? "Mis tareas"
       : view === "all_tasks"
         ? "Todas las tareas"
-        : "Tablero creativo";
+        : view === "board"
+          ? "Tablero creativo"
+          : "Cronograma del espacio";
 
   return (
     <div
@@ -3909,6 +3992,18 @@ export function TaskaApp() {
                     <Columns3 className="size-3" />
                     Tablero
                   </button>
+                  <button
+                    onClick={() => setView("gantt")}
+                    className={clsx(
+                      "focus-ring flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[10px] font-semibold transition sm:px-3",
+                      view === "gantt"
+                        ? "bg-slate-100 text-slate-800"
+                        : "text-slate-400 hover:text-slate-600",
+                    )}
+                  >
+                    <ChartGantt className="size-3" />
+                    Gantt
+                  </button>
                 </div>
               </div>
 
@@ -4023,9 +4118,19 @@ export function TaskaApp() {
                     notify(`Tarea movida a ${statusMeta[status].label}`);
                   }}
                 />
+              ) : view === "gantt" ? (
+                <GanttChart
+                  tasks={filteredTasks}
+                  onSelect={(task) => setSelectedTaskId(task.id)}
+                  onUpdateDates={(taskId, input) => {
+                    void updateTask(taskId, input);
+                    notify("Fechas reprogramadas");
+                  }}
+                />
               ) : (
                 <TaskList
                   tasks={filteredTasks}
+                  parentTasks={parentTasks}
                   compact={settings.compactMode}
                   onSelect={(task) => setSelectedTaskId(task.id)}
                   onComplete={(task) => {
@@ -4050,6 +4155,7 @@ export function TaskaApp() {
           { id: "my_tasks" as const, label: "Mis tareas", icon: ListTodo },
           { id: "all_tasks" as const, label: "Tareas", icon: Inbox },
           { id: "board" as const, label: "Tablero", icon: LayoutDashboard },
+          { id: "gantt" as const, label: "Gantt", icon: ChartGantt },
         ].map((item) => {
           const Icon = item.icon;
           return (
@@ -4115,6 +4221,7 @@ export function TaskaApp() {
                   priority: selectedTask.priority,
                   assigneeId,
                   client: selectedTask.client,
+                  startDate: selectedTask.startDate ?? "",
                   dueDate: selectedTask.dueDate ?? "",
                 });
                 setSelectedTaskId(parentId);
