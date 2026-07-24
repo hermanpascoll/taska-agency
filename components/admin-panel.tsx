@@ -6,19 +6,30 @@ import {
   Ban,
   Building2,
   CheckCircle2,
+  Copy,
+  Crown,
   FolderKanban,
   KeyRound,
   LoaderCircle,
+  MailPlus,
   RefreshCw,
   Search,
   ShieldCheck,
   Trash2,
   UserCog,
+  UserMinus,
+  UserPlus,
   UserRound,
   Users,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+} from "react";
 import { clsx } from "clsx";
 import type {
   PlatformAdminOverview,
@@ -83,6 +94,17 @@ export function AdminPanel({
   const [deletingWorkspace, setDeletingWorkspace] =
     useState<PlatformAdminWorkspace | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [managingWorkspaceId, setManagingWorkspaceId] = useState<string | null>(
+    null,
+  );
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] =
+    useState<Exclude<TeamRole, "owner">>("agent");
+  const [removingMember, setRemovingMember] = useState<{
+    workspaceId: string;
+    userId: string;
+    name: string;
+  } | null>(null);
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
@@ -133,13 +155,15 @@ export function AdminPanel({
         });
         const payload = (await response.json()) as {
           error?: string;
+          emailed?: boolean;
+          invitationUrl?: string;
         };
         if (!response.ok) {
           throw new Error(payload.error || "No se pudo guardar el cambio.");
         }
-        notify(successMessage);
+        if (successMessage) notify(successMessage);
         await loadOverview();
-        return true;
+        return payload;
       } catch (reason) {
         const message =
           reason instanceof Error
@@ -147,7 +171,7 @@ export function AdminPanel({
             : "No se pudo guardar el cambio.";
         setError(message);
         notify(message);
-        return false;
+        return null;
       } finally {
         setSaving(false);
       }
@@ -188,6 +212,49 @@ export function AdminPanel({
     overview?.users.filter((user) => user.suspended).length ?? 0;
   const activeWorkspaceCount =
     overview?.workspaces.filter((workspace) => !workspace.archived).length ?? 0;
+  const superAdminCount =
+    overview?.users.filter((user) => user.superAdmin).length ?? 0;
+  const managingWorkspace =
+    overview?.workspaces.find(
+      (workspace) => workspace.id === managingWorkspaceId,
+    ) ?? null;
+
+  async function submitWorkspaceInvitation(event: FormEvent) {
+    event.preventDefault();
+    if (!managingWorkspace || !inviteEmail.trim()) return;
+    const result = await mutate(
+      "PATCH",
+      {
+        action: "workspace-invite",
+        workspaceId: managingWorkspace.id,
+        email: inviteEmail.trim(),
+        role: inviteRole,
+      },
+      "",
+    );
+    if (!result) return;
+    setInviteEmail("");
+    if (result.emailed) {
+      notify("Invitación enviada por correo");
+      return;
+    }
+    if (result.invitationUrl) {
+      let copied = false;
+      try {
+        await navigator.clipboard?.writeText(result.invitationUrl);
+        copied = Boolean(navigator.clipboard);
+      } catch {
+        // The pending invitation remains visible with a manual copy action.
+      }
+      notify(
+        copied
+          ? "Invitación creada y enlace copiado"
+          : "Invitación creada; podés copiar el enlace pendiente",
+      );
+      return;
+    }
+    notify("Invitación creada");
+  }
 
   return (
     <div className="fixed inset-0 z-[90] flex bg-slate-950/45 p-0 backdrop-blur-sm sm:p-4 lg:p-7">
@@ -282,7 +349,7 @@ export function AdminPanel({
                   icon={Users}
                   label="Usuarios registrados"
                   value={overview?.users.length ?? 0}
-                  detail={`${suspendedCount} suspendidos`}
+                  detail={`${superAdminCount} superadmin · ${suspendedCount} suspendidos`}
                 />
                 <StatCard
                   icon={Building2}
@@ -374,6 +441,12 @@ export function AdminPanel({
                               >
                                 {user.suspended ? "Suspendido" : "Activo"}
                               </span>
+                              {user.superAdmin && (
+                                <span className="flex items-center gap-1 rounded-full bg-violet-50 px-2 py-1 text-[8px] font-bold uppercase tracking-wide text-violet-700">
+                                  <Crown className="size-3" />
+                                  Superadmin
+                                </span>
+                              )}
                             </div>
                             <p className="mt-0.5 truncate text-[10px] text-slate-500">
                               {user.email}
@@ -396,6 +469,45 @@ export function AdminPanel({
                         </div>
 
                         <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() =>
+                              void mutate(
+                                "PATCH",
+                                {
+                                  action: "superadmin-status",
+                                  userId: user.id,
+                                  superAdmin: !user.superAdmin,
+                                },
+                                user.superAdmin
+                                  ? "Acceso global revocado"
+                                  : "Usuario promovido a superadministrador",
+                              )
+                            }
+                            disabled={
+                              saving ||
+                              user.rootAdmin ||
+                              (user.superAdmin &&
+                                user.id === overview?.currentUserId)
+                            }
+                            title={
+                              user.rootAdmin
+                                ? "El administrador raíz se configura en el servidor"
+                                : undefined
+                            }
+                            className={clsx(
+                              "focus-ring flex items-center gap-2 rounded-lg border px-3 py-2 text-[9px] font-semibold disabled:cursor-not-allowed disabled:opacity-45",
+                              user.superAdmin
+                                ? "border-violet-200 text-violet-700 hover:bg-violet-50"
+                                : "border-slate-200 text-slate-600 hover:bg-slate-50",
+                            )}
+                          >
+                            <Crown className="size-3.5" />
+                            {user.superAdmin
+                              ? user.rootAdmin
+                                ? "Superadmin raíz"
+                                : "Quitar superadmin"
+                              : "Hacer superadmin"}
+                          </button>
                           <button
                             onClick={() => {
                               setEditingUser(user);
@@ -422,7 +534,7 @@ export function AdminPanel({
                                   : "Usuario suspendido",
                               )
                             }
-                            disabled={saving}
+                            disabled={saving || user.superAdmin}
                             className={clsx(
                               "focus-ring flex items-center gap-2 rounded-lg border px-3 py-2 text-[9px] font-semibold disabled:opacity-50",
                               user.suspended
@@ -547,6 +659,18 @@ export function AdminPanel({
                       </div>
                       <div className="mt-4 flex flex-wrap gap-2">
                         <button
+                          onClick={() => {
+                            setManagingWorkspaceId(workspace.id);
+                            setInviteEmail("");
+                            setInviteRole("agent");
+                          }}
+                          disabled={saving}
+                          className="focus-ring flex items-center gap-2 rounded-lg border border-[#0a84ff]/20 bg-[#0a84ff]/5 px-3 py-2 text-[9px] font-semibold text-[#0879ea] hover:bg-[#0a84ff]/10 disabled:opacity-50"
+                        >
+                          <UserPlus className="size-3.5" />
+                          Administrar integrantes
+                        </button>
+                        <button
                           onClick={() =>
                             void mutate(
                               "PATCH",
@@ -593,6 +717,276 @@ export function AdminPanel({
           </main>
         </div>
       </section>
+
+      {managingWorkspace && (
+        <div className="fixed inset-0 z-[100] grid place-items-center bg-slate-950/40 p-3 backdrop-blur-sm sm:p-6">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Integrantes de ${managingWorkspace.name}`}
+            className="mac-window flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-black/10 bg-[#f7f8fa] shadow-2xl"
+          >
+            <header className="flex items-center border-b border-black/[0.07] bg-white/90 px-5 py-4 backdrop-blur-xl">
+              <span className="grid size-10 place-items-center rounded-xl bg-[#0a84ff]/10 text-[#0a84ff]">
+                <Users className="size-5" />
+              </span>
+              <div className="ml-3 min-w-0">
+                <p className="text-[9px] font-bold uppercase tracking-wide text-[#0879ea]">
+                  Acceso al espacio
+                </p>
+                <h3 className="truncate text-[14px] font-bold text-slate-900">
+                  {managingWorkspace.name}
+                </h3>
+              </div>
+              <button
+                onClick={() => setManagingWorkspaceId(null)}
+                className="focus-ring ml-auto rounded-lg p-2 text-slate-400 hover:bg-slate-100"
+                aria-label="Cerrar integrantes del espacio"
+              >
+                <X className="size-4" />
+              </button>
+            </header>
+
+            <div className="soft-scrollbar min-h-0 overflow-y-auto p-4 sm:p-6">
+              <form
+                onSubmit={(event) =>
+                  void submitWorkspaceInvitation(event)
+                }
+                className="rounded-2xl border border-[#0a84ff]/15 bg-[#0a84ff]/5 p-4"
+              >
+                <div className="flex items-center gap-2">
+                  <MailPlus className="size-4 text-[#0879ea]" />
+                  <div>
+                    <h4 className="text-[11px] font-bold text-slate-800">
+                      Invitar a este espacio
+                    </h4>
+                    <p className="mt-0.5 text-[9px] text-slate-500">
+                      La invitación vence después de siete días.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_140px_auto]">
+                  <input
+                    required
+                    type="email"
+                    value={inviteEmail}
+                    onChange={(event) => setInviteEmail(event.target.value)}
+                    placeholder="persona@empresa.com"
+                    aria-label="Correo para invitar"
+                    className="mac-input focus-ring rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-[10px]"
+                  />
+                  <select
+                    value={inviteRole}
+                    onChange={(event) =>
+                      setInviteRole(
+                        event.target.value as Exclude<TeamRole, "owner">,
+                      )
+                    }
+                    aria-label="Rol de la invitación"
+                    className="mac-input focus-ring rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-[10px]"
+                  >
+                    <option value="admin">Administrador</option>
+                    <option value="agent">Integrante</option>
+                    <option value="viewer">Sólo lectura</option>
+                  </select>
+                  <button
+                    disabled={saving || !inviteEmail.trim()}
+                    className="mac-button-primary focus-ring flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-[10px] font-bold text-white disabled:opacity-45"
+                  >
+                    {saving ? (
+                      <LoaderCircle className="size-3.5 animate-spin" />
+                    ) : (
+                      <UserPlus className="size-3.5" />
+                    )}
+                    Enviar invitación
+                  </button>
+                </div>
+              </form>
+
+              <section className="mt-5">
+                <div className="flex items-center">
+                  <div>
+                    <h4 className="text-[12px] font-bold text-slate-800">
+                      Integrantes actuales
+                    </h4>
+                    <p className="mt-0.5 text-[9px] text-slate-400">
+                      Cambiá roles o quitá accesos desde cualquier espacio.
+                    </p>
+                  </div>
+                  <span className="ml-auto rounded-full bg-slate-200/70 px-2.5 py-1 text-[9px] font-bold text-slate-500">
+                    {managingWorkspace.members.length}
+                  </span>
+                </div>
+                <div className="mt-3 divide-y divide-slate-100 overflow-hidden rounded-2xl border border-black/[0.07] bg-white">
+                  {managingWorkspace.members.map((member) => (
+                    <div
+                      key={member.userId}
+                      className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center"
+                    >
+                      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-[linear-gradient(145deg,#0a84ff,#6659e8)] text-[9px] font-bold text-white">
+                        {initials(member.name)}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[10px] font-bold text-slate-700">
+                          {member.name}
+                        </p>
+                        <p className="truncate text-[9px] text-slate-400">
+                          {member.email} · {member.title}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={member.role}
+                          disabled={saving}
+                          onChange={(event) =>
+                            void mutate(
+                              "PATCH",
+                              {
+                                action: "membership-role",
+                                workspaceId: managingWorkspace.id,
+                                userId: member.userId,
+                                role: event.target.value,
+                              },
+                              "Rol actualizado",
+                            )
+                          }
+                          aria-label={`Rol de ${member.name} en ${managingWorkspace.name}`}
+                          className="focus-ring rounded-lg border border-slate-200 bg-white px-2 py-2 text-[9px] font-semibold text-slate-600"
+                        >
+                          {(Object.keys(roleLabels) as TeamRole[]).map(
+                            (role) => (
+                              <option key={role} value={role}>
+                                {roleLabels[role]}
+                              </option>
+                            ),
+                          )}
+                        </select>
+                        <button
+                          onClick={() =>
+                            setRemovingMember({
+                              workspaceId: managingWorkspace.id,
+                              userId: member.userId,
+                              name: member.name,
+                            })
+                          }
+                          disabled={saving}
+                          className="focus-ring rounded-lg border border-rose-100 p-2 text-slate-300 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-40"
+                          aria-label={`Quitar a ${member.name} de ${managingWorkspace.name}`}
+                        >
+                          <UserMinus className="size-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              {managingWorkspace.invitations.length > 0 && (
+                <section className="mt-5">
+                  <h4 className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                    Invitaciones pendientes
+                  </h4>
+                  <div className="mt-2 space-y-2">
+                    {managingWorkspace.invitations.map((invitation) => (
+                      <div
+                        key={invitation.id}
+                        className="flex flex-col gap-2 rounded-xl border border-black/[0.06] bg-white p-3 sm:flex-row sm:items-center"
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[10px] font-bold text-slate-700">
+                            {invitation.email}
+                          </span>
+                          <span className="block text-[8px] text-slate-400">
+                            {roleLabels[invitation.role]} · vence{" "}
+                            {formatDate(invitation.expiresAt)}
+                          </span>
+                        </span>
+                        <button
+                          onClick={() => {
+                            const invitationUrl = `${window.location.origin}/invite/${invitation.token}`;
+                            void navigator.clipboard?.writeText(invitationUrl);
+                            notify("Enlace de invitación copiado");
+                          }}
+                          className="focus-ring flex items-center justify-center gap-1.5 rounded-lg px-2.5 py-2 text-[9px] font-semibold text-[#0879ea] hover:bg-[#0a84ff]/8"
+                        >
+                          <Copy className="size-3.5" />
+                          Copiar enlace
+                        </button>
+                        <button
+                          onClick={() =>
+                            void mutate(
+                              "PATCH",
+                              {
+                                action: "invitation-revoke",
+                                invitationId: invitation.id,
+                              },
+                              "Invitación revocada",
+                            )
+                          }
+                          disabled={saving}
+                          className="focus-ring rounded-lg px-2.5 py-2 text-[9px] font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-40"
+                        >
+                          Revocar
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {removingMember && (
+        <div className="fixed inset-0 z-[110] grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label="Confirmar eliminación de integrante"
+            className="mac-window w-full max-w-sm rounded-2xl border border-rose-200 bg-white p-6 shadow-2xl"
+          >
+            <span className="grid size-11 place-items-center rounded-xl bg-rose-50 text-rose-600">
+              <UserMinus className="size-5" />
+            </span>
+            <h3 className="mt-4 text-[14px] font-bold text-slate-900">
+              Quitar a {removingMember.name}
+            </h3>
+            <p className="mt-2 text-[10px] leading-5 text-slate-500">
+              Perderá acceso a este espacio. Sus tareas permanecerán y podrán
+              reasignarse.
+            </p>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                onClick={() => setRemovingMember(null)}
+                className="focus-ring rounded-lg border border-slate-200 px-4 py-2.5 text-[10px] font-semibold text-slate-600"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  void (async () => {
+                    const removed = await mutate(
+                      "PATCH",
+                      {
+                        action: "workspace-member-remove",
+                        workspaceId: removingMember.workspaceId,
+                        userId: removingMember.userId,
+                      },
+                      "Integrante removido del espacio",
+                    );
+                    if (removed) setRemovingMember(null);
+                  })();
+                }}
+                disabled={saving}
+                className="focus-ring rounded-lg bg-rose-600 px-4 py-2.5 text-[10px] font-bold text-white disabled:opacity-45"
+              >
+                {saving ? "Quitando…" : "Quitar acceso"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {editingUser && (
         <div className="fixed inset-0 z-[100] grid place-items-center bg-slate-950/35 p-4 backdrop-blur-sm">

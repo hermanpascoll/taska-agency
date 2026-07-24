@@ -24,10 +24,39 @@ export async function getPlatformAdminAccess() {
     data: { user },
   } = await supabase.auth.getUser();
 
+  if (!user) {
+    return {
+      configured: true,
+      user: null,
+      isAdmin: false,
+      rootAdmin: false,
+    };
+  }
+
+  const rootAdmin = isPlatformAdminEmail(user.email);
+  if (rootAdmin) {
+    return {
+      configured: true,
+      user,
+      isAdmin: true,
+      rootAdmin: true,
+    };
+  }
+
+  const admin = createPlatformAdminClient();
+  const persistentAdmin = admin
+    ? await admin
+        .from("platform_admins")
+        .select("user_id")
+        .eq("user_id", user.id)
+        .maybeSingle()
+    : null;
+
   return {
     configured: true,
     user,
-    isAdmin: isPlatformAdminEmail(user?.email),
+    isAdmin: Boolean(persistentAdmin?.data),
+    rootAdmin: false,
   };
 }
 
