@@ -15,14 +15,21 @@ espacio compartido.
   todos los espacios.
 - Alta forzada de usuarios registrados en cualquier espacio desde el panel
   global, sin requerir aceptación de invitación.
-- Directorio de clientes por espacio, con edición, archivo y asignación a proyectos.
+- Directorio de clientes por espacio, con categorías o servicios propios
+  (por ejemplo Institucional, Cartelería o Autoliquidables), edición, archivo y
+  asignación a proyectos y tareas.
 - Creación, edición, archivo y eliminación de campañas organizadas como proyectos.
 - Una tarea puede estar vinculada a varios proyectos del mismo espacio sin
   duplicar responsables, comentarios, adjuntos ni registros de tiempo.
-- Tareas y subtareas con responsable, cliente, prioridad, estado, etiquetas,
-  fecha de inicio y fecha de entrega.
+- Tareas y subtareas con responsable independiente, cliente, categoría,
+  prioridad, estado, etiquetas, fecha de inicio y fecha/hora de entrega.
+- Tareas recurrentes diarias, semanales, quincenales o mensuales. Al aprobar
+  una ocurrencia, la próxima se crea automáticamente con sus subtareas,
+  responsables, fechas y proyectos, sin alterar el historial anterior.
 - Edición completa y eliminación de tareas, subtareas y comentarios.
 - Comentarios, notificaciones y adjuntos privados de hasta 10 MB.
+- Resumen por tarea de personas involucradas, intercambios, tiempo registrado
+  y días transcurridos para auditar el esfuerzo operativo.
 - Mis tareas incluye también las subtareas asignadas, aun cuando otra persona
   sea responsable de la tarea padre.
 - Vistas de Mis tareas, lista completa, tablero Kanban y diagrama de Gantt.
@@ -78,6 +85,7 @@ Los cambios de la demo se conservan en `localStorage` entre recargas.
    - `supabase/migrations/202607240004_platform_admins.sql`
    - `supabase/migrations/202607240005_task_start_dates.sql`
    - `supabase/migrations/202607240006_clients_multi_project_presence.sql`
+   - `supabase/migrations/202607250007_task_classification_recurrence.sql`
 
 3. Habilitá Google en Authentication → Providers, copiá allí
    el Client ID y Client Secret de Google Cloud, y configurá en Google la

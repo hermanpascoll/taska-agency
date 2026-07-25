@@ -22,6 +22,16 @@ export function formatDueLabel(value: string | null, now = new Date()) {
   }).format(due);
 }
 
+export function formatTaskDueLabel(
+  dueDate: string | null,
+  dueTime?: string | null,
+  now = new Date(),
+) {
+  const dateLabel = formatDueLabel(dueDate, now);
+  if (!dueDate || !dueTime) return dateLabel;
+  return `${dateLabel} · ${dueTime.slice(0, 5)}`;
+}
+
 export function nextTaskCode(tasks: Task[]) {
   const highest = tasks.reduce((current, task) => {
     const value = Number(task.code.replace(/\D/g, ""));
@@ -63,6 +73,7 @@ export function matchesTaskFilters(
     task.title.toLowerCase().includes(normalized) ||
     task.code.toLowerCase().includes(normalized) ||
     task.client.toLowerCase().includes(normalized) ||
+    task.clientCategory?.toLowerCase().includes(normalized) ||
     task.project.name.toLowerCase().includes(normalized) ||
     task.tags.some((tag) => tag.toLowerCase().includes(normalized));
   const matchesPriority =

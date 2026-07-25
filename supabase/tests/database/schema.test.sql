@@ -1,5 +1,5 @@
 begin;
-select plan(9);
+select plan(15);
 
 select has_table('public', 'team_invitations', 'team_invitations existe');
 select has_table('public', 'task_attachments', 'task_attachments existe');
@@ -19,6 +19,32 @@ select has_function(
   'start_task_timer',
   array['uuid', 'text', 'boolean'],
   'start_task_timer existe'
+);
+select has_column(
+  'public',
+  'clients',
+  'categories',
+  'clientes tienen categorías'
+);
+select has_column(
+  'public',
+  'projects',
+  'client_category',
+  'proyectos tienen categoría de cliente'
+);
+select has_column('public', 'tasks', 'client_id', 'tareas tienen cliente');
+select has_column('public', 'tasks', 'due_time', 'tareas tienen hora límite');
+select has_column(
+  'public',
+  'tasks',
+  'recurrence_rule',
+  'tareas tienen recurrencia'
+);
+select has_function(
+  'public',
+  'generate_next_recurring_task',
+  array[]::text[],
+  'generador de recurrencias existe'
 );
 
 select * from finish();

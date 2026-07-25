@@ -46,7 +46,7 @@ import {
   uploadRemoteAttachment,
 } from "@/lib/task-repository";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
-import { formatDueLabel, nextTaskCode } from "@/lib/task-utils";
+import { formatTaskDueLabel, nextTaskCode } from "@/lib/task-utils";
 import type {
   AppNotification,
   AppSettings,
@@ -59,6 +59,7 @@ import type {
   Project,
   Task,
   TaskAttachment,
+  TaskRecurrence,
   TaskStatus,
   TeamInvitation,
   TeamRole,
@@ -80,6 +81,40 @@ const defaultSettings: AppSettings = {
 
 function localId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function shiftDate(value: string | null, days: number) {
+  if (!value) return null;
+  const date = new Date(`${value}T12:00:00`);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function nextRecurringDate(
+  dueDate: string | null,
+  rule: TaskRecurrence,
+  interval = 1,
+) {
+  const date = dueDate
+    ? new Date(`${dueDate}T12:00:00`)
+    : new Date();
+  const safeInterval = Math.max(1, interval);
+  if (rule === "monthly") {
+    const originalDay = date.getDate();
+    date.setDate(1);
+    date.setMonth(date.getMonth() + safeInterval);
+    const lastDay = new Date(
+      date.getFullYear(),
+      date.getMonth() + 1,
+      0,
+    ).getDate();
+    date.setDate(Math.min(originalDay, lastDay));
+  } else {
+    const multiplier =
+      rule === "daily" ? 1 : rule === "weekly" ? 7 : 14;
+    date.setDate(date.getDate() + multiplier * safeInterval);
+  }
+  return date.toISOString().slice(0, 10);
 }
 
 function readFileAsDataUrl(file: File) {
@@ -214,6 +249,17 @@ export function useTaskWorkspace() {
                   demoDates.get(task.id) ??
                   task.dueDate ??
                   null,
+                clientId: task.clientId ?? task.project.clientId ?? null,
+                clientCategory:
+                  task.clientCategory ??
+                  task.project.clientCategory ??
+                  null,
+                dueTime: task.dueTime ?? null,
+                recurrenceRule: task.recurrenceRule ?? "none",
+                recurrenceInterval: task.recurrenceInterval ?? 1,
+                recurrenceOriginId: task.recurrenceOriginId ?? null,
+                recurrenceGeneratedAt:
+                  task.recurrenceGeneratedAt ?? null,
               })),
             );
           }
@@ -223,10 +269,18 @@ export function useTaskWorkspace() {
                 ...project,
                 clientId: project.clientId ?? null,
                 clientName: project.clientName ?? null,
+                clientCategory: project.clientCategory ?? null,
               })),
             );
           }
-          if (Array.isArray(snapshot.clients)) setAllClients(snapshot.clients);
+          if (Array.isArray(snapshot.clients)) {
+            setAllClients(
+              snapshot.clients.map((client) => ({
+                ...client,
+                categories: client.categories ?? [],
+              })),
+            );
+          }
           if (Array.isArray(snapshot.workspaces) && snapshot.workspaces.length) {
             setWorkspaces(
               snapshot.workspaces.map((workspace) => ({
@@ -379,8 +433,19 @@ export function useTaskWorkspace() {
 
   const updateTask = useCallback(
     async (taskId: string, input: UpdateTaskInput) => {
-      setAllTasks((current) =>
-        current.map((task) => {
+      const sourceBeforeUpdate = allTasks.find((task) => task.id === taskId);
+      setAllTasks((current) => {
+        const source = current.find((task) => task.id === taskId);
+        const shouldGenerateRecurrence = Boolean(
+          mode === "demo" &&
+            source &&
+            !source.parentTaskId &&
+            source.status !== "resuelto" &&
+            input.status === "resuelto" &&
+            (source.recurrenceRule ?? "none") !== "none" &&
+            !source.recurrenceGeneratedAt,
+        );
+        const updated = current.map((task) => {
           if (task.id !== taskId) return task;
           const { projectIds: nextProjectIds, ...taskInput } = input;
           const assignee =
@@ -391,6 +456,8 @@ export function useTaskWorkspace() {
                 ) ?? null);
           const nextDueDate =
             input.dueDate === undefined ? task.dueDate : input.dueDate;
+          const nextDueTime =
+            input.dueTime === undefined ? task.dueTime : input.dueTime;
           const nextStartDate =
             input.startDate === undefined ? task.startDate : input.startDate;
           const nextProjects =
@@ -402,30 +469,130 @@ export function useTaskWorkspace() {
                   )
                   .filter((project): project is Project => Boolean(project));
           const primaryProject = nextProjects[0] ?? task.project;
+          const nextClientId =
+            input.clientId === undefined
+              ? (task.clientId ?? primaryProject.clientId)
+              : input.clientId;
+          const nextClient = allClients.find(
+            (client) => client.id === nextClientId,
+          );
+          const nextClientCategory =
+            input.clientCategory !== undefined
+              ? input.clientCategory
+              : input.clientId !== undefined &&
+                  input.clientId !== task.clientId
+                ? null
+                : (task.clientCategory ?? primaryProject.clientCategory);
+          const nextStatus = input.status ?? task.status;
           return {
             ...task,
             ...taskInput,
             assignee,
             project: primaryProject,
             projects: nextProjects.length ? nextProjects : task.projects,
-            client: primaryProject.clientName ?? task.client,
+            client:
+              nextClient?.name ??
+              (nextClientId ? primaryProject.clientName : null) ??
+              "Sin cliente",
+            clientId: nextClientId ?? null,
+            clientCategory: nextClientCategory ?? null,
             startDate: nextStartDate,
             dueDate: nextDueDate,
-            dueLabel: formatDueLabel(nextDueDate),
+            dueTime: nextDueTime ?? null,
+            dueLabel: formatTaskDueLabel(nextDueDate, nextDueTime),
+            resolvedAt:
+              nextStatus === "resuelto"
+                ? (task.resolvedAt ?? new Date().toISOString())
+                : null,
+            recurrenceGeneratedAt: shouldGenerateRecurrence
+              ? new Date().toISOString()
+              : task.recurrenceGeneratedAt,
             updatedAt: "Ahora",
           };
-        }),
-      );
+        });
+
+        if (!shouldGenerateRecurrence || !source) return updated;
+        const recurrenceRule = source.recurrenceRule ?? "none";
+        const nextDueDate = nextRecurringDate(
+          source.dueDate,
+          recurrenceRule,
+          source.recurrenceInterval,
+        );
+        const baseDate = source.dueDate ?? new Date().toISOString().slice(0, 10);
+        const shiftDays = Math.round(
+          (new Date(`${nextDueDate}T12:00:00`).getTime() -
+            new Date(`${baseDate}T12:00:00`).getTime()) /
+            86_400_000,
+        );
+        let nextCodeNumber = current.reduce((highest, task) => {
+          const value = Number(task.code.replace(/\D/g, ""));
+          return Number.isFinite(value) ? Math.max(highest, value) : highest;
+        }, 150);
+        const nextCode = () => `AG-${++nextCodeNumber}`;
+        const nextParentId = localId("task");
+        const createdAt = new Date().toISOString();
+        const nextParent: Task = {
+          ...source,
+          id: nextParentId,
+          code: nextCode(),
+          parentTaskId: null,
+          status: "nuevo",
+          startDate: shiftDate(source.startDate, shiftDays),
+          dueDate: nextDueDate,
+          dueLabel: formatTaskDueLabel(nextDueDate, source.dueTime),
+          recurrenceOriginId: source.recurrenceOriginId ?? source.id,
+          recurrenceGeneratedAt: null,
+          createdAt,
+          resolvedAt: null,
+          updatedAt: "Ahora",
+          comments: [],
+          attachments: [],
+        };
+        const nextSubtasks = current
+          .filter((task) => task.parentTaskId === source.id)
+          .map<Task>((subtask) => {
+            const dueDate = shiftDate(subtask.dueDate, shiftDays);
+            return {
+              ...subtask,
+              id: localId("subtask"),
+              code: nextCode(),
+              parentTaskId: nextParentId,
+              status: "nuevo",
+              startDate: shiftDate(subtask.startDate, shiftDays),
+              dueDate,
+              dueLabel: formatTaskDueLabel(dueDate, subtask.dueTime),
+              recurrenceRule: "none",
+              recurrenceInterval: 1,
+              recurrenceOriginId: null,
+              recurrenceGeneratedAt: null,
+              createdAt,
+              resolvedAt: null,
+              updatedAt: "Ahora",
+              comments: [],
+              attachments: [],
+            };
+          });
+        return [nextParent, ...nextSubtasks, ...updated];
+      });
       if (mode === "supabase") {
         try {
           await updateRemoteTask(taskId, input);
+          if (
+            sourceBeforeUpdate &&
+            !sourceBeforeUpdate.parentTaskId &&
+            sourceBeforeUpdate.status !== "resuelto" &&
+            input.status === "resuelto" &&
+            (sourceBeforeUpdate.recurrenceRule ?? "none") !== "none"
+          ) {
+            await refresh();
+          }
         } catch (error) {
           await refresh();
           throw error;
         }
       }
     },
-    [allPeople, allProjects, mode, refresh],
+    [allClients, allPeople, allProjects, allTasks, mode, refresh],
   );
 
   const updateStatus = useCallback(
@@ -544,6 +711,8 @@ export function useTaskWorkspace() {
       if (!project) throw new Error("Creá un proyecto antes de sumar tareas.");
       const assignee =
         allPeople.find((person) => person.id === input.assigneeId) ?? null;
+      const client =
+        allClients.find((item) => item.id === input.clientId) ?? null;
       const task: Task = {
         id: localId("task"),
         code: nextTaskCode(allTasks),
@@ -555,12 +724,25 @@ export function useTaskWorkspace() {
         status: input.status ?? "nuevo",
         priority: input.priority,
         assignee,
-        client: project.clientName || input.client || "Sin cliente",
+        client: client?.name || project.clientName || input.client || "Sin cliente",
+        clientId: input.clientId ?? project.clientId,
+        clientCategory:
+          input.clientCategory ?? project.clientCategory ?? null,
         startDate: input.startDate || null,
         dueDate: input.dueDate || null,
-        dueLabel: formatDueLabel(input.dueDate || null),
+        dueTime: input.dueTime || null,
+        dueLabel: formatTaskDueLabel(
+          input.dueDate || null,
+          input.dueTime || null,
+        ),
+        recurrenceRule: input.recurrenceRule,
+        recurrenceInterval: input.recurrenceInterval,
+        recurrenceOriginId: null,
+        recurrenceGeneratedAt: null,
+        createdAt: new Date().toISOString(),
+        resolvedAt: null,
         updatedAt: "Ahora",
-        tags: [],
+        tags: input.tags,
         comments: [],
         attachments: [],
       };
@@ -577,7 +759,7 @@ export function useTaskWorkspace() {
       }
       return task;
     },
-    [allPeople, allProjects, allTasks, mode, projects, refresh],
+    [allClients, allPeople, allProjects, allTasks, mode, projects, refresh],
   );
 
   const createProject = useCallback(
@@ -597,6 +779,7 @@ export function useTaskWorkspace() {
         clientName:
           allClients.find((client) => client.id === input.clientId)?.name ??
           null,
+        clientCategory: input.clientCategory ?? null,
         archived: false,
       };
       setAllProjects((current) => [...current, project]);
@@ -612,6 +795,13 @@ export function useTaskWorkspace() {
           ? undefined
           : (allClients.find((client) => client.id === input.clientId)?.name ??
             null);
+      const clientCategory =
+        input.clientId === null
+          ? null
+          : input.clientId !== undefined &&
+              input.clientCategory === undefined
+            ? null
+            : input.clientCategory;
       setAllProjects((current) =>
         current.map((project) =>
           project.id === projectId
@@ -619,6 +809,7 @@ export function useTaskWorkspace() {
                 ...project,
                 ...input,
                 ...(clientName !== undefined ? { clientName } : {}),
+                ...(clientCategory !== undefined ? { clientCategory } : {}),
               }
             : project,
         ),
@@ -634,6 +825,9 @@ export function useTaskWorkspace() {
                   ...project,
                   ...input,
                   ...(clientName !== undefined ? { clientName } : {}),
+                  ...(clientCategory !== undefined
+                    ? { clientCategory }
+                    : {}),
                 }
               : project,
           );
@@ -722,6 +916,7 @@ export function useTaskWorkspace() {
         name: input.name,
         email: input.email,
         notes: input.notes,
+        categories: input.categories,
         workspaceId: input.workspaceId,
         archived: false,
       };
@@ -746,6 +941,13 @@ export function useTaskWorkspace() {
               : project,
           ),
         );
+        setAllTasks((current) =>
+          current.map((task) =>
+            task.clientId === clientId
+              ? { ...task, client: input.name! }
+              : task,
+          ),
+        );
       }
       if (mode === "supabase") {
         try {
@@ -768,8 +970,25 @@ export function useTaskWorkspace() {
       setAllProjects((current) =>
         current.map((project) =>
           project.clientId === clientId
-            ? { ...project, clientId: null, clientName: null }
+            ? {
+                ...project,
+                clientId: null,
+                clientName: null,
+                clientCategory: null,
+              }
             : project,
+        ),
+      );
+      setAllTasks((current) =>
+        current.map((task) =>
+          task.clientId === clientId
+            ? {
+                ...task,
+                client: "Sin cliente",
+                clientId: null,
+                clientCategory: null,
+              }
+            : task,
         ),
       );
       if (mode === "supabase") {

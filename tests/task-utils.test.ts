@@ -3,6 +3,7 @@ import {
   formatBytes,
   formatDuration,
   formatDueLabel,
+  formatTaskDueLabel,
   buildTimeReportCsv,
   canAuditTimeReports,
   elapsedSeconds,
@@ -32,6 +33,10 @@ describe("task utils", () => {
     expect(formatDueLabel("2026-07-24", now)).toBe("Hoy");
     expect(formatDueLabel("2026-07-25", now)).toBe("Mañana");
     expect(formatDueLabel(null, now)).toBe("Sin fecha");
+    expect(formatTaskDueLabel("2026-07-24", "17:30:00", now)).toBe(
+      "Hoy · 17:30",
+    );
+    expect(formatTaskDueLabel(null, "17:30", now)).toBe("Sin fecha");
   });
 
   it("combina búsqueda, prioridad, responsable y estado", () => {

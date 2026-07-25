@@ -55,6 +55,49 @@ test("mueve una tarjeta con drag-and-drop real", async ({ page }) => {
   ).toBeVisible();
 });
 
+test("reagenda una tarea recurrente con sus subtareas", async ({ page }) => {
+  await page.getByRole("button", { name: "Todas las tareas" }).click();
+  await page
+    .getByRole("button", {
+      name: /AG-142 Lanzamiento Aura Adaptar campaña/,
+    })
+    .click();
+  await expect(page.getByLabel("Repetición de la tarea")).toHaveValue(
+    "weekly",
+  );
+  await page.getByRole("button", { name: "Marcar aprobada" }).click();
+
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const raw = window.localStorage.getItem("taska-demo-workspace-v2");
+        if (!raw) return null;
+        const snapshot = JSON.parse(raw) as {
+          tasks: Array<{
+            id: string;
+            parentTaskId: string | null;
+            recurrenceOriginId?: string | null;
+            dueDate: string | null;
+          }>;
+        };
+        const occurrence = snapshot.tasks.find(
+          (task) =>
+            task.parentTaskId === null &&
+            task.recurrenceOriginId === "task-1",
+        );
+        if (!occurrence) return null;
+        const clonedSubtasks = snapshot.tasks.filter(
+          (task) => task.parentTaskId === occurrence.id,
+        );
+        return {
+          dueDate: occurrence.dueDate,
+          subtasks: clonedSubtasks.length,
+        };
+      }),
+    )
+    .toEqual({ dueDate: "2026-07-31", subtasks: 2 });
+});
+
 test("muestra subtareas asignadas en Mis tareas y en Gantt", async ({
   page,
 }) => {
@@ -113,6 +156,9 @@ test("crea clientes y vincula una tarea a varios proyectos", async ({
   await page.getByRole("button", { name: "Clientes" }).click();
   await page.getByPlaceholder("Ej. Aura Cosmética").fill("Cliente E2E");
   await page
+    .getByPlaceholder("Institucional, Cartelería, Autoliquidables")
+    .fill("Institucional, Cartelería, Autoliquidables");
+  await page
     .getByPlaceholder("marketing@cliente.com")
     .fill("cliente@taska.test");
   await page.getByRole("button", { name: "Crear cliente" }).click();
@@ -122,6 +168,9 @@ test("crea clientes y vincula una tarea a varios proyectos", async ({
   await page.getByRole("button", { name: "Crear proyecto" }).last().click();
   await page.getByLabel("Nombre del proyecto").fill("Proyecto Cliente E2E");
   await page.getByLabel("Cliente").selectOption({ label: "Cliente E2E" });
+  await page
+    .getByLabel("Categoría / servicio")
+    .selectOption("Cartelería");
   await page.getByRole("button", { name: "Crear proyecto" }).last().click();
   await expect(
     page.getByRole("button", { name: "Proyecto Cliente E2E", exact: true }),
@@ -129,17 +178,39 @@ test("crea clientes y vincula una tarea a varios proyectos", async ({
 
   await page.getByRole("button", { name: "Nueva tarea" }).click();
   await page.getByLabel("Nombre de la tarea").fill("Tarea multiproyecto E2E");
-  await page.getByLabel("Campaña").selectOption({
-    label: "Proyecto Cliente E2E",
-  });
+  await page
+    .getByText("Campaña", { exact: true })
+    .locator("..")
+    .getByRole("combobox")
+    .selectOption({ label: "Proyecto Cliente E2E" });
   const projectCheckboxes = page.getByRole("checkbox");
   await projectCheckboxes.first().check();
+  await page.getByLabel("Hora de entrega").fill("16:45");
+  await page.getByLabel("Repetición").selectOption("weekly");
+  await page
+    .getByPlaceholder("Ej. Diseño, Cartelería, Cambio de cliente")
+    .fill("Diseño, Aprobación");
   await page.getByRole("button", { name: "Crear tarea" }).click();
 
   await expect(page.getByLabel("Título de la tarea")).toHaveValue(
     "Tarea multiproyecto E2E",
   );
-  await expect(page.getByText("Cliente E2E", { exact: true })).toBeVisible();
+  await expect(
+    page.getByLabel("Cliente de la tarea").locator("option:checked"),
+  ).toHaveText("Cliente E2E");
+  await expect(page.getByLabel("Categoría del cliente")).toHaveValue(
+    "Cartelería",
+  );
+  await expect(page.getByLabel("Hora de vencimiento")).toHaveValue("16:45");
+  await expect(page.getByLabel("Repetición de la tarea")).toHaveValue(
+    "weekly",
+  );
+  await expect(page.getByLabel("Etiquetas de la tarea")).toHaveValue(
+    "Diseño, Aprobación",
+  );
+  await expect(
+    page.getByRole("heading", { name: "Resumen de actividad" }),
+  ).toBeVisible();
   await expect(
     page.getByRole("checkbox", { name: "Lanzamiento Aura" }),
   ).toBeChecked();

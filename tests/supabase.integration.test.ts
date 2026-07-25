@@ -48,6 +48,7 @@ describe.skipIf(!configured)("Supabase real: autenticación y persistencia", () 
         name: "Cliente E2E",
         email: "cliente@taska.test",
         notes: "Creado por la suite de integración.",
+        categories: ["Institucional", "Cartelería"],
       })
       .select("id")
       .single();
@@ -61,11 +62,13 @@ describe.skipIf(!configured)("Supabase real: autenticación y persistencia", () 
         slug: `proyecto-e2e-${Date.now()}`,
         color: "#0A84FF",
         client_id: client.data!.id,
+        client_category: "Cartelería",
       })
-      .select("id, client_id")
+      .select("id, client_id, client_category")
       .single();
     expect(project.error).toBeNull();
     expect(project.data?.client_id).toBe(client.data!.id);
+    expect(project.data?.client_category).toBe("Cartelería");
 
     const secondaryProject = await supabase!
       .from("projects")
@@ -89,6 +92,14 @@ describe.skipIf(!configured)("Supabase real: autenticación y persistencia", () 
         description: "Registro temporal del test automatizado.",
         status: "nuevo",
         priority: "media",
+        client_id: client.data!.id,
+        client_category: "Cartelería",
+        start_date: "2099-01-01",
+        due_date: "2099-01-07",
+        due_time: "16:45",
+        tags: ["Diseño", "Aprobación"],
+        recurrence_rule: "weekly",
+        recurrence_interval: 1,
       })
       .select("id")
       .single();
@@ -114,6 +125,73 @@ describe.skipIf(!configured)("Supabase real: autenticación y persistencia", () 
       .single();
     expect(persisted.error).toBeNull();
     expect(persisted.data?.title).toBe(title);
+
+    const subtask = await supabase!
+      .from("tasks")
+      .insert({
+        team_id: createdWorkspaceId,
+        project_id: project.data!.id,
+        parent_task_id: created.data!.id,
+        title: "Subtarea recurrente E2E",
+        description: "Debe conservar responsable y desplazarse una semana.",
+        status: "en_progreso",
+        priority: "alta",
+        assignee_id: auth.data.user!.id,
+        client_id: client.data!.id,
+        client_category: "Cartelería",
+        start_date: "2099-01-02",
+        due_date: "2099-01-06",
+        due_time: "15:30",
+      })
+      .select("id")
+      .single();
+    expect(subtask.error).toBeNull();
+
+    const completed = await supabase!
+      .from("tasks")
+      .update({ status: "resuelto" })
+      .eq("id", created.data!.id)
+      .select("resolved_at")
+      .single();
+    expect(completed.error).toBeNull();
+    expect(completed.data?.resolved_at).toBeTruthy();
+    const completedSource = await supabase!
+      .from("tasks")
+      .select("recurrence_generated_at")
+      .eq("id", created.data!.id)
+      .single();
+    expect(completedSource.error).toBeNull();
+    expect(completedSource.data?.recurrence_generated_at).toBeTruthy();
+
+    const nextOccurrence = await supabase!
+      .from("tasks")
+      .select(
+        "id, due_date, due_time, client_id, client_category, tags, recurrence_origin_id",
+      )
+      .eq("recurrence_origin_id", created.data!.id)
+      .single();
+    expect(nextOccurrence.error).toBeNull();
+    expect(nextOccurrence.data).toMatchObject({
+      due_date: "2099-01-14",
+      due_time: "16:45:00",
+      client_id: client.data!.id,
+      client_category: "Cartelería",
+      tags: ["Diseño", "Aprobación"],
+      recurrence_origin_id: created.data!.id,
+    });
+    const clonedSubtasks = await supabase!
+      .from("tasks")
+      .select("title, due_date, due_time, assignee_id")
+      .eq("parent_task_id", nextOccurrence.data!.id);
+    expect(clonedSubtasks.error).toBeNull();
+    expect(clonedSubtasks.data).toEqual([
+      expect.objectContaining({
+        title: "Subtarea recurrente E2E",
+        due_date: "2099-01-13",
+        due_time: "15:30:00",
+        assignee_id: auth.data.user!.id,
+      }),
+    ]);
 
     const timer = await supabase!.rpc("start_task_timer", {
       candidate_task_id: created.data!.id,

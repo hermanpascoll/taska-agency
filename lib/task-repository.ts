@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
-import { formatDueLabel, safeStorageName } from "@/lib/task-utils";
+import { formatTaskDueLabel, safeStorageName } from "@/lib/task-utils";
 import type {
   AppNotification,
   Client,
@@ -13,6 +13,7 @@ import type {
   TaskAttachment,
   TaskComment,
   TaskPriority,
+  TaskRecurrence,
   TaskStatus,
   TeamInvitation,
   TeamRole,
@@ -39,6 +40,7 @@ type RemoteProject = {
   team_id: string;
   description: string | null;
   client_id: string | null;
+  client_category: string | null;
   client: RemoteClient | RemoteClient[] | null;
   archived: boolean;
 };
@@ -49,6 +51,7 @@ type RemoteClient = {
   name: string;
   email: string | null;
   notes: string | null;
+  categories: string[] | null;
   archived: boolean;
 };
 
@@ -79,12 +82,22 @@ type RemoteTask = {
   priority: TaskPriority;
   start_date: string | null;
   due_date: string | null;
+  due_time: string | null;
   client_name: string | null;
   client_email: string | null;
+  client_id: string | null;
+  client_category: string | null;
+  recurrence_rule: TaskRecurrence;
+  recurrence_interval: number;
+  recurrence_origin_id: string | null;
+  recurrence_generated_at: string | null;
+  created_at: string;
+  resolved_at: string | null;
   updated_at: string;
   tags: string[] | null;
   parent_task_id: string | null;
   projects: RemoteProject | RemoteProject[] | null;
+  client: RemoteClient | RemoteClient[] | null;
   task_projects:
     | {
         project: RemoteProject | RemoteProject[] | null;
@@ -169,6 +182,7 @@ function mapClient(row: RemoteClient): Client {
     name: row.name,
     email: row.email ?? "",
     notes: row.notes ?? "",
+    categories: row.categories ?? [],
     workspaceId: row.team_id,
     archived: row.archived,
   };
@@ -221,6 +235,7 @@ function mapProject(project: RemoteProject): Project {
     description: project.description ?? undefined,
     clientId: project.client_id,
     clientName: client?.name ?? null,
+    clientCategory: project.client_category,
     archived: project.archived,
   };
 }
@@ -253,6 +268,7 @@ function mapAttachment(
 
 function mapTask(row: RemoteTask, index: number): Task {
   const remoteProject = one(row.projects);
+  const remoteClient = one(row.client);
   const project = remoteProject
     ? mapProject(remoteProject)
     : ({
@@ -262,6 +278,7 @@ function mapTask(row: RemoteTask, index: number): Task {
         workspaceId: "unknown",
         clientId: null,
         clientName: null,
+        clientCategory: null,
         archived: false,
       } satisfies Project);
   const relatedProjects = (row.task_projects ?? [])
@@ -292,11 +309,20 @@ function mapTask(row: RemoteTask, index: number): Task {
     status: row.status,
     priority: row.priority,
     assignee: personFromRemote(one(row.assignee), index),
-    client: project.clientName || row.client_name || "Sin cliente",
+    client: remoteClient?.name || project.clientName || row.client_name || "Sin cliente",
+    clientId: row.client_id ?? project.clientId,
+    clientCategory: row.client_category ?? project.clientCategory,
     clientEmail: row.client_email ?? undefined,
     startDate: row.start_date,
     dueDate: row.due_date,
-    dueLabel: formatDueLabel(row.due_date),
+    dueTime: row.due_time,
+    dueLabel: formatTaskDueLabel(row.due_date, row.due_time),
+    recurrenceRule: row.recurrence_rule,
+    recurrenceInterval: Number(row.recurrence_interval),
+    recurrenceOriginId: row.recurrence_origin_id,
+    recurrenceGeneratedAt: row.recurrence_generated_at,
+    createdAt: row.created_at,
+    resolvedAt: row.resolved_at,
     updatedAt: relativeTime(row.updated_at),
     tags: row.tags ?? [],
     comments,
@@ -359,12 +385,12 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
       ),
     supabase
       .from("clients")
-      .select("id, team_id, name, email, notes, archived")
+      .select("id, team_id, name, email, notes, categories, archived")
       .order("name"),
     supabase
       .from("projects")
       .select(
-        "id, team_id, name, color, description, archived, client_id, client:clients(id, team_id, name, email, notes, archived)",
+        "id, team_id, name, color, description, archived, client_id, client_category, client:clients(id, team_id, name, email, notes, categories, archived)",
       )
       .order("name"),
     supabase
@@ -374,7 +400,7 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     supabase
       .from("tasks")
       .select(
-        "id, task_number, title, description, status, priority, start_date, due_date, client_name, client_email, updated_at, tags, parent_task_id, projects!tasks_project_id_fkey(id, name, color, team_id, description, archived, client_id, client:clients(id, team_id, name, email, notes, archived)), task_projects(project:projects(id, name, color, team_id, description, archived, client_id, client:clients(id, team_id, name, email, notes, archived))), assignee:profiles!tasks_assignee_id_fkey(id, full_name, email, role), comments(id, body, created_at, author:profiles!comments_author_id_fkey(id, full_name, email, role)), attachments:task_attachments(id, task_id, name, size_bytes, mime_type, storage_path, created_at, uploader:profiles!task_attachments_uploaded_by_fkey(id, full_name, email, role))",
+        "id, task_number, title, description, status, priority, start_date, due_date, due_time, client_name, client_email, client_id, client_category, recurrence_rule, recurrence_interval, recurrence_origin_id, recurrence_generated_at, created_at, resolved_at, updated_at, tags, parent_task_id, projects!tasks_project_id_fkey(id, name, color, team_id, description, archived, client_id, client_category, client:clients(id, team_id, name, email, notes, categories, archived)), client:clients!tasks_client_id_fkey(id, team_id, name, email, notes, categories, archived), task_projects(project:projects(id, name, color, team_id, description, archived, client_id, client_category, client:clients(id, team_id, name, email, notes, categories, archived))), assignee:profiles!tasks_assignee_id_fkey(id, full_name, email, role), comments(id, body, created_at, author:profiles!comments_author_id_fkey(id, full_name, email, role)), attachments:task_attachments(id, task_id, name, size_bytes, mime_type, storage_path, created_at, uploader:profiles!task_attachments_uploaded_by_fkey(id, full_name, email, role))",
       )
       .order("updated_at", { ascending: false }),
     supabase
@@ -548,7 +574,13 @@ export async function createRemoteTask(input: NewTaskInput) {
       priority: input.priority,
       start_date: input.startDate || null,
       due_date: input.dueDate || null,
+      due_time: input.dueTime || null,
       client_name: input.client,
+      client_id: input.clientId || null,
+      client_category: input.clientCategory || null,
+      tags: input.tags,
+      recurrence_rule: input.recurrenceRule,
+      recurrence_interval: input.recurrenceInterval,
       status: input.status ?? "nuevo",
       parent_task_id: input.parentTaskId || null,
     })
@@ -606,14 +638,26 @@ export async function updateRemoteTask(id: string, input: UpdateTaskInput) {
     );
     if (relationResult.error) throw relationResult.error;
   }
-  const payload: Record<string, string | null> = {};
+  const payload: Record<string, string | string[] | number | null> = {};
   if (input.title !== undefined) payload.title = input.title;
   if (input.description !== undefined) payload.description = input.description;
   if (input.status !== undefined) payload.status = input.status;
   if (input.priority !== undefined) payload.priority = input.priority;
   if (input.assigneeId !== undefined) payload.assignee_id = input.assigneeId;
+  if (input.clientId !== undefined) payload.client_id = input.clientId;
+  if (input.clientCategory !== undefined) {
+    payload.client_category = input.clientCategory;
+  }
   if (input.startDate !== undefined) payload.start_date = input.startDate;
   if (input.dueDate !== undefined) payload.due_date = input.dueDate;
+  if (input.dueTime !== undefined) payload.due_time = input.dueTime;
+  if (input.tags !== undefined) payload.tags = input.tags;
+  if (input.recurrenceRule !== undefined) {
+    payload.recurrence_rule = input.recurrenceRule;
+  }
+  if (input.recurrenceInterval !== undefined) {
+    payload.recurrence_interval = input.recurrenceInterval;
+  }
   if (!Object.keys(payload).length) return;
   const { error } = await supabase.from("tasks").update(payload).eq("id", id);
   if (error) throw error;
@@ -643,11 +687,12 @@ export async function createRemoteProject(input: NewProjectInput) {
       name: input.name,
       description: input.description || null,
       client_id: input.clientId || null,
+      client_category: input.clientCategory || null,
       slug: `${slugBase}-${Date.now().toString(36)}`,
       color: input.color,
     })
     .select(
-      "id, team_id, name, color, description, archived, client_id, client:clients(id, team_id, name, email, notes, archived)",
+      "id, team_id, name, color, description, archived, client_id, client_category, client:clients(id, team_id, name, email, notes, categories, archived)",
     )
     .single();
   if (error) throw error;
@@ -665,6 +710,9 @@ export async function updateRemoteProject(
   if (input.color !== undefined) payload.color = input.color;
   if (input.description !== undefined) payload.description = input.description;
   if (input.clientId !== undefined) payload.client_id = input.clientId;
+  if (input.clientCategory !== undefined) {
+    payload.client_category = input.clientCategory;
+  }
   if (input.archived !== undefined) payload.archived = input.archived;
   const { error } = await supabase.from("projects").update(payload).eq("id", id);
   if (error) throw error;
@@ -680,8 +728,9 @@ export async function createRemoteClient(input: NewClientInput) {
       name: input.name,
       email: input.email || null,
       notes: input.notes,
+      categories: input.categories,
     })
-    .select("id, team_id, name, email, notes, archived")
+    .select("id, team_id, name, email, notes, categories, archived")
     .single();
   if (error) throw error;
   return mapClient(data as RemoteClient);

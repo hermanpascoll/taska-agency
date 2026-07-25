@@ -1,5 +1,11 @@
 export type TaskStatus = "nuevo" | "en_progreso" | "esperando" | "resuelto";
 export type TaskPriority = "urgente" | "alta" | "media" | "baja";
+export type TaskRecurrence =
+  | "none"
+  | "daily"
+  | "weekly"
+  | "biweekly"
+  | "monthly";
 export type TeamRole = "owner" | "admin" | "agent" | "viewer";
 
 export type Person = {
@@ -25,6 +31,7 @@ export type Client = {
   name: string;
   email: string;
   notes: string;
+  categories: string[];
   workspaceId: string;
   archived: boolean;
 };
@@ -37,6 +44,7 @@ export type Project = {
   description?: string;
   clientId: string | null;
   clientName: string | null;
+  clientCategory: string | null;
   archived: boolean;
 };
 
@@ -71,10 +79,19 @@ export type Task = {
   priority: TaskPriority;
   assignee: Person | null;
   client: string;
+  clientId?: string | null;
+  clientCategory?: string | null;
   clientEmail?: string;
   startDate: string | null;
   dueDate: string | null;
+  dueTime?: string | null;
   dueLabel: string;
+  recurrenceRule?: TaskRecurrence;
+  recurrenceInterval?: number;
+  recurrenceOriginId?: string | null;
+  recurrenceGeneratedAt?: string | null;
+  createdAt?: string;
+  resolvedAt?: string | null;
   updatedAt: string;
   tags: string[];
   comments: TaskComment[];
@@ -157,8 +174,14 @@ export type NewTaskInput = {
   priority: TaskPriority;
   assigneeId: string;
   client: string;
+  clientId: string | null;
+  clientCategory: string | null;
   startDate: string;
   dueDate: string;
+  dueTime: string;
+  tags: string[];
+  recurrenceRule: TaskRecurrence;
+  recurrenceInterval: number;
 };
 
 export type UpdateTaskInput = {
@@ -168,8 +191,14 @@ export type UpdateTaskInput = {
   priority?: TaskPriority;
   assigneeId?: string | null;
   projectIds?: string[];
+  clientId?: string | null;
+  clientCategory?: string | null;
   startDate?: string | null;
   dueDate?: string | null;
+  dueTime?: string | null;
+  tags?: string[];
+  recurrenceRule?: TaskRecurrence;
+  recurrenceInterval?: number;
 };
 
 export type NewProjectInput = {
@@ -178,6 +207,7 @@ export type NewProjectInput = {
   workspaceId: string;
   description?: string;
   clientId?: string;
+  clientCategory?: string;
 };
 
 export type UpdateProjectInput = {
@@ -185,6 +215,7 @@ export type UpdateProjectInput = {
   color?: string;
   description?: string;
   clientId?: string | null;
+  clientCategory?: string | null;
   archived?: boolean;
 };
 
@@ -192,6 +223,7 @@ export type NewClientInput = {
   name: string;
   email: string;
   notes: string;
+  categories: string[];
   workspaceId: string;
 };
 
@@ -199,6 +231,7 @@ export type UpdateClientInput = {
   name?: string;
   email?: string;
   notes?: string;
+  categories?: string[];
   archived?: boolean;
 };
 

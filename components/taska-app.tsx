@@ -2,6 +2,7 @@
 
 import {
   Archive,
+  Activity,
   BarChart3,
   Bell,
   Building2,
@@ -21,6 +22,7 @@ import {
   FolderKanban,
   GitBranch,
   GripVertical,
+  Hourglass,
   Inbox,
   LayoutDashboard,
   ListFilter,
@@ -34,15 +36,18 @@ import {
   Pause,
   Play,
   Plus,
+  Repeat2,
   Search,
   Settings,
   Shield,
   SlidersHorizontal,
   Sparkles,
+  Tags,
   TimerReset,
   Trash2,
   UserPlus,
   UserRound,
+  UsersRound,
   Users,
   X,
   Zap,
@@ -84,6 +89,7 @@ import type {
   Task,
   TaskAttachment,
   TaskPriority,
+  TaskRecurrence,
   TaskStatus,
   TeamInvitation,
   TeamRole,
@@ -97,6 +103,14 @@ import type {
 } from "@/lib/types";
 
 type View = "my_tasks" | "all_tasks" | "board" | "gantt";
+
+const recurrenceLabels: Record<TaskRecurrence, string> = {
+  none: "No se repite",
+  daily: "Diaria",
+  weekly: "Semanal",
+  biweekly: "Cada dos semanas",
+  monthly: "Mensual",
+};
 
 const statusMeta: Record<
   TaskStatus,
@@ -1223,6 +1237,7 @@ function TaskDrawer({
   activeTimeEntry,
   people,
   projects,
+  clients,
   currentPerson,
   currentUserId,
   currency,
@@ -1251,6 +1266,7 @@ function TaskDrawer({
   activeTimeEntry: TimeEntry | null;
   people: Person[];
   projects: Project[];
+  clients: Client[];
   currentPerson: Person | null;
   currentUserId: string;
   currency: string;
@@ -1278,6 +1294,36 @@ function TaskDrawer({
     task.assignee?.id ?? currentPerson?.id ?? "",
   );
   const attachmentInput = useRef<HTMLInputElement>(null);
+  const selectedClient =
+    clients.find((client) => client.id === task.clientId) ?? null;
+  const trackedSeconds = timeEntries.reduce(
+    (total, entry) => total + elapsedSeconds(entry),
+    0,
+  );
+  const involvedPeople = new Set(
+    [
+      task.assignee?.id,
+      ...subtasks.map((subtask) => subtask.assignee?.id),
+      ...task.comments.map((item) => item.author.id),
+      ...timeEntries.map((entry) => entry.user.id),
+    ].filter((id): id is string => Boolean(id)),
+  );
+  const activityStartedAt =
+    task.createdAt ??
+    (task.startDate ? `${task.startDate}T12:00:00` : null);
+  const elapsedDays = activityStartedAt
+    ? Math.max(
+        1,
+        Math.ceil(
+          ((task.resolvedAt
+            ? new Date(task.resolvedAt)
+            : new Date()
+          ).getTime() -
+            new Date(activityStartedAt).getTime()) /
+            86_400_000,
+        ),
+      )
+    : null;
 
   function submitComment(event: FormEvent) {
     event.preventDefault();
@@ -1455,7 +1501,49 @@ function TaskDrawer({
               <Building2 className="size-3.5" />
               Cliente
             </span>
-            <span className="font-semibold text-slate-700">{task.client}</span>
+            <select
+              value={task.clientId ?? ""}
+              onChange={(event) =>
+                onTaskUpdate({
+                  clientId: event.target.value || null,
+                  clientCategory: null,
+                })
+              }
+              className="focus-ring min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 font-semibold text-slate-700"
+              aria-label="Cliente de la tarea"
+            >
+              <option value="">Sin cliente</option>
+              {clients
+                .filter((client) => !client.archived)
+                .map((client) => (
+                  <option value={client.id} key={client.id}>
+                    {client.name}
+                  </option>
+                ))}
+            </select>
+
+            <span className="flex items-center gap-2 text-slate-400">
+              <Tags className="size-3.5" />
+              Categoría
+            </span>
+            <select
+              value={task.clientCategory ?? ""}
+              disabled={!selectedClient}
+              onChange={(event) =>
+                onTaskUpdate({
+                  clientCategory: event.target.value || null,
+                })
+              }
+              className="focus-ring min-w-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 font-semibold text-slate-700 disabled:bg-slate-50"
+              aria-label="Categoría del cliente"
+            >
+              <option value="">Sin categoría</option>
+              {(selectedClient?.categories ?? []).map((category) => (
+                <option key={category} value={category}>
+                  {category}
+                </option>
+              ))}
+            </select>
 
             <span className="flex items-center gap-2 text-slate-400">
               <UserRound className="size-3.5" />
@@ -1538,6 +1626,70 @@ function TaskDrawer({
               className="focus-ring w-fit rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 font-semibold text-slate-700"
               aria-label="Fecha de vencimiento"
             />
+
+            <span className="flex items-center gap-2 text-slate-400">
+              <Clock3 className="size-3.5" />
+              Hora
+            </span>
+            <input
+              type="time"
+              value={task.dueTime ?? ""}
+              onChange={(event) =>
+                onTaskUpdate({ dueTime: event.target.value || null })
+              }
+              className="focus-ring w-fit rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 font-semibold text-slate-700"
+              aria-label="Hora de vencimiento"
+            />
+
+            {!task.parentTaskId && (
+              <>
+                <span className="flex items-center gap-2 text-slate-400">
+                  <Repeat2 className="size-3.5" />
+                  Repetición
+                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={task.recurrenceRule ?? "none"}
+                    onChange={(event) =>
+                      onTaskUpdate({
+                        recurrenceRule: event.target.value as TaskRecurrence,
+                      })
+                    }
+                    className="focus-ring rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 font-semibold text-slate-700"
+                    aria-label="Repetición de la tarea"
+                  >
+                    {(Object.keys(recurrenceLabels) as TaskRecurrence[]).map(
+                      (rule) => (
+                        <option key={rule} value={rule}>
+                          {recurrenceLabels[rule]}
+                        </option>
+                      ),
+                    )}
+                  </select>
+                  {(task.recurrenceRule ?? "none") !== "none" && (
+                    <label className="flex items-center gap-1.5 text-[10px] text-slate-500">
+                      cada
+                      <input
+                        type="number"
+                        min={1}
+                        max={52}
+                        value={task.recurrenceInterval ?? 1}
+                        onChange={(event) =>
+                          onTaskUpdate({
+                            recurrenceInterval: Math.max(
+                              1,
+                              Number(event.target.value) || 1,
+                            ),
+                          })
+                        }
+                        className="focus-ring w-14 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-center font-semibold text-slate-700"
+                        aria-label="Intervalo de repetición"
+                      />
+                    </label>
+                  )}
+                </div>
+              </>
+            )}
           </div>
 
           <div className="my-7 h-px bg-slate-100" />
@@ -1559,18 +1711,35 @@ function TaskDrawer({
               className="focus-ring mt-3 min-h-20 w-full resize-y rounded-xl border border-transparent bg-transparent p-2 text-[13px] leading-6 text-slate-600 hover:border-slate-200 focus:border-violet-200"
               aria-label="Descripción de la tarea"
             />
-            {task.tags.length > 0 && (
-              <div className="mt-4 flex flex-wrap gap-2">
-                {task.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-[10px] font-semibold text-slate-500"
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            )}
+            <label className="mt-4 block">
+              <span className="mb-2 flex items-center gap-2 text-[10px] font-semibold text-slate-500">
+                <Tags className="size-3.5" />
+                Etiquetas
+              </span>
+              <input
+                key={`${task.id}-tags`}
+                defaultValue={task.tags.join(", ")}
+                onBlur={(event) => {
+                  const tags = [
+                    ...new Set(
+                      event.target.value
+                        .split(",")
+                        .map((tag) => tag.trim())
+                        .filter(Boolean),
+                    ),
+                  ];
+                  if (tags.join("|") !== task.tags.join("|")) {
+                    onTaskUpdate({ tags });
+                  }
+                }}
+                placeholder="Diseño, Cartelería, Cambio de cliente"
+                className="focus-ring w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-[12px] text-slate-700 placeholder:text-slate-400"
+                aria-label="Etiquetas de la tarea"
+              />
+              <span className="mt-1.5 block text-[9px] text-slate-400">
+                Separalas con comas. También se incluyen en la búsqueda.
+              </span>
+            </label>
           </section>
 
           <TaskTimerSection
@@ -1586,6 +1755,75 @@ function TaskDrawer({
             onManualCreate={onManualTimeCreate}
             onDelete={onTimeEntryDelete}
           />
+
+          <section className="mt-8 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">
+                  <Activity className="size-3.5 text-violet-500" />
+                  Resumen de actividad
+                </h3>
+                <p className="mt-1 text-[10px] leading-4 text-slate-400">
+                  Una lectura rápida del esfuerzo y el intercambio acumulado.
+                </p>
+              </div>
+              {task.recurrenceOriginId && (
+                <span className="rounded-full bg-violet-100 px-2 py-1 text-[9px] font-semibold text-violet-700">
+                  Generada automáticamente
+                </span>
+              )}
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {[
+                {
+                  label: "Personas",
+                  value: String(involvedPeople.size),
+                  icon: UsersRound,
+                },
+                {
+                  label: "Intercambios",
+                  value: String(
+                    task.comments.length + task.attachments.length,
+                  ),
+                  icon: MessageSquare,
+                },
+                {
+                  label: "Registrado",
+                  value: formatDuration(trackedSeconds),
+                  icon: Clock3,
+                },
+                {
+                  label: "Ciclo",
+                  value: elapsedDays ? `${elapsedDays} d` : "—",
+                  icon: Hourglass,
+                },
+              ].map((metric) => {
+                const Icon = metric.icon;
+                return (
+                  <div
+                    key={metric.label}
+                    className="rounded-xl border border-white bg-white px-3 py-3 shadow-sm"
+                  >
+                    <Icon className="size-3.5 text-slate-400" />
+                    <p className="mt-2 truncate text-[14px] font-bold text-slate-800">
+                      {metric.value}
+                    </p>
+                    <p className="mt-0.5 text-[8px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+                      {metric.label}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+            {(task.recurrenceRule ?? "none") !== "none" &&
+              !task.parentTaskId && (
+                <p className="mt-3 flex items-start gap-2 rounded-xl bg-violet-50 px-3 py-2.5 text-[10px] leading-4 text-violet-700">
+                  <Repeat2 className="mt-0.5 size-3.5 shrink-0" />
+                  Al aprobarla se crea la próxima ocurrencia con sus subtareas
+                  y responsables. Este historial no se modifica.
+                </p>
+              )}
+          </section>
 
           <section className="mt-8">
             <div className="flex items-center justify-between">
@@ -1836,12 +2074,14 @@ function TaskDrawer({
 
 function NewTaskModal({
   projects,
+  clients,
   people,
   defaultStatus,
   onClose,
   onCreate,
 }: {
   projects: Project[];
+  clients: Client[];
   people: Person[];
   defaultStatus: TaskStatus;
   onClose: () => void;
@@ -1856,6 +2096,13 @@ function NewTaskModal({
   const [status, setStatus] = useState<TaskStatus>(defaultStatus);
   const [priority, setPriority] = useState<TaskPriority>("media");
   const [assigneeId, setAssigneeId] = useState(people[0]?.id ?? "");
+  const [clientId, setClientId] = useState(
+    projects[0]?.clientId ?? "",
+  );
+  const [clientCategory, setClientCategory] = useState(
+    projects[0]?.clientCategory ?? "",
+  );
+  const [tags, setTags] = useState("");
   const [startDate, setStartDate] = useState(() =>
     new Date().toISOString().slice(0, 10),
   );
@@ -1864,6 +2111,12 @@ function NewTaskModal({
     tomorrow.setDate(tomorrow.getDate() + 1);
     return tomorrow.toISOString().slice(0, 10);
   });
+  const [dueTime, setDueTime] = useState("17:00");
+  const [recurrenceRule, setRecurrenceRule] =
+    useState<TaskRecurrence>("none");
+  const [recurrenceInterval, setRecurrenceInterval] = useState(1);
+  const selectedClient =
+    clients.find((client) => client.id === clientId) ?? null;
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -1876,11 +2129,18 @@ function NewTaskModal({
       status,
       priority,
       assigneeId,
-      client:
-        projects.find((project) => project.id === projectId)?.clientName ??
-        "",
+      client: selectedClient?.name ?? "",
+      clientId: clientId || null,
+      clientCategory: clientCategory || null,
       startDate,
       dueDate,
+      dueTime,
+      tags: tags
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean),
+      recurrenceRule,
+      recurrenceInterval,
     });
   }
 
@@ -1950,7 +2210,12 @@ function NewTaskModal({
                 value={projectId}
                 onChange={(event) => {
                   const nextProjectId = event.target.value;
+                  const nextProject = projects.find(
+                    (project) => project.id === nextProjectId,
+                  );
                   setProjectId(nextProjectId);
+                  setClientId(nextProject?.clientId ?? "");
+                  setClientCategory(nextProject?.clientCategory ?? "");
                   setProjectIds((current) =>
                     current.includes(nextProjectId)
                       ? current
@@ -2078,7 +2343,7 @@ function NewTaskModal({
             </label>
             <label>
               <span className="mb-2 block text-[11px] font-bold text-slate-600">
-                Entrega
+                Fecha de entrega
               </span>
               <input
                 type="date"
@@ -2088,21 +2353,122 @@ function NewTaskModal({
                 className="focus-ring w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-[12px] text-slate-700"
               />
             </label>
+            <label>
+              <span className="mb-2 block text-[11px] font-bold text-slate-600">
+                Hora de entrega
+              </span>
+              <input
+                type="time"
+                value={dueTime}
+                onChange={(event) => setDueTime(event.target.value)}
+                className="focus-ring w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-[12px] text-slate-700"
+              />
+            </label>
+            <label>
+              <span className="mb-2 block text-[11px] font-bold text-slate-600">
+                Repetición
+              </span>
+              <select
+                value={recurrenceRule}
+                onChange={(event) =>
+                  setRecurrenceRule(event.target.value as TaskRecurrence)
+                }
+                className="focus-ring w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-[12px] text-slate-700"
+              >
+                {(Object.keys(recurrenceLabels) as TaskRecurrence[]).map(
+                  (rule) => (
+                    <option key={rule} value={rule}>
+                      {recurrenceLabels[rule]}
+                    </option>
+                  ),
+                )}
+              </select>
+            </label>
+            {recurrenceRule !== "none" && (
+              <label>
+                <span className="mb-2 block text-[11px] font-bold text-slate-600">
+                  Repetir cada
+                </span>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={52}
+                    value={recurrenceInterval}
+                    onChange={(event) =>
+                      setRecurrenceInterval(
+                        Math.max(1, Number(event.target.value) || 1),
+                      )
+                    }
+                    className="focus-ring w-20 rounded-xl border border-slate-200 bg-white px-3 py-3 text-[12px] text-slate-700"
+                  />
+                  <span className="text-[10px] text-slate-500">
+                    {recurrenceRule === "monthly"
+                      ? "mes(es)"
+                      : recurrenceRule === "daily"
+                        ? "día(s)"
+                        : "período(s)"}
+                  </span>
+                </div>
+              </label>
+            )}
           </div>
 
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label>
+              <span className="mb-2 block text-[11px] font-bold text-slate-600">
+                Cliente
+              </span>
+              <select
+                value={clientId}
+                onChange={(event) => {
+                  setClientId(event.target.value);
+                  setClientCategory("");
+                }}
+                className="focus-ring w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-[12px] text-slate-700"
+              >
+                <option value="">Sin cliente</option>
+                {clients
+                  .filter((client) => !client.archived)
+                  .map((client) => (
+                    <option key={client.id} value={client.id}>
+                      {client.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label>
+              <span className="mb-2 block text-[11px] font-bold text-slate-600">
+                Categoría / servicio
+              </span>
+              <select
+                value={clientCategory}
+                disabled={!selectedClient}
+                onChange={(event) => setClientCategory(event.target.value)}
+                className="focus-ring w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-[12px] text-slate-700 disabled:bg-slate-50"
+              >
+                <option value="">Sin categoría</option>
+                {(selectedClient?.categories ?? []).map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           <label className="block">
             <span className="mb-2 block text-[11px] font-bold text-slate-600">
-              Cliente
+              Etiquetas
             </span>
             <input
-              value={
-                projects.find((project) => project.id === projectId)
-                  ?.clientName ?? ""
-              }
-              readOnly
-              placeholder="Definilo desde el proyecto"
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-[13px] text-slate-600 placeholder:text-slate-400"
+              value={tags}
+              onChange={(event) => setTags(event.target.value)}
+              placeholder="Ej. Diseño, Cartelería, Cambio de cliente"
+              className="focus-ring w-full rounded-xl border border-slate-200 px-4 py-3 text-[13px] text-slate-700"
             />
+            <span className="mt-1.5 block text-[9px] text-slate-400">
+              Separalas con comas para encontrarlas después en filtros y búsqueda.
+            </span>
           </label>
         </div>
 
@@ -2139,6 +2505,9 @@ function NewProjectModal({
   const [color, setColor] = useState("#6556EE");
   const [description, setDescription] = useState("");
   const [clientId, setClientId] = useState("");
+  const [clientCategory, setClientCategory] = useState("");
+  const selectedClient =
+    clients.find((client) => client.id === clientId) ?? null;
   const colors = [
     "#6556EE",
     "#EF6A67",
@@ -2156,6 +2525,7 @@ function NewProjectModal({
       color,
       description: description.trim(),
       clientId: clientId || undefined,
+      clientCategory: clientCategory || undefined,
       workspaceId,
     });
   }
@@ -2209,7 +2579,10 @@ function NewProjectModal({
           </span>
           <select
             value={clientId}
-            onChange={(event) => setClientId(event.target.value)}
+            onChange={(event) => {
+              setClientId(event.target.value);
+              setClientCategory("");
+            }}
             className="focus-ring w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-[12px] text-slate-700"
           >
             <option value="">Sin cliente</option>
@@ -2220,6 +2593,24 @@ function NewProjectModal({
                   {client.name}
                 </option>
               ))}
+          </select>
+        </label>
+        <label className="mt-4 block">
+          <span className="mb-2 block text-[11px] font-bold text-slate-600">
+            Categoría / servicio
+          </span>
+          <select
+            value={clientCategory}
+            disabled={!selectedClient}
+            onChange={(event) => setClientCategory(event.target.value)}
+            className="focus-ring w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-[12px] text-slate-700 disabled:bg-slate-50"
+          >
+            <option value="">Sin categoría</option>
+            {(selectedClient?.categories ?? []).map((category) => (
+              <option key={category} value={category}>
+                {category}
+              </option>
+            ))}
           </select>
         </label>
         <label className="mt-4 block">
@@ -2295,6 +2686,7 @@ function ClientsModal({
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [notes, setNotes] = useState("");
+  const [categories, setCategories] = useState("");
   const [saving, setSaving] = useState(false);
   const [deletingClient, setDeletingClient] = useState<Client | null>(null);
 
@@ -2303,6 +2695,7 @@ function ClientsModal({
     setName("");
     setEmail("");
     setNotes("");
+    setCategories("");
   }
 
   async function submit(event: FormEvent) {
@@ -2315,12 +2708,20 @@ function ClientsModal({
           name: name.trim(),
           email: email.trim(),
           notes: notes.trim(),
+          categories: categories
+            .split(",")
+            .map((category) => category.trim())
+            .filter(Boolean),
         });
       } else {
         await onCreate({
           name: name.trim(),
           email: email.trim(),
           notes: notes.trim(),
+          categories: categories
+            .split(",")
+            .map((category) => category.trim())
+            .filter(Boolean),
           workspaceId,
         });
       }
@@ -2377,6 +2778,21 @@ function ClientsModal({
                 placeholder="Ej. Aura Cosmética"
                 className="mac-input focus-ring w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-[11px]"
               />
+            </label>
+            <label className="mt-4 block">
+              <span className="mb-2 block text-[10px] font-bold text-slate-600">
+                Categorías / servicios
+              </span>
+              <input
+                disabled={!canManage}
+                value={categories}
+                onChange={(event) => setCategories(event.target.value)}
+                placeholder="Institucional, Cartelería, Autoliquidables"
+                className="mac-input focus-ring w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-[11px]"
+              />
+              <span className="mt-1.5 block text-[8px] text-slate-400">
+                Separalas con comas. Quedarán disponibles en proyectos y tareas.
+              </span>
             </label>
             <label className="mt-4 block">
               <span className="mb-2 block text-[10px] font-bold text-slate-600">
@@ -2477,6 +2893,18 @@ function ClientsModal({
                   <p className="mt-3 min-h-8 text-[9px] leading-4 text-slate-500">
                     {client.notes || "Sin notas adicionales."}
                   </p>
+                  {client.categories.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {client.categories.map((category) => (
+                        <span
+                          key={category}
+                          className="rounded-lg bg-[#0a84ff]/8 px-2 py-1 text-[8px] font-semibold text-[#0879ea]"
+                        >
+                          {category}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   {canManage && (
                     <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
                       <button
@@ -2485,6 +2913,7 @@ function ClientsModal({
                           setName(client.name);
                           setEmail(client.email);
                           setNotes(client.notes);
+                          setCategories(client.categories.join(", "));
                         }}
                         className="focus-ring rounded-lg border border-slate-200 px-3 py-2 text-[9px] font-semibold text-slate-600 hover:bg-slate-50"
                       >
@@ -2689,6 +3118,11 @@ function ProjectSettingsModal({
   const [description, setDescription] = useState(project.description ?? "");
   const [color, setColor] = useState(project.color);
   const [clientId, setClientId] = useState(project.clientId ?? "");
+  const [clientCategory, setClientCategory] = useState(
+    project.clientCategory ?? "",
+  );
+  const selectedClient =
+    clients.find((client) => client.id === clientId) ?? null;
   const [confirmAction, setConfirmAction] = useState<
     "archive" | "delete" | null
   >(null);
@@ -2716,6 +3150,7 @@ function ProjectSettingsModal({
             description: description.trim(),
             color,
             clientId: clientId || null,
+            clientCategory: clientCategory || null,
           });
         }}
         className="mac-window animate-enter relative w-full max-w-[500px] overflow-hidden rounded-2xl border border-white/80 bg-white/95 shadow-[0_30px_90px_rgba(15,23,42,.25)] backdrop-blur-2xl"
@@ -2750,7 +3185,10 @@ function ProjectSettingsModal({
             </span>
             <select
               value={clientId}
-              onChange={(event) => setClientId(event.target.value)}
+              onChange={(event) => {
+                setClientId(event.target.value);
+                setClientCategory("");
+              }}
               className="mac-input focus-ring w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-[12px]"
             >
               <option value="">Sin cliente</option>
@@ -2761,6 +3199,24 @@ function ProjectSettingsModal({
                     {client.name}
                   </option>
                 ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="mb-2 block text-[11px] font-semibold text-slate-600">
+              Categoría / servicio
+            </span>
+            <select
+              value={clientCategory}
+              disabled={!selectedClient}
+              onChange={(event) => setClientCategory(event.target.value)}
+              className="mac-input focus-ring w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-[12px] disabled:bg-slate-50"
+            >
+              <option value="">Sin categoría</option>
+              {(selectedClient?.categories ?? []).map((category) => (
+                <option key={category} value={category}>
+                  {category}
+                </option>
+              ))}
             </select>
           </label>
           <label className="block">
@@ -4655,6 +5111,7 @@ export function TaskaApp() {
           activeTimeEntry={activeTimeEntry}
           people={people}
           projects={projects}
+          clients={clients}
           currentPerson={currentPerson}
           currentUserId={currentUserId}
           currency={activeWorkspace?.currency ?? "USD"}
@@ -4697,8 +5154,20 @@ export function TaskaApp() {
                   priority: selectedTask.priority,
                   assigneeId,
                   client: selectedTask.client,
+                  clientId:
+                    selectedTask.clientId ??
+                    selectedTask.project.clientId ??
+                    null,
+                  clientCategory:
+                    selectedTask.clientCategory ??
+                    selectedTask.project.clientCategory ??
+                    null,
                   startDate: selectedTask.startDate ?? "",
                   dueDate: selectedTask.dueDate ?? "",
+                  dueTime: selectedTask.dueTime ?? "",
+                  tags: [],
+                  recurrenceRule: "none",
+                  recurrenceInterval: 1,
                 });
                 setSelectedTaskId(parentId);
                 notify("Subtarea creada correctamente");
@@ -4783,6 +5252,7 @@ export function TaskaApp() {
       {showNewTask && (
         <NewTaskModal
           projects={projects}
+          clients={clients}
           people={people}
           defaultStatus={newTaskStatus}
           onClose={() => setShowNewTask(false)}
