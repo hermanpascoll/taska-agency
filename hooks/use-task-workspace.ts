@@ -87,22 +87,34 @@ const defaultSettings: AppSettings = {
   compactMode: false,
   showCompleted: true,
   accentColor: "#0A84FF",
-  theme: "light",
+  theme: "system",
+  warnTimerOverlaps: true,
+  staleTimerHours: 8,
 };
 
 function loadStoredSettings(): AppSettings {
   if (typeof window === "undefined") return defaultSettings;
   try {
+    const storedTheme = window.localStorage.getItem(themeStorageKey);
     return {
       ...defaultSettings,
       theme:
-        window.localStorage.getItem(themeStorageKey) === "dark"
-          ? "dark"
-          : "light",
+        storedTheme === "dark" || storedTheme === "light"
+          ? storedTheme
+          : "system",
     };
   } catch {
     return defaultSettings;
   }
+}
+
+function applyTheme(theme: AppSettings["theme"]) {
+  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.classList.toggle(
+    "dark",
+    theme === "dark" || (theme === "system" && prefersDark),
+  );
+  document.documentElement.dataset.theme = theme;
 }
 
 function localId(prefix: string) {
@@ -126,7 +138,7 @@ function localEvent(
 }
 
 function taskUpdateSummary(input: UpdateTaskInput) {
-  if (input.status === "resuelto") return "Tarea marcada como aprobada";
+  if (input.status === "resuelto") return "Tarea completada";
   if (input.status) return "Cambió el estado de la tarea";
   if (input.assigneeId !== undefined) return "Cambió el responsable";
   if (
@@ -1799,14 +1811,20 @@ export function useTaskWorkspace() {
 
   const updateSettings = useCallback((input: Partial<AppSettings>) => {
     if (input.theme) {
-      document.documentElement.classList.toggle(
-        "dark",
-        input.theme === "dark",
-      );
+      applyTheme(input.theme);
       window.localStorage.setItem(themeStorageKey, input.theme);
     }
     setSettings((current) => ({ ...current, ...input }));
   }, []);
+
+  useEffect(() => {
+    applyTheme(settings.theme);
+    if (settings.theme !== "system") return;
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = () => applyTheme("system");
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, [settings.theme]);
 
   const startTimer = useCallback(
     async (taskId: string, description: string, billable: boolean) => {

@@ -177,6 +177,84 @@ export function timeEntryCost(entry: TimeEntry, now = new Date()) {
   return (elapsedSeconds(entry, now) / 3600) * entry.hourlyRate;
 }
 
+type TimeInterval = {
+  start: number;
+  end: number;
+};
+
+function timeEntryInterval(entry: TimeEntry, now: Date): TimeInterval {
+  const start = new Date(entry.startedAt).getTime();
+  return {
+    start,
+    end: start + elapsedSeconds(entry, now) * 1000,
+  };
+}
+
+/**
+ * Suma el tiempo efectivo por persona. Si una misma persona registró dos
+ * tareas a la vez, el tramo solapado se cuenta una sola vez. El trabajo de
+ * personas distintas sí se suma porque representa esfuerzo concurrente real.
+ */
+export function nonOverlappingTimeSeconds(
+  entries: TimeEntry[],
+  now = new Date(),
+) {
+  const byUser = new Map<string, TimeInterval[]>();
+  entries.forEach((entry) => {
+    const interval = timeEntryInterval(entry, now);
+    const current = byUser.get(entry.user.id) ?? [];
+    current.push(interval);
+    byUser.set(entry.user.id, current);
+  });
+
+  let totalMilliseconds = 0;
+  byUser.forEach((intervals) => {
+    const sorted = [...intervals].sort((a, b) => a.start - b.start);
+    if (!sorted.length) return;
+    let current = { ...sorted[0] };
+    for (const interval of sorted.slice(1)) {
+      if (interval.start <= current.end) {
+        current.end = Math.max(current.end, interval.end);
+      } else {
+        totalMilliseconds += Math.max(0, current.end - current.start);
+        current = { ...interval };
+      }
+    }
+    totalMilliseconds += Math.max(0, current.end - current.start);
+  });
+
+  return Math.round(totalMilliseconds / 1000);
+}
+
+export function overlappingTimeSeconds(
+  entries: TimeEntry[],
+  now = new Date(),
+) {
+  const gross = entries.reduce(
+    (total, entry) => total + elapsedSeconds(entry, now),
+    0,
+  );
+  return Math.max(0, gross - nonOverlappingTimeSeconds(entries, now));
+}
+
+export function hasTimeEntryOverlap(
+  entries: TimeEntry[],
+  now = new Date(),
+) {
+  return overlappingTimeSeconds(entries, now) > 0;
+}
+
+export function isStaleTimer(
+  entry: TimeEntry,
+  staleAfterHours = 8,
+  now = new Date(),
+) {
+  return (
+    !entry.endedAt &&
+    elapsedSeconds(entry, now) >= Math.max(1, staleAfterHours) * 3600
+  );
+}
+
 function csvCell(value: string | number | boolean) {
   const text = String(value);
   return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;

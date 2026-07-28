@@ -204,7 +204,9 @@ export type AppSettings = {
   compactMode: boolean;
   showCompleted: boolean;
   accentColor: string;
-  theme: "light" | "dark";
+  theme: "light" | "dark" | "system";
+  warnTimerOverlaps: boolean;
+  staleTimerHours: number;
 };
 
 export type AdvancedFilters = {

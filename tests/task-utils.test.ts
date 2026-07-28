@@ -7,9 +7,13 @@ import {
   buildTimeReportCsv,
   canAuditTimeReports,
   elapsedSeconds,
+  hasTimeEntryOverlap,
+  isStaleTimer,
   isTaskAssignedToCurrentUser,
   matchesTaskFilters,
   nextTaskCode,
+  nonOverlappingTimeSeconds,
+  overlappingTimeSeconds,
   safeStorageName,
   timeEntryCost,
 } from "@/lib/task-utils";
@@ -121,5 +125,56 @@ describe("task utils", () => {
     expect(canAuditTimeReports("admin")).toBe(true);
     expect(canAuditTimeReports("agent")).toBe(false);
     expect(canAuditTimeReports("viewer")).toBe(false);
+  });
+
+  it("separa tiempo bruto de tiempo real cuando una persona solapa timers", () => {
+    const source = timeEntries[0];
+    const first = {
+      ...source,
+      id: "overlap-1",
+      startedAt: "2026-07-28T12:00:00.000Z",
+      endedAt: "2026-07-28T13:00:00.000Z",
+      durationSeconds: 3600,
+    };
+    const second = {
+      ...source,
+      id: "overlap-2",
+      taskId: "task-2",
+      startedAt: "2026-07-28T12:30:00.000Z",
+      endedAt: "2026-07-28T13:30:00.000Z",
+      durationSeconds: 3600,
+    };
+
+    expect(nonOverlappingTimeSeconds([first, second])).toBe(5400);
+    expect(overlappingTimeSeconds([first, second])).toBe(1800);
+    expect(hasTimeEntryOverlap([first, second])).toBe(true);
+  });
+
+  it("suma el trabajo concurrente de personas distintas", () => {
+    const source = timeEntries[0];
+    const otherPerson = {
+      ...source,
+      id: "parallel-user",
+      user: { ...source.user, id: "another-user" },
+    };
+    expect(nonOverlappingTimeSeconds([source, otherPerson])).toBe(
+      elapsedSeconds(source) * 2,
+    );
+  });
+
+  it("marca timers probablemente olvidados", () => {
+    const source = timeEntries[0];
+    expect(
+      isStaleTimer(
+        {
+          ...source,
+          endedAt: null,
+          startedAt: "2026-07-28T01:00:00.000Z",
+          durationSeconds: 0,
+        },
+        8,
+        new Date("2026-07-28T10:00:00.000Z"),
+      ),
+    ).toBe(true);
   });
 });

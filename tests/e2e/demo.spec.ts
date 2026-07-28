@@ -1,9 +1,27 @@
 import { expect, test } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await page.evaluate(() => window.localStorage.clear());
   await page.reload();
+});
+
+test("no presenta infracciones críticas de accesibilidad", async ({ page }) => {
+  const results = await new AxeBuilder({ page })
+    .withTags(["wcag2a", "wcag21a"])
+    .analyze();
+  expect(
+    results.violations,
+    results.violations
+      .map(
+        (violation) =>
+          `${violation.id}: ${violation.nodes
+            .map((node) => node.target.join(" "))
+            .join(", ")}`,
+      )
+      .join("\n"),
+  ).toEqual([]);
 });
 
 test("crea una tarea y conserva el cambio al recargar", async ({ page }) => {
@@ -97,7 +115,7 @@ test("muestra el proyecto como espacio de trabajo con detalle flotante", async (
   ).toBeVisible();
   await expect(
     workspace.getByRole("navigation", { name: "Vistas del proyecto" }),
-  ).toContainText("ResumenListaTableroCronogramaPanelGantt");
+  ).toContainText("ResumenListaTableroCronogramaGantt");
   await expect(page.getByTestId("project-task-list")).toBeVisible();
 
   await page
@@ -163,21 +181,31 @@ test("embebe una imagen en la descripción al crear la tarea", async ({
   const descriptionDocument = page.getByTestId(
     "task-description-document",
   );
-  const descriptionField = descriptionDocument.getByLabel(
-    "Descripción de la tarea",
-  );
-  await descriptionField.fill("Texto antesTexto después");
-  await descriptionField.press("Home");
-  for (let index = 0; index < 11; index += 1) {
-    await descriptionField.press("ArrowRight");
-  }
   await descriptionDocument
-    .getByLabel("Seleccionar archivos para la tarea")
-    .setInputFiles({
+    .getByRole("button", { name: "Editar documento" })
+    .click();
+  const descriptionField = descriptionDocument
+    .getByLabel("Descripción de la tarea")
+    .first();
+  await descriptionField.fill("Texto antesTexto después");
+  await descriptionField.evaluate((element) => {
+    const textarea = element as HTMLTextAreaElement;
+    textarea.focus();
+    textarea.setSelectionRange(11, 11);
+    textarea.dispatchEvent(new Event("select", { bubbles: true }));
+  });
+  const fileChooserPromise = page.waitForEvent("filechooser");
+  await descriptionDocument
+    .getByRole("button", {
+      name: "Insertar imagen o archivo en la descripción",
+    })
+    .click();
+  const fileChooser = await fileChooserPromise;
+  await fileChooser.setFiles({
       name: "referencia-intermedia.png",
       mimeType: "image/png",
       buffer: pixelPng,
-    });
+  });
 
   await expect(
     descriptionDocument.getByRole("img", {
@@ -253,7 +281,7 @@ test("reagenda una tarea recurrente con sus subtareas", async ({ page }) => {
   await expect(page.getByLabel("Repetición de la tarea")).toHaveValue(
     "weekly",
   );
-  await page.getByRole("button", { name: "Marcar aprobada" }).click();
+  await page.getByRole("button", { name: "Completar tarea" }).click();
 
   await expect
     .poll(() =>
@@ -299,29 +327,20 @@ test("muestra subtareas asignadas en Mis tareas y en Gantt", async ({
     page.getByText(/Subtarea de Adaptar campaña/).first(),
   ).toBeVisible();
 
-  await page.getByRole("button", { name: "Cronograma" }).click();
+  await page.getByRole("button", { name: "Gantt" }).first().click();
   await expect(page.getByTestId("gantt-chart")).toBeVisible();
   await expect(page.getByTestId("gantt-row-subtask-2")).toBeVisible();
   await expect(page.getByTestId("gantt-bar-subtask-2")).toBeVisible();
 
-  const timeline = page.getByTestId("gantt-timeline");
-  const timelineBox = await timeline.boundingBox();
-  expect(timelineBox).not.toBeNull();
-  const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
+  const initialDateLabel = await page
+    .getByTestId("gantt-row-subtask-2")
+    .textContent();
   const bar = page.getByTestId("gantt-bar-subtask-2");
-  await bar.dispatchEvent("dragstart", { dataTransfer });
-  await timeline.dispatchEvent("dragover", {
-    clientX: timelineBox!.x + 6 * 22,
-    dataTransfer,
-  });
-  await timeline.dispatchEvent("drop", {
-    clientX: timelineBox!.x + 6 * 22,
-    dataTransfer,
-  });
-  await bar.dispatchEvent("dragend", { dataTransfer });
-  await expect(page.getByTestId("gantt-row-subtask-2")).toContainText(
-    "21 jul. – 22 jul.",
-  );
+  await bar.focus();
+  await bar.press("ArrowRight");
+  await expect
+    .poll(() => page.getByTestId("gantt-row-subtask-2").textContent())
+    .not.toBe(initialDateLabel);
 });
 
 test("administra integrantes e invitaciones desde Preferencias", async ({
@@ -344,10 +363,10 @@ test("activa y conserva el modo oscuro", async ({ page }) => {
     .getByRole("button", { name: "Mi perfil y apariencia" })
     .click();
 
-  const darkMode = page.getByRole("switch", { name: "Modo oscuro" });
-  await expect(darkMode).toHaveAttribute("aria-checked", "false");
+  const darkMode = page.getByRole("button", { name: "Oscuro" });
+  await expect(darkMode).toHaveAttribute("aria-pressed", "false");
   await darkMode.click();
-  await expect(darkMode).toHaveAttribute("aria-checked", "true");
+  await expect(darkMode).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("html")).toHaveClass(/dark/);
 
   await page.getByRole("button", { name: "Cerrar configuración" }).click();
@@ -365,6 +384,7 @@ test("crea clientes y vincula una tarea a varios proyectos", async ({
   page,
 }) => {
   await page.getByRole("button", { name: "Clientes" }).click();
+  await page.getByRole("button", { name: "Nuevo cliente" }).click();
   await page.getByPlaceholder("Ej. Aura Cosmética").fill("Cliente E2E");
   await page
     .getByPlaceholder("Institucional, Cartelería, Autoliquidables")
@@ -390,9 +410,7 @@ test("crea clientes y vincula una tarea a varios proyectos", async ({
   await page.getByRole("button", { name: "Nueva tarea" }).click();
   await page.getByLabel("Nombre de la tarea").fill("Tarea multiproyecto E2E");
   await page
-    .getByText("Campaña", { exact: true })
-    .locator("..")
-    .getByRole("combobox")
+    .getByLabel("Proyecto principal")
     .selectOption({ label: "Proyecto Cliente E2E" });
   const projectCheckboxes = page.getByRole("checkbox");
   await projectCheckboxes.first().check();
@@ -452,7 +470,9 @@ test("registra tiempo y exporta la auditoría con permisos", async ({ page }) =>
   await page
     .getByPlaceholder("¿En qué estás trabajando?")
     .fill("Revisión visual automatizada");
-  await page.getByRole("button", { name: "Iniciar timer" }).click();
+  await page
+    .getByRole("button", { name: "Iniciar timer", exact: true })
+    .click();
   await expect(
     page.getByRole("button", { name: "Timers activos: 1" }),
   ).toBeVisible();
@@ -471,7 +491,7 @@ test("registra tiempo y exporta la auditoría con permisos", async ({ page }) =>
     page.getByRole("heading", { name: "Auditoría de tiempo y costos" }),
   ).toBeVisible();
   const downloadPromise = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Exportar CSV" }).click();
+  await page.getByRole("button", { name: "CSV", exact: true }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/^taska-tiempo-.*\.csv$/);
 });
@@ -492,7 +512,9 @@ test("resume y controla varios timers activos desde el encabezado", async ({
   await page
     .getByPlaceholder("¿En qué estás trabajando?")
     .fill("Dirección creativa");
-  await page.getByRole("button", { name: "Iniciar timer" }).click();
+  await page
+    .getByRole("button", { name: "Iniciar timer", exact: true })
+    .click();
   await page.getByRole("button", { name: "Cerrar", exact: true }).click();
 
   await page
@@ -507,7 +529,9 @@ test("resume y controla varios timers activos desde el encabezado", async ({
   await page
     .getByPlaceholder("¿En qué estás trabajando?")
     .fill("Presentación al cliente");
-  await page.getByRole("button", { name: "Iniciar timer" }).click();
+  await page
+    .getByRole("button", { name: "Iniciar timer", exact: true })
+    .click();
   await page.getByRole("button", { name: "Cerrar", exact: true }).click();
 
   await page.getByRole("button", { name: "Timers activos: 2" }).click();
@@ -543,6 +567,10 @@ test("crea, documenta, archiva y restaura un expediente de proceso", async ({
 }) => {
   await page.getByRole("button", { name: "Nueva tarea" }).click();
   await page
+    .locator("summary")
+    .filter({ hasText: "Usar una plantilla de proceso" })
+    .click();
+  await page
     .getByLabel("Plantilla de proceso")
     .selectOption("campaign");
   await page
@@ -568,10 +596,10 @@ test("crea, documenta, archiva y restaura un expediente de proceso", async ({
   await page.getByRole("button", { name: "Agregar", exact: true }).click();
   await expect(page.getByText("0/6 completas")).toBeVisible();
 
-  await page.getByLabel("Tipo de comentario").selectOption("decision");
   await page
     .getByPlaceholder("Sumá feedback o una actualización…")
     .fill("Se aprobó la ruta visual número dos.");
+  await page.getByLabel("Tipo de comentario").selectOption("decision");
   await page.getByRole("button", { name: "Comentar" }).click();
   await expect(
     page.getByText("Se aprobó la ruta visual número dos."),

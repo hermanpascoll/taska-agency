@@ -147,6 +147,20 @@ describe("Panel global de administración", () => {
       name: "Hacer superadmin",
     });
     await user.click(promoteButtons[0]);
+    expect(
+      screen.getByRole("heading", {
+        name: "Otorgar acceso de superadministrador",
+      }),
+    ).toBeInTheDocument();
+    await user.type(
+      screen.getByRole("textbox", {
+        name: /Escribí ana@taska.test para confirmar/i,
+      }),
+      "ana@taska.test",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Confirmar cambio" }),
+    );
     await waitFor(() => {
       const patchCall = fetchMock.mock.calls.find(
         ([, options]) => (options as RequestInit | undefined)?.method === "PATCH",

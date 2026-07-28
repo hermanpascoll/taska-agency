@@ -48,7 +48,7 @@ const statusMeta: Record<
     text: "text-sky-700",
   },
   resuelto: {
-    label: "Aprobado",
+    label: "Completada",
     bar: "bg-emerald-500",
     text: "text-emerald-700",
   },
@@ -409,6 +409,29 @@ export function GanttChart({
                             }}
                             onDragEnd={() => setDraggedTaskId(null)}
                             onClick={() => onSelect(task)}
+                            onKeyDown={(event) => {
+                              if (
+                                event.key !== "ArrowLeft" &&
+                                event.key !== "ArrowRight"
+                              ) {
+                                return;
+                              }
+                              event.preventDefault();
+                              const nextStart = parseISODate(range.startDate);
+                              const direction =
+                                event.key === "ArrowLeft" ? -1 : 1;
+                              nextStart.setDate(
+                                nextStart.getDate() +
+                                  direction * (event.shiftKey ? 7 : 1),
+                              );
+                              onUpdateDates(
+                                task.id,
+                                shiftTaskDateRange(
+                                  task,
+                                  formatISODate(nextStart),
+                                ),
+                              );
+                            }}
                             className={clsx(
                               "focus-ring group absolute top-3 flex h-7 items-center rounded-md px-2 text-left text-white shadow-sm transition hover:brightness-95 active:cursor-grabbing",
                               statusMeta[task.status].bar,
@@ -416,7 +439,7 @@ export function GanttChart({
                             )}
                             style={{ left: left + 2, width: width - 4 }}
                             title={`${task.title} · ${shortDate(range.startDate)} – ${shortDate(range.dueDate)} · Arrastrar para reprogramar`}
-                            aria-label={`Abrir o reprogramar ${task.title}`}
+                            aria-label={`Abrir o reprogramar ${task.title}. Usá flechas para mover un día y mayúscula más flecha para mover una semana`}
                             data-testid={`gantt-bar-${task.id}`}
                           >
                             <MoveHorizontal className="mr-1.5 size-3 shrink-0 opacity-60" />

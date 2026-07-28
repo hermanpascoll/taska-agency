@@ -87,6 +87,13 @@ export function AdminPanel({
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"users" | "workspaces">("users");
   const [query, setQuery] = useState("");
+  const [userStatusFilter, setUserStatusFilter] = useState<
+    "all" | "online" | "active" | "suspended" | "superadmin"
+  >("all");
+  const [userRoleFilter, setUserRoleFilter] = useState<"all" | TeamRole>("all");
+  const [workspaceStatusFilter, setWorkspaceStatusFilter] = useState<
+    "all" | "active" | "archived"
+  >("all");
   const [editingUser, setEditingUser] =
     useState<PlatformAdminUser | null>(null);
   const [profileName, setProfileName] = useState("");
@@ -108,6 +115,11 @@ export function AdminPanel({
     userId: string;
     name: string;
   } | null>(null);
+  const [sensitiveAction, setSensitiveAction] = useState<{
+    kind: "superadmin" | "status";
+    user: PlatformAdminUser;
+  } | null>(null);
+  const [sensitiveConfirmation, setSensitiveConfirmation] = useState("");
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
@@ -188,30 +200,95 @@ export function AdminPanel({
 
   const filteredUsers = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    if (!normalized) return overview?.users ?? [];
-    return (overview?.users ?? []).filter((user) =>
-      [user.name, user.email, user.title, ...user.memberships.map((item) => item.workspaceName)]
-        .join(" ")
-        .toLowerCase()
-        .includes(normalized),
-    );
-  }, [overview?.users, query]);
+    return (overview?.users ?? []).filter((user) => {
+      const matchesQuery =
+        !normalized ||
+        [
+          user.name,
+          user.email,
+          user.title,
+          ...user.memberships.map((item) => item.workspaceName),
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalized);
+      const matchesStatus =
+        userStatusFilter === "all" ||
+        (userStatusFilter === "online" && user.online) ||
+        (userStatusFilter === "active" && !user.suspended) ||
+        (userStatusFilter === "suspended" && user.suspended) ||
+        (userStatusFilter === "superadmin" && user.superAdmin);
+      const matchesRole =
+        userRoleFilter === "all" ||
+        user.memberships.some((membership) => membership.role === userRoleFilter);
+      return matchesQuery && matchesStatus && matchesRole;
+    });
+  }, [overview?.users, query, userRoleFilter, userStatusFilter]);
 
   const filteredWorkspaces = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    if (!normalized) return overview?.workspaces ?? [];
-    return (overview?.workspaces ?? []).filter((workspace) =>
-      [
-        workspace.name,
-        workspace.slug,
-        workspace.ownerName,
-        workspace.ownerEmail,
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(normalized),
-    );
-  }, [overview?.workspaces, query]);
+    return (overview?.workspaces ?? []).filter((workspace) => {
+      const matchesQuery =
+        !normalized ||
+        [
+          workspace.name,
+          workspace.slug,
+          workspace.ownerName,
+          workspace.ownerEmail,
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalized);
+      const matchesStatus =
+        workspaceStatusFilter === "all" ||
+        (workspaceStatusFilter === "active" && !workspace.archived) ||
+        (workspaceStatusFilter === "archived" && workspace.archived);
+      return matchesQuery && matchesStatus;
+    });
+  }, [overview?.workspaces, query, workspaceStatusFilter]);
+
+  function requestSensitiveAction(
+    kind: "superadmin" | "status",
+    user: PlatformAdminUser,
+  ) {
+    setSensitiveAction({ kind, user });
+    setSensitiveConfirmation("");
+  }
+
+  async function confirmSensitiveAction(event: FormEvent) {
+    event.preventDefault();
+    if (
+      !sensitiveAction ||
+      sensitiveConfirmation.trim().toLowerCase() !==
+        sensitiveAction.user.email.toLowerCase()
+    ) {
+      return;
+    }
+    const { kind, user } = sensitiveAction;
+    const result =
+      kind === "superadmin"
+        ? await mutate(
+            "PATCH",
+            {
+              action: "superadmin-status",
+              userId: user.id,
+              superAdmin: !user.superAdmin,
+            },
+            user.superAdmin
+              ? "Acceso global revocado"
+              : "Usuario promovido a superadministrador",
+          )
+        : await mutate(
+            "PATCH",
+            {
+              action: "user-status",
+              userId: user.id,
+              suspended: !user.suspended,
+            },
+            user.suspended ? "Usuario reactivado" : "Usuario suspendido",
+          );
+    if (result) setSensitiveAction(null);
+  }
 
   if (!open) return null;
 
@@ -425,6 +502,71 @@ export function AdminPanel({
                   />
                 </label>
               </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {tab === "users" ? (
+                  <>
+                    <label>
+                      <span className="sr-only">Filtrar usuarios por estado</span>
+                      <select
+                        value={userStatusFilter}
+                        onChange={(event) =>
+                          setUserStatusFilter(
+                            event.target.value as typeof userStatusFilter,
+                          )
+                        }
+                        className="mac-input focus-ring h-9 rounded-xl border border-slate-200 bg-white px-3 text-[10px] font-semibold text-slate-600"
+                      >
+                        <option value="all">Todos los estados</option>
+                        <option value="online">En línea ahora</option>
+                        <option value="active">Activos</option>
+                        <option value="suspended">Suspendidos</option>
+                        <option value="superadmin">Superadministradores</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span className="sr-only">Filtrar usuarios por rol</span>
+                      <select
+                        value={userRoleFilter}
+                        onChange={(event) =>
+                          setUserRoleFilter(
+                            event.target.value as typeof userRoleFilter,
+                          )
+                        }
+                        className="mac-input focus-ring h-9 rounded-xl border border-slate-200 bg-white px-3 text-[10px] font-semibold text-slate-600"
+                      >
+                        <option value="all">Todos los roles</option>
+                        {(Object.keys(roleLabels) as TeamRole[]).map((role) => (
+                          <option key={role} value={role}>
+                            {roleLabels[role]}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </>
+                ) : (
+                  <label>
+                    <span className="sr-only">Filtrar espacios por estado</span>
+                    <select
+                      value={workspaceStatusFilter}
+                      onChange={(event) =>
+                        setWorkspaceStatusFilter(
+                          event.target.value as typeof workspaceStatusFilter,
+                        )
+                      }
+                      className="mac-input focus-ring h-9 rounded-xl border border-slate-200 bg-white px-3 text-[10px] font-semibold text-slate-600"
+                    >
+                      <option value="all">Todos los espacios</option>
+                      <option value="active">Activos</option>
+                      <option value="archived">Archivados</option>
+                    </select>
+                  </label>
+                )}
+                <span className="ml-auto text-[9px] font-semibold text-slate-400">
+                  {tab === "users"
+                    ? `${filteredUsers.length} resultados`
+                    : `${filteredWorkspaces.length} resultados`}
+                </span>
+              </div>
 
               {error && (
                 <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-[10px] font-medium text-rose-700">
@@ -528,17 +670,7 @@ export function AdminPanel({
                         <div className="flex flex-wrap gap-2">
                           <button
                             onClick={() =>
-                              void mutate(
-                                "PATCH",
-                                {
-                                  action: "superadmin-status",
-                                  userId: user.id,
-                                  superAdmin: !user.superAdmin,
-                                },
-                                user.superAdmin
-                                  ? "Acceso global revocado"
-                                  : "Usuario promovido a superadministrador",
-                              )
+                              requestSensitiveAction("superadmin", user)
                             }
                             disabled={
                               saving ||
@@ -579,17 +711,7 @@ export function AdminPanel({
                           </button>
                           <button
                             onClick={() =>
-                              void mutate(
-                                "PATCH",
-                                {
-                                  action: "user-status",
-                                  userId: user.id,
-                                  suspended: !user.suspended,
-                                },
-                                user.suspended
-                                  ? "Usuario reactivado"
-                                  : "Usuario suspendido",
-                              )
+                              requestSensitiveAction("status", user)
                             }
                             disabled={saving || user.superAdmin}
                             className={clsx(
@@ -1064,6 +1186,75 @@ export function AdminPanel({
               )}
             </div>
           </section>
+        </div>
+      )}
+
+      {sensitiveAction && (
+        <div className="fixed inset-0 z-[115] grid place-items-center bg-slate-950/50 p-4 backdrop-blur-sm">
+          <form
+            onSubmit={(event) => void confirmSensitiveAction(event)}
+            className="mac-window w-full max-w-md rounded-2xl border border-amber-200 bg-white p-6 shadow-2xl"
+          >
+            <span className="grid size-11 place-items-center rounded-xl bg-amber-50 text-amber-700">
+              {sensitiveAction.kind === "superadmin" ? (
+                <Crown className="size-5" />
+              ) : sensitiveAction.user.suspended ? (
+                <CheckCircle2 className="size-5" />
+              ) : (
+                <Ban className="size-5" />
+              )}
+            </span>
+            <h3 className="mt-4 text-[15px] font-bold text-slate-900">
+              {sensitiveAction.kind === "superadmin"
+                ? sensitiveAction.user.superAdmin
+                  ? "Revocar acceso global"
+                  : "Otorgar acceso de superadministrador"
+                : sensitiveAction.user.suspended
+                  ? "Reactivar usuario"
+                  : "Suspender usuario"}
+            </h3>
+            <p className="mt-2 text-[10px] leading-5 text-slate-500">
+              {sensitiveAction.kind === "superadmin"
+                ? "Este permiso permite administrar todos los usuarios, espacios y roles de la plataforma."
+                : sensitiveAction.user.suspended
+                  ? "La persona volverá a poder iniciar sesión y acceder a sus espacios."
+                  : "La persona perderá el acceso a la aplicación, pero sus datos y asignaciones permanecerán."}
+            </p>
+            <label className="mt-4 block">
+              <span className="mb-2 block text-[9px] font-semibold text-slate-500">
+                Escribí <strong>{sensitiveAction.user.email}</strong> para
+                confirmar
+              </span>
+              <input
+                autoFocus
+                value={sensitiveConfirmation}
+                onChange={(event) =>
+                  setSensitiveConfirmation(event.target.value)
+                }
+                autoComplete="off"
+                className="mac-input focus-ring w-full rounded-xl border border-amber-200 px-3 py-3 text-[11px]"
+              />
+            </label>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setSensitiveAction(null)}
+                className="focus-ring rounded-lg border border-slate-200 px-4 py-2.5 text-[10px] font-semibold text-slate-600"
+              >
+                Cancelar
+              </button>
+              <button
+                disabled={
+                  saving ||
+                  sensitiveConfirmation.trim().toLowerCase() !==
+                    sensitiveAction.user.email.toLowerCase()
+                }
+                className="focus-ring rounded-lg bg-amber-600 px-4 py-2.5 text-[10px] font-bold text-white disabled:opacity-40"
+              >
+                {saving ? "Aplicando…" : "Confirmar cambio"}
+              </button>
+            </div>
+          </form>
         </div>
       )}
 

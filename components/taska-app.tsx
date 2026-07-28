@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  AlertTriangle,
   Archive,
   Activity,
   BarChart3,
@@ -18,6 +19,7 @@ import {
   ContactRound,
   Download,
   FileDown,
+  FileSpreadsheet,
   FileText,
   FolderKanban,
   GitBranch,
@@ -38,6 +40,7 @@ import {
   Pause,
   Play,
   Plus,
+  Printer,
   Repeat2,
   Search,
   Settings,
@@ -91,8 +94,11 @@ import {
   elapsedSeconds,
   formatBytes,
   formatDuration,
+  isStaleTimer,
   isTaskAssignedToCurrentUser,
   matchesTaskFilters,
+  nonOverlappingTimeSeconds,
+  overlappingTimeSeconds,
   timeEntryCost,
 } from "@/lib/task-utils";
 import type {
@@ -127,12 +133,12 @@ import type {
 } from "@/lib/types";
 
 type View = "my_tasks" | "all_tasks" | "board" | "gantt" | "archive";
+type TaskScope = "mine" | "all";
 type ProjectTab =
   | "overview"
   | "list"
   | "board"
   | "timeline"
-  | "dashboard"
   | "gantt";
 
 const recurrenceLabels: Record<TaskRecurrence, string> = {
@@ -152,6 +158,13 @@ const commentTypeLabels: Record<CommentType, string> = {
   change_request: "Pedido de cambio",
   delivery: "Entrega",
   incident: "Incidente",
+};
+
+const teamRoleLabels: Record<TeamRole, string> = {
+  owner: "Dueño",
+  admin: "Administrador",
+  agent: "Integrante",
+  viewer: "Solo lectura",
 };
 
 const attachmentStatusLabels: Record<AttachmentApprovalStatus, string> = {
@@ -185,7 +198,7 @@ const statusMeta: Record<
     text: "text-sky-700",
   },
   resuelto: {
-    label: "Aprobado",
+    label: "Completada",
     dot: "#2E9B78",
     surface: "bg-emerald-50",
     text: "text-emerald-700",
@@ -441,6 +454,93 @@ function EmbeddedTaskAttachment({
   );
 }
 
+function DescriptionInlineText({ text }: { text: string }) {
+  const parts = text.split(/(\*\*[^*]+\*\*|https?:\/\/[^\s]+)/g);
+  return (
+    <>
+      {parts.filter(Boolean).map((part, index) => {
+        if (part.startsWith("**") && part.endsWith("**")) {
+          return <strong key={`${part}-${index}`}>{part.slice(2, -2)}</strong>;
+        }
+        if (/^https?:\/\//.test(part)) {
+          return (
+            <a
+              key={`${part}-${index}`}
+              href={part}
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium text-[#0879ea] underline decoration-[#0a84ff]/35 underline-offset-2"
+            >
+              {part}
+            </a>
+          );
+        }
+        return <span key={`${part}-${index}`}>{part}</span>;
+      })}
+    </>
+  );
+}
+
+function DescriptionTextPreview({ text }: { text: string }) {
+  if (!text.trim()) {
+    return (
+      <p className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center text-[11px] text-slate-400">
+        Agregá el brief, contexto, objetivos y referencias de esta tarea.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-2 text-[14px] leading-7 text-slate-700">
+      {text.split("\n").map((line, index) => {
+        if (!line.trim()) return <div key={index} className="h-2" />;
+        if (line.startsWith("## ")) {
+          return (
+            <h4 key={index} className="pt-3 text-[17px] font-bold text-slate-900">
+              <DescriptionInlineText text={line.slice(3)} />
+            </h4>
+          );
+        }
+        if (line.startsWith("# ")) {
+          return (
+            <h3 key={index} className="pt-3 text-[20px] font-bold text-slate-900">
+              <DescriptionInlineText text={line.slice(2)} />
+            </h3>
+          );
+        }
+        if (/^[-*]\s/.test(line)) {
+          return (
+            <p key={index} className="flex gap-3 pl-2">
+              <span className="mt-[11px] size-1.5 shrink-0 rounded-full bg-slate-400" />
+              <span>
+                <DescriptionInlineText text={line.replace(/^[-*]\s/, "")} />
+              </span>
+            </p>
+          );
+        }
+        const numbered = line.match(/^(\d+)\.\s(.+)/);
+        if (numbered) {
+          return (
+            <p key={index} className="flex gap-3 pl-1">
+              <span className="w-5 shrink-0 text-right font-semibold text-slate-400">
+                {numbered[1]}.
+              </span>
+              <span>
+                <DescriptionInlineText text={numbered[2]} />
+              </span>
+            </p>
+          );
+        }
+        return (
+          <p key={index}>
+            <DescriptionInlineText text={line} />
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
 function TaskDescriptionEditor({
   task,
   onUpdate,
@@ -454,10 +554,15 @@ function TaskDescriptionEditor({
 }) {
   const initialBlocks = parseTaskDescription(task.description, task.attachments);
   const [blocks, setBlocks] = useState<TaskDescriptionBlock[]>(initialBlocks);
+  const [editing, setEditing] = useState(() => !task.description.trim());
   const [uploading, setUploading] = useState(false);
   const blocksRef = useRef(initialBlocks);
   const fileInput = useRef<HTMLInputElement>(null);
-  const selection = useRef({ blockIndex: 0, offset: task.description.length });
+  const selection = useRef({
+    blockIndex: 0,
+    offset: task.description.length,
+    end: task.description.length,
+  });
   const savedDescription = useRef(task.description);
   const activeAttachmentIds = task.attachments
     .filter((attachment) => !attachment.deletedAt)
@@ -515,6 +620,29 @@ function TaskDescriptionEditor({
     );
   }
 
+  function applyTextFormat(
+    prefix: string,
+    suffix = "",
+    placeholder = "texto",
+    linePrefix = false,
+  ) {
+    const current = blocksRef.current;
+    const target = current[selection.current.blockIndex];
+    if (!target || target.type !== "text") return;
+    const start = linePrefix
+      ? target.text.lastIndexOf("\n", selection.current.offset - 1) + 1
+      : selection.current.offset;
+    const end = Math.max(start, selection.current.end);
+    const selected = target.text.slice(start, end);
+    const replacement = linePrefix
+      ? `${prefix}${target.text.slice(start)}`
+      : `${prefix}${selected || placeholder}${suffix}`;
+    const nextText = linePrefix
+      ? `${target.text.slice(0, start)}${replacement}`
+      : `${target.text.slice(0, start)}${replacement}${target.text.slice(end)}`;
+    updateText(selection.current.blockIndex, nextText);
+  }
+
   async function insertFiles(files: File[]) {
     if (!files.length || uploading) return;
     setUploading(true);
@@ -566,6 +694,16 @@ function TaskDescriptionEditor({
       <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-5">
         {blocks.map((block, index) => {
           if (block.type === "text") {
+            if (!editing) {
+              return (
+                <div
+                  key={`${task.id}-text-${index}`}
+                  className="block w-full rounded-xl px-1 py-1"
+                >
+                  <DescriptionTextPreview text={block.text} />
+                </div>
+              );
+            }
             return (
               <textarea
                 key={`${task.id}-text-${index}`}
@@ -579,15 +717,38 @@ function TaskDescriptionEditor({
                   selection.current = {
                     blockIndex: index,
                     offset: event.currentTarget.selectionStart,
+                    end: event.currentTarget.selectionEnd,
                   };
                 }}
                 onFocus={(event) => {
                   selection.current = {
                     blockIndex: index,
                     offset: event.currentTarget.selectionStart,
+                    end: event.currentTarget.selectionEnd,
                   };
                 }}
-                onBlur={() => persist(blocksRef.current)}
+                onKeyUp={(event) => {
+                  selection.current = {
+                    blockIndex: index,
+                    offset: event.currentTarget.selectionStart,
+                    end: event.currentTarget.selectionEnd,
+                  };
+                }}
+                onClick={(event) => {
+                  selection.current = {
+                    blockIndex: index,
+                    offset: event.currentTarget.selectionStart,
+                    end: event.currentTarget.selectionEnd,
+                  };
+                }}
+                onBlur={(event) => {
+                  selection.current = {
+                    blockIndex: index,
+                    offset: event.currentTarget.selectionStart,
+                    end: event.currentTarget.selectionEnd,
+                  };
+                  persist(blocksRef.current);
+                }}
                 placeholder="Escribí el brief, contexto, objetivos y referencias de esta tarea…"
                 className="block min-h-28 w-full resize-y border-0 bg-transparent text-[13px] leading-6 text-slate-700 outline-none placeholder:text-slate-400"
                 aria-label="Descripción de la tarea"
@@ -628,7 +789,35 @@ function TaskDescriptionEditor({
           );
         })}
       </div>
-      <div className="flex items-center gap-2 border-t border-slate-100 bg-slate-50/70 px-3 py-2">
+      <div className="flex flex-wrap items-center gap-1.5 border-t border-slate-100 bg-slate-50/70 px-3 py-2">
+        {editing && (
+          <>
+            <button
+              type="button"
+              onClick={() => applyTextFormat("# ", "", "Título", true)}
+              className="focus-ring rounded-lg px-2 py-1.5 text-[9px] font-bold text-slate-500 hover:bg-white hover:text-slate-800"
+              aria-label="Título"
+            >
+              H1
+            </button>
+            <button
+              type="button"
+              onClick={() => applyTextFormat("**", "**", "negrita")}
+              className="focus-ring rounded-lg px-2 py-1.5 text-[9px] font-black text-slate-500 hover:bg-white hover:text-slate-800"
+              aria-label="Negrita"
+            >
+              B
+            </button>
+            <button
+              type="button"
+              onClick={() => applyTextFormat("- ", "", "Elemento", true)}
+              className="focus-ring rounded-lg px-2 py-1.5 text-[9px] font-semibold text-slate-500 hover:bg-white hover:text-slate-800"
+              aria-label="Lista con viñetas"
+            >
+              • Lista
+            </button>
+          </>
+        )}
         <button
           type="button"
           disabled={uploading}
@@ -643,9 +832,16 @@ function TaskDescriptionEditor({
           )}
           {uploading ? "Insertando…" : "Insertar imagen o archivo"}
         </button>
-        <span className="ml-auto hidden text-[8px] text-slate-400 sm:inline">
-          Se inserta donde dejaste el cursor
-        </span>
+        <button
+          type="button"
+          onClick={() => {
+            if (editing) persist(blocksRef.current);
+            setEditing((current) => !current);
+          }}
+          className="focus-ring ml-auto rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[9px] font-semibold text-slate-600 hover:text-[#0879ea]"
+        >
+          {editing ? "Guardar documento" : "Editar documento"}
+        </button>
       </div>
       <input
         ref={fileInput}
@@ -666,17 +862,23 @@ function TaskDescriptionEditor({
 function ActiveTimersMenu({
   entries,
   open,
+  staleTimerHours,
+  warnOverlaps,
   onToggle,
   onClose,
   onOpen,
   onStop,
+  onStopAll,
 }: {
   entries: TimeEntry[];
   open: boolean;
+  staleTimerHours: number;
+  warnOverlaps: boolean;
   onToggle: () => void;
   onClose: () => void;
   onOpen: (taskId: string) => void;
   onStop: (entryId: string) => void;
+  onStopAll: () => void;
 }) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -689,6 +891,13 @@ function ActiveTimersMenu({
     (total, entry) => total + elapsedSeconds(entry, now),
     0,
   );
+  const effectiveSeconds = nonOverlappingTimeSeconds(entries, now);
+  const overlapSeconds = overlappingTimeSeconds(entries, now);
+  const staleEntries = entries.filter((entry) =>
+    isStaleTimer(entry, staleTimerHours, now),
+  );
+  const hasWarning =
+    (warnOverlaps && overlapSeconds > 0) || staleEntries.length > 0;
 
   return (
     <div className="relative">
@@ -697,7 +906,9 @@ function ActiveTimersMenu({
         className={clsx(
           "focus-ring relative flex h-9 items-center gap-2 rounded-lg border px-2.5 text-[10px] font-semibold transition sm:h-10 sm:px-3",
           entries.length > 0
-            ? "border-rose-200 bg-rose-50 text-rose-700 shadow-sm hover:bg-rose-100"
+            ? hasWarning
+              ? "border-rose-200 bg-rose-50 text-rose-700 shadow-sm hover:bg-rose-100"
+              : "border-[#0a84ff]/25 bg-[#0a84ff]/8 text-[#0879ea] shadow-sm hover:bg-[#0a84ff]/12"
             : "border-transparent text-slate-400 hover:bg-slate-100 hover:text-slate-700",
         )}
         aria-label={`Timers activos: ${entries.length}`}
@@ -706,12 +917,24 @@ function ActiveTimersMenu({
         <span className="relative">
           <Clock3 className="size-[17px]" />
           {entries.length > 0 && (
-            <span className="absolute -right-1 -top-1 size-2 animate-pulse rounded-full bg-rose-500 ring-2 ring-rose-50" />
+            <span
+              className={clsx(
+                "absolute -right-1 -top-1 size-2 animate-pulse rounded-full ring-2",
+                hasWarning
+                  ? "bg-rose-500 ring-rose-50"
+                  : "bg-[#0a84ff] ring-blue-50",
+              )}
+            />
           )}
         </span>
         {entries.length > 0 && (
           <>
-            <span className="grid min-w-4 place-items-center rounded-full bg-rose-600 px-1 py-0.5 text-[8px] font-bold leading-none text-white">
+            <span
+              className={clsx(
+                "grid min-w-4 place-items-center rounded-full px-1 py-0.5 text-[8px] font-bold leading-none text-white",
+                hasWarning ? "bg-rose-600" : "bg-[#0a84ff]",
+              )}
+            >
               {entries.length}
             </span>
             <span className="hidden font-mono font-bold tabular-nums xl:inline">
@@ -731,7 +954,9 @@ function ActiveTimersMenu({
               className={clsx(
                 "grid size-9 shrink-0 place-items-center rounded-xl",
                 entries.length > 0
-                  ? "bg-rose-50 text-rose-600"
+                  ? hasWarning
+                    ? "bg-rose-50 text-rose-600"
+                    : "bg-[#0a84ff]/10 text-[#0879ea]"
                   : "bg-slate-100 text-slate-400",
               )}
             >
@@ -744,17 +969,42 @@ function ActiveTimersMenu({
               <p className="mt-0.5 text-[9px] text-slate-400">
                 {entries.length === 0
                   ? "No estás registrando tiempo ahora"
-                  : `${entries.length} ${entries.length === 1 ? "tarea en curso" : "tareas en curso"} · ${formatDuration(totalSeconds)} acumulado`}
+                  : `${entries.length} ${entries.length === 1 ? "tarea en curso" : "tareas en curso"} · ${formatDuration(effectiveSeconds)} reales`}
               </p>
             </div>
+            {entries.length > 1 && (
+              <button
+                onClick={onStopAll}
+                className="focus-ring ml-auto rounded-lg px-2 py-1.5 text-[9px] font-semibold text-rose-600 hover:bg-rose-50"
+              >
+                Detener todos
+              </button>
+            )}
             <button
               onClick={onClose}
-              className="focus-ring ml-auto rounded-md p-1 text-slate-400 hover:bg-slate-100"
+              className={clsx(
+                "focus-ring rounded-md p-1 text-slate-400 hover:bg-slate-100",
+                entries.length <= 1 && "ml-auto",
+              )}
               aria-label="Cerrar timers activos"
             >
               <X className="size-3.5" />
             </button>
           </header>
+
+          {hasWarning && (
+            <div className="border-b border-amber-200 bg-amber-50 px-4 py-3">
+              <p className="flex items-start gap-2 text-[10px] font-semibold leading-4 text-amber-700">
+                <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                <span>
+                  {overlapSeconds > 0 &&
+                    `Hay ${formatDuration(overlapSeconds)} superpuestos. El total bruto es ${formatDuration(totalSeconds)} y el real ${formatDuration(effectiveSeconds)}. `}
+                  {staleEntries.length > 0 &&
+                    `${staleEntries.length} ${staleEntries.length === 1 ? "timer lleva" : "timers llevan"} más de ${staleTimerHours} horas activo${staleEntries.length === 1 ? "" : "s"}.`}
+                </span>
+              </p>
+            </div>
+          )}
 
           <div className="soft-scrollbar max-h-[430px] overflow-y-auto p-2">
             {entries.map((entry) => (
@@ -882,7 +1132,7 @@ function Sidebar({
     { id: "my_tasks" as const, label: "Mis tareas", icon: CheckCircle2 },
     { id: "all_tasks" as const, label: "Todas las tareas", icon: Inbox },
     { id: "board" as const, label: "Tablero", icon: Columns3 },
-    { id: "gantt" as const, label: "Cronograma", icon: ChartGantt },
+    { id: "gantt" as const, label: "Gantt", icon: ChartGantt },
     { id: "archive" as const, label: "Archivo de procesos", icon: Archive },
   ];
 
@@ -1462,7 +1712,6 @@ function ProjectWorkspaceView({
       { id: "list", label: "Lista", icon: ListTodo },
       { id: "board", label: "Tablero", icon: Columns3 },
       { id: "timeline", label: "Cronograma", icon: CalendarDays },
-      { id: "dashboard", label: "Panel", icon: LayoutDashboard },
       { id: "gantt", label: "Gantt", icon: ChartGantt },
     ];
 
@@ -1553,7 +1802,7 @@ function ProjectWorkspaceView({
       </header>
 
       <div className="py-4">
-        {tab === "overview" || tab === "dashboard" ? (
+        {tab === "overview" ? (
           <div className="px-5 sm:px-7">
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               {metrics.map((metric) => {
@@ -1602,7 +1851,11 @@ function ProjectWorkspaceView({
               onMove={onMove}
             />
           </div>
-        ) : tab === "timeline" || tab === "gantt" ? (
+        ) : tab === "timeline" ? (
+          <div className="px-5 sm:px-7">
+            <ProjectSchedule tasks={tasks} onSelect={onSelect} />
+          </div>
+        ) : tab === "gantt" ? (
           <div className="px-5 sm:px-7">
             <GanttChart
               tasks={tasks}
@@ -1649,6 +1902,101 @@ function ProjectWorkspaceView({
   );
 }
 
+function ProjectSchedule({
+  tasks,
+  onSelect,
+}: {
+  tasks: Task[];
+  onSelect: (task: Task) => void;
+}) {
+  const sorted = [...tasks].sort((a, b) =>
+    (a.dueDate ?? "9999-12-31").localeCompare(b.dueDate ?? "9999-12-31"),
+  );
+  const groups = sorted.reduce(
+    (result, task) => {
+      const key = task.dueDate ?? "Sin fecha";
+      result[key] = [...(result[key] ?? []), task];
+      return result;
+    },
+    {} as Record<string, Task[]>,
+  );
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      <header className="border-b border-slate-100 bg-slate-50/70 px-5 py-4">
+        <h2 className="text-[14px] font-bold text-slate-800">
+          Agenda de entregas
+        </h2>
+        <p className="mt-1 text-[10px] text-slate-500">
+          Cronología por fecha. Usá Gantt para dependencias y duración.
+        </p>
+      </header>
+      <div className="divide-y divide-slate-100">
+        {Object.entries(groups).map(([date, dateTasks]) => (
+          <div
+            key={date}
+            className="grid gap-3 px-4 py-4 sm:grid-cols-[150px_1fr] sm:px-5"
+          >
+            <div>
+              <p className="text-[11px] font-bold text-slate-700">
+                {date === "Sin fecha"
+                  ? date
+                  : new Intl.DateTimeFormat("es-UY", {
+                      weekday: "short",
+                      day: "numeric",
+                      month: "long",
+                    }).format(new Date(`${date}T12:00:00`))}
+              </p>
+              <p className="mt-1 text-[9px] text-slate-400">
+                {dateTasks.length}{" "}
+                {dateTasks.length === 1 ? "entrega" : "entregas"}
+              </p>
+            </div>
+            <div className="space-y-2">
+              {dateTasks.map((task) => (
+                <button
+                  key={task.id}
+                  onClick={() => onSelect(task)}
+                  className="focus-ring flex w-full items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-3 text-left transition hover:border-[#0a84ff]/25 hover:bg-[#0a84ff]/5"
+                >
+                  <span
+                    className="size-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: statusMeta[task.status].dot }}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[12px] font-semibold text-slate-800">
+                      {task.title}
+                    </span>
+                    <span className="mt-0.5 block truncate text-[9px] text-slate-400">
+                      {task.code} · {task.assignee?.name ?? "Sin responsable"}
+                    </span>
+                  </span>
+                  {task.dueTime && (
+                    <span className="font-mono text-[10px] font-semibold text-slate-500">
+                      {task.dueTime.slice(0, 5)}
+                    </span>
+                  )}
+                  <PriorityBadge priority={task.priority} />
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+        {tasks.length === 0 && (
+          <div className="grid min-h-52 place-items-center text-center">
+            <div>
+              <CalendarDays className="mx-auto size-8 text-slate-300" />
+              <p className="mt-3 text-[11px] font-semibold text-slate-500">
+                No hay entregas en este proyecto.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function KanbanBoard({
   tasks,
   onSelect,
@@ -1662,6 +2010,8 @@ function KanbanBoard({
 }) {
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [overStatus, setOverStatus] = useState<TaskStatus | null>(null);
+  const [collapsedStatuses, setCollapsedStatuses] = useState<TaskStatus[]>([]);
+  const [announcement, setAnnouncement] = useState("");
   const statuses: TaskStatus[] = [
     "nuevo",
     "en_progreso",
@@ -1671,10 +2021,14 @@ function KanbanBoard({
 
   return (
     <div className="soft-scrollbar -mx-4 overflow-x-auto px-4 pb-3 sm:-mx-7 sm:px-7 lg:-mx-9 lg:px-9">
+      <p className="sr-only" role="status" aria-live="polite">
+        {announcement}
+      </p>
       <div className="grid min-w-[980px] grid-cols-4 gap-4">
         {statuses.map((status) => {
           const columnTasks = tasks.filter((task) => task.status === status);
           const meta = statusMeta[status];
+          const collapsed = collapsedStatuses.includes(status);
           return (
             <section key={status} aria-label={meta.label}>
               <div className="mb-3 flex items-center px-1">
@@ -1688,14 +2042,44 @@ function KanbanBoard({
                 <span className="ml-2 rounded-full bg-slate-200/70 px-2 py-0.5 text-[9px] font-bold text-slate-500">
                   {columnTasks.length}
                 </span>
+                {columnTasks.length >= 6 && (
+                  <span
+                    className="ml-1 rounded-full bg-amber-50 px-2 py-0.5 text-[8px] font-semibold text-amber-700"
+                    title="Revisá la carga de esta columna"
+                  >
+                    Alta carga
+                  </span>
+                )}
                 <button
                   onClick={() => onCreate(status)}
-                  className="focus-ring ml-auto rounded-md p-1 text-slate-400 hover:bg-slate-200"
+                  className="focus-ring ml-auto flex items-center gap-1 rounded-md px-2 py-1 text-[9px] font-semibold text-slate-400 hover:bg-slate-200 hover:text-slate-700"
                   aria-label={`Agregar en ${meta.label}`}
                 >
                   <Plus className="size-3.5" />
+                  Agregar
                 </button>
+                {columnTasks.length === 0 && (
+                  <button
+                    onClick={() =>
+                      setCollapsedStatuses((current) =>
+                        current.includes(status)
+                          ? current.filter((item) => item !== status)
+                          : [...current, status],
+                      )
+                    }
+                    className="focus-ring rounded-md p-1 text-slate-400 hover:bg-slate-200"
+                    aria-label={`${collapsed ? "Expandir" : "Contraer"} ${meta.label}`}
+                  >
+                    <ChevronDown
+                      className={clsx(
+                        "size-3.5 transition",
+                        collapsed && "-rotate-90",
+                      )}
+                    />
+                  </button>
+                )}
               </div>
+              {!collapsed && (
               <div
                 data-testid={`kanban-column-${status}`}
                 onDragOver={(event) => {
@@ -1712,7 +2096,13 @@ function KanbanBoard({
                   event.preventDefault();
                   const taskId =
                     event.dataTransfer.getData("text/task-id") || draggedTaskId;
-                  if (taskId) onMove(taskId, status);
+                  if (taskId) {
+                    const movedTask = tasks.find((task) => task.id === taskId);
+                    onMove(taskId, status);
+                    setAnnouncement(
+                      `${movedTask?.title ?? "Tarea"} movida a ${meta.label}`,
+                    );
+                  }
                   setDraggedTaskId(null);
                   setOverStatus(null);
                 }}
@@ -1794,7 +2184,7 @@ function KanbanBoard({
                         onChange={(event) =>
                           onMove(task.id, event.target.value as TaskStatus)
                         }
-                        className="focus-ring w-full rounded-md border-0 bg-transparent py-1 text-[9px] font-semibold text-slate-400 hover:bg-slate-50"
+                        className="sr-only focus:not-sr-only focus-ring w-full rounded-md border-0 bg-transparent py-1 text-[9px] font-semibold text-slate-400 hover:bg-slate-50"
                       >
                         {statuses.map((option) => (
                           <option key={option} value={option}>
@@ -1806,11 +2196,27 @@ function KanbanBoard({
                   </article>
                 ))}
                 {columnTasks.length === 0 && (
-                  <div className="grid min-h-24 place-items-center rounded-lg border border-dashed border-slate-300 text-[10px] text-slate-400">
-                    Sin tareas
-                  </div>
+                  <button
+                    onClick={() => onCreate(status)}
+                    className="focus-ring grid min-h-20 w-full place-items-center rounded-lg border border-dashed border-slate-300 text-[10px] text-slate-400 hover:border-[#0a84ff]/35 hover:bg-[#0a84ff]/5 hover:text-[#0879ea]"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <Plus className="size-3.5" />
+                      Agregar primera tarea
+                    </span>
+                  </button>
+                )}
+                {columnTasks.length > 0 && (
+                  <button
+                    onClick={() => onCreate(status)}
+                    className="focus-ring flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-[9px] font-semibold text-slate-400 hover:border-[#0a84ff]/35 hover:text-[#0879ea]"
+                  >
+                    <Plus className="size-3.5" />
+                    Agregar tarea
+                  </button>
                 )}
               </div>
+              )}
             </section>
           );
         })}
@@ -2134,10 +2540,13 @@ function TaskDrawer({
   const [commentType, setCommentType] = useState<CommentType>("comment");
   const [commentVisibility, setCommentVisibility] =
     useState<CommentVisibility>("team");
+  const [commentComposerOpen, setCommentComposerOpen] = useState(false);
   const [subtaskTitle, setSubtaskTitle] = useState("");
   const [subtaskAssigneeId, setSubtaskAssigneeId] = useState(
     task.assignee?.id ?? currentPerson?.id ?? "",
   );
+  const dialogRef = useRef<HTMLElement>(null);
+  const onCloseRef = useRef(onClose);
   const attachmentInput = useRef<HTMLInputElement>(null);
   const selectedClient =
     clients.find((client) => client.id === task.clientId) ?? null;
@@ -2170,12 +2579,54 @@ function TaskDrawer({
       )
     : null;
 
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    const previousFocus =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    const dialog = dialogRef.current;
+    dialog?.focus();
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab" || !dialog) return;
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => element.offsetParent !== null);
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      previousFocus?.focus();
+    };
+  }, [task.id]);
+
   function submitComment(event: FormEvent) {
     event.preventDefault();
     const body = comment.trim();
     if (!body) return;
     onComment(body, commentType, commentVisibility);
     setComment("");
+    setCommentComposerOpen(false);
   }
 
   function submitSubtask(event: FormEvent) {
@@ -2197,6 +2648,8 @@ function TaskDrawer({
         aria-label="Cerrar detalle"
       />
       <aside
+        ref={dialogRef}
+        tabIndex={-1}
         className="animate-task-modal relative flex h-full w-full max-w-[1120px] flex-col overflow-hidden border-slate-200 bg-white shadow-[0_30px_90px_rgba(15,23,42,0.3)] sm:h-[calc(100vh-2.5rem)] sm:max-h-[920px] sm:rounded-2xl sm:border lg:h-[calc(100vh-4rem)]"
         role="dialog"
         aria-modal="true"
@@ -2218,9 +2671,39 @@ function TaskDrawer({
             )}
           >
             <CheckCircle2 className="size-4" />
-            {task.status === "resuelto" ? "Aprobada" : "Marcar aprobada"}
+            {task.status === "resuelto" ? "Completada" : "Completar tarea"}
           </button>
           <div className="ml-auto flex items-center gap-1">
+            {canTrackTime && (
+              <button
+                type="button"
+                onClick={() =>
+                  activeTimeEntry
+                    ? onTimerStop(activeTimeEntry.id)
+                    : onTimerStart("", true)
+                }
+                className={clsx(
+                  "focus-ring flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[10px] font-semibold",
+                  activeTimeEntry
+                    ? "bg-rose-50 text-rose-600 hover:bg-rose-100"
+                    : "text-[#0879ea] hover:bg-[#0a84ff]/10",
+                )}
+                aria-label={
+                  activeTimeEntry
+                    ? "Detener timer de esta tarea"
+                    : "Iniciar timer de esta tarea"
+                }
+              >
+                {activeTimeEntry ? (
+                  <Pause className="size-4 fill-current" />
+                ) : (
+                  <Play className="size-4 fill-current" />
+                )}
+                <span className="hidden sm:inline">
+                  {activeTimeEntry ? "Detener timer" : "Iniciar timer"}
+                </span>
+              </button>
+            )}
             {!task.parentTaskId && (
               <button
                 onClick={onTaskArchive}
@@ -2298,8 +2781,20 @@ function TaskDrawer({
             <summary className="focus-ring flex cursor-pointer list-none items-center gap-2 rounded-lg py-2 text-[12px] font-semibold text-slate-700 hover:text-[#0879ea]">
               <ChevronDown className="size-4 transition group-open:rotate-180" />
               Detalles
-              <span className="ml-2 hidden truncate text-[10px] font-normal text-slate-400 sm:inline">
-                {task.assignee?.name ?? "Sin responsable"} · {task.dueLabel}
+              <span className="ml-2 hidden items-center gap-1.5 sm:flex">
+                <span
+                  className={clsx(
+                    "rounded-full px-2 py-1 text-[9px] font-semibold",
+                    statusMeta[task.status].surface,
+                    statusMeta[task.status].text,
+                  )}
+                >
+                  {statusMeta[task.status].label}
+                </span>
+                <PriorityBadge priority={task.priority} />
+                <span className="truncate text-[10px] font-normal text-slate-400">
+                  {task.assignee?.name ?? "Sin responsable"} · {task.dueLabel}
+                </span>
               </span>
             </summary>
             <div
@@ -2705,7 +3200,7 @@ function TaskDrawer({
               !task.parentTaskId && (
                 <p className="mt-3 flex items-start gap-2 rounded-xl bg-violet-50 px-3 py-2.5 text-[10px] leading-4 text-violet-700">
                   <Repeat2 className="mt-0.5 size-3.5 shrink-0" />
-                  Al aprobarla se crea la próxima ocurrencia con sus subtareas
+                  Al completarla se crea la próxima ocurrencia con sus subtareas
                   y responsables. Este historial no se modifica.
                 </p>
               )}
@@ -2993,18 +3488,21 @@ function TaskDrawer({
 
         <form
           onSubmit={submitComment}
-          className="shrink-0 border-t border-slate-100 bg-white p-4 sm:px-7"
+          className="shrink-0 border-t border-slate-100 bg-white px-4 py-3 sm:px-7"
         >
-          <div className="flex items-start gap-3">
+          <div className="flex items-center gap-3">
             <Avatar person={currentPerson} size="sm" />
-            <div className="flex-1 rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm focus-within:border-violet-300 focus-within:ring-4 focus-within:ring-violet-100">
+            <div className="flex-1 rounded-xl border border-slate-200 bg-white px-2.5 py-2 shadow-sm focus-within:border-violet-300 focus-within:ring-4 focus-within:ring-violet-100">
               <textarea
                 value={comment}
                 onChange={(event) => setComment(event.target.value)}
+                onFocus={() => setCommentComposerOpen(true)}
                 placeholder="Sumá feedback o una actualización…"
-                className="min-h-14 w-full resize-none border-0 bg-transparent px-1 text-[12px] text-slate-700 outline-none placeholder:text-slate-400"
+                rows={commentComposerOpen ? 2 : 1}
+                className="block min-h-6 w-full resize-none border-0 bg-transparent px-1 py-1 text-[12px] leading-5 text-slate-700 outline-none placeholder:text-slate-400"
               />
-              <div className="flex flex-wrap items-center justify-between gap-2">
+              {commentComposerOpen && (
+              <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2">
                 <div className="flex flex-wrap gap-1.5">
                   <select
                     value={commentType}
@@ -3036,13 +3534,25 @@ function TaskDrawer({
                     <option value="client">Visible cliente</option>
                   </select>
                 </div>
-                <button
-                  disabled={!comment.trim()}
-                  className="focus-ring rounded-lg bg-[#5b4bec] px-3.5 py-2 text-[10px] font-bold text-white transition hover:bg-[#4f40da] disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Comentar
-                </button>
+                <div className="flex items-center gap-1.5">
+                  {!comment.trim() && (
+                    <button
+                      type="button"
+                      onClick={() => setCommentComposerOpen(false)}
+                      className="focus-ring rounded-lg px-2 py-1.5 text-[9px] font-semibold text-slate-400 hover:bg-slate-100"
+                    >
+                      Contraer
+                    </button>
+                  )}
+                  <button
+                    disabled={!comment.trim()}
+                    className="focus-ring rounded-lg bg-[#5b4bec] px-3.5 py-2 text-[10px] font-bold text-white transition hover:bg-[#4f40da] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Comentar
+                  </button>
+                </div>
               </div>
+              )}
             </div>
           </div>
         </form>
@@ -3147,9 +3657,15 @@ function NewTaskModal({
       />
       <form
         onSubmit={submit}
-        className="animate-enter soft-scrollbar relative max-h-[94vh] w-full max-w-[610px] overflow-y-auto rounded-2xl bg-white shadow-[0_28px_80px_rgba(15,23,42,0.25)]"
+        onKeyDown={(event) => {
+          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+            event.preventDefault();
+            event.currentTarget.requestSubmit();
+          }
+        }}
+        className="animate-enter relative flex max-h-[94vh] w-full max-w-[720px] flex-col overflow-hidden rounded-2xl bg-white shadow-[0_28px_80px_rgba(15,23,42,0.25)]"
       >
-        <header className="flex items-center border-b border-slate-100 px-5 py-4 sm:px-7">
+        <header className="flex shrink-0 items-center border-b border-slate-100 px-5 py-4 sm:px-7">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-violet-600">
               Nueva tarea
@@ -3168,36 +3684,45 @@ function NewTaskModal({
           </button>
         </header>
 
-        <div className="space-y-5 px-5 py-6 sm:px-7">
-          <label className="block">
-            <span className="mb-2 flex items-center gap-2 text-[11px] font-bold text-slate-600">
+        <div className="soft-scrollbar flex-1 space-y-5 overflow-y-auto px-5 py-6 sm:px-7">
+          <details className="group rounded-xl border border-slate-200 bg-slate-50/60">
+            <summary className="focus-ring flex cursor-pointer list-none items-center gap-2 px-3 py-3 text-[11px] font-semibold text-slate-600">
               <Sparkles className="size-3.5 text-violet-500" />
-              Plantilla de proceso
-            </span>
-            <select
-              value={templateId}
-              onChange={(event) => {
-                const nextId = event.target.value;
-                const template = findProcessTemplate(nextId);
-                setTemplateId(nextId);
-                if (!template) return;
-                setPriority(template.priority);
-                setTags(template.tags.join(", "));
-                if (!description.trim()) setDescription(template.description);
-              }}
-              className="focus-ring w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-[12px] text-slate-700"
-            >
-              <option value="">Empezar sin plantilla</option>
-              {processTemplates.map((template) => (
-                <option key={template.id} value={template.id}>
-                  {template.name} · {template.steps.length} pasos
-                </option>
-              ))}
-            </select>
-            <span className="mt-1.5 block text-[9px] text-slate-400">
-              Crea el brief y las subtareas estándar; después podés adaptarlas.
-            </span>
-          </label>
+              Usar una plantilla de proceso
+              {templateId && (
+                <span className="rounded-full bg-violet-50 px-2 py-1 text-[9px] text-violet-700">
+                  {processTemplates.find((item) => item.id === templateId)?.name}
+                </span>
+              )}
+              <ChevronDown className="ml-auto size-4 transition group-open:rotate-180" />
+            </summary>
+            <label className="block border-t border-slate-100 p-3">
+              <span className="sr-only">Plantilla de proceso</span>
+              <select
+                value={templateId}
+                onChange={(event) => {
+                  const nextId = event.target.value;
+                  const template = findProcessTemplate(nextId);
+                  setTemplateId(nextId);
+                  if (!template) return;
+                  setPriority(template.priority);
+                  setTags(template.tags.join(", "));
+                  if (!description.trim()) setDescription(template.description);
+                }}
+                className="focus-ring w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-[12px] text-slate-700"
+              >
+                <option value="">Empezar sin plantilla</option>
+                {processTemplates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name} · {template.steps.length} pasos
+                  </option>
+                ))}
+              </select>
+              <span className="mt-1.5 block text-[9px] text-slate-400">
+                Crea el brief y las subtareas estándar; después podés adaptarlas.
+              </span>
+            </label>
+          </details>
           <label className="block">
             <span className="mb-2 block text-[11px] font-bold text-slate-600">
               Nombre de la tarea
@@ -3293,7 +3818,7 @@ function NewTaskModal({
           <div className="grid gap-4 sm:grid-cols-2">
             <label>
               <span className="mb-2 block text-[11px] font-bold text-slate-600">
-                Campaña
+                Proyecto principal
               </span>
               <select
                 required
@@ -3324,8 +3849,12 @@ function NewTaskModal({
             </label>
             <fieldset className="sm:col-span-2">
               <legend className="mb-2 block text-[11px] font-bold text-slate-600">
-                Proyectos vinculados
+                También visible en
               </legend>
+              <p className="-mt-1 mb-2 text-[9px] text-slate-400">
+                La tarea conserva un único historial aunque aparezca en varios
+                proyectos.
+              </p>
               <div className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:grid-cols-2">
                 {projects.map((project) => {
                   const checked = projectIds.includes(project.id);
@@ -3563,7 +4092,11 @@ function NewTaskModal({
           </label>
         </div>
 
-        <footer className="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50/70 px-5 py-4 sm:px-7">
+        <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/90 px-5 py-4 backdrop-blur sm:px-7">
+          <span className="hidden text-[9px] text-slate-400 sm:block">
+            ⌘ Enter para crear · los archivos se cargarán dentro del documento
+          </span>
+          <div className="ml-auto flex items-center gap-2">
           <button
             type="button"
             onClick={onClose}
@@ -3582,6 +4115,7 @@ function NewTaskModal({
             )}
             {submitting ? "Creando y cargando…" : "Crear tarea"}
           </button>
+          </div>
         </footer>
       </form>
     </div>
@@ -3765,6 +4299,8 @@ function NewProjectModal({
 
 function ClientsModal({
   clients,
+  projects,
+  tasks,
   workspaceId,
   canManage,
   onClose,
@@ -3773,6 +4309,8 @@ function ClientsModal({
   onDelete,
 }: {
   clients: Client[];
+  projects: Project[];
+  tasks: Task[];
   workspaceId: string;
   canManage: boolean;
   onClose: () => void;
@@ -3781,12 +4319,31 @@ function ClientsModal({
   onDelete: (clientId: string) => Promise<void>;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [clientQuery, setClientQuery] = useState("");
+  const [clientStatus, setClientStatus] = useState<
+    "active" | "archived" | "all"
+  >("active");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [notes, setNotes] = useState("");
   const [categories, setCategories] = useState("");
   const [saving, setSaving] = useState(false);
   const [deletingClient, setDeletingClient] = useState<Client | null>(null);
+  const visibleClients = clients.filter((client) => {
+    const normalized = clientQuery.trim().toLowerCase();
+    const matchesStatus =
+      clientStatus === "all" ||
+      (clientStatus === "archived" ? client.archived : !client.archived);
+    return (
+      matchesStatus &&
+      (!normalized ||
+        [client.name, client.email, client.notes, ...client.categories]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalized))
+    );
+  });
 
   function clearForm() {
     setEditingId(null);
@@ -3794,6 +4351,7 @@ function ClientsModal({
     setEmail("");
     setNotes("");
     setCategories("");
+    setFormOpen(false);
   }
 
   async function submit(event: FormEvent) {
@@ -3845,15 +4403,32 @@ function ClientsModal({
             <h2 className="text-[16px] font-bold text-slate-900">Clientes</h2>
           </div>
           <button
+            onClick={() => {
+              clearForm();
+              setFormOpen(true);
+            }}
+            disabled={!canManage}
+            className="mac-button-primary focus-ring ml-auto flex items-center gap-1.5 rounded-lg px-3 py-2 text-[10px] font-bold text-white disabled:opacity-40"
+          >
+            <Plus className="size-3.5" />
+            Nuevo cliente
+          </button>
+          <button
             onClick={onClose}
-            className="focus-ring ml-auto rounded-lg p-2 text-slate-400 hover:bg-slate-100"
+            className="focus-ring ml-2 rounded-lg p-2 text-slate-400 hover:bg-slate-100"
             aria-label="Cerrar clientes"
           >
             <X className="size-5" />
           </button>
         </header>
 
-        <div className="grid min-h-0 flex-1 lg:grid-cols-[340px_1fr]">
+        <div
+          className={clsx(
+            "grid min-h-0 flex-1",
+            formOpen && "lg:grid-cols-[340px_1fr]",
+          )}
+        >
+          {formOpen && (
           <form
             onSubmit={(event) => void submit(event)}
             className="border-b border-black/[0.06] bg-white/70 p-5 lg:border-b-0 lg:border-r"
@@ -3945,20 +4520,52 @@ function ClientsModal({
               </p>
             )}
           </form>
+          )}
 
           <div className="soft-scrollbar min-h-0 overflow-y-auto p-4 sm:p-6">
-            <div className="flex items-center">
+            <div className="flex flex-wrap items-center gap-3">
               <div>
                 <h3 className="text-[13px] font-bold text-slate-800">
                   Directorio del espacio
                 </h3>
                 <p className="mt-1 text-[9px] text-slate-400">
-                  {clients.length} {clients.length === 1 ? "cliente" : "clientes"}
+                  {visibleClients.length} de {clients.length}{" "}
+                  {clients.length === 1 ? "cliente" : "clientes"}
                 </p>
               </div>
+              <label className="relative ml-auto min-w-[220px] flex-1 sm:max-w-xs">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={clientQuery}
+                  onChange={(event) => setClientQuery(event.target.value)}
+                  placeholder="Buscar cliente, contacto o servicio…"
+                  className="focus-ring h-10 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-[11px]"
+                />
+              </label>
+              <select
+                value={clientStatus}
+                onChange={(event) =>
+                  setClientStatus(
+                    event.target.value as "active" | "archived" | "all",
+                  )
+                }
+                className="focus-ring h-10 rounded-xl border border-slate-200 bg-white px-3 text-[10px] font-semibold text-slate-600"
+                aria-label="Filtrar clientes por estado"
+              >
+                <option value="active">Activos</option>
+                <option value="archived">Archivados</option>
+                <option value="all">Todos</option>
+              </select>
             </div>
             <div className="mt-4 grid gap-3 xl:grid-cols-2">
-              {clients.map((client) => (
+              {visibleClients.map((client) => {
+                const clientProjects = projects.filter(
+                  (project) => project.clientId === client.id,
+                );
+                const clientTasks = tasks.filter(
+                  (task) => task.clientId === client.id,
+                );
+                return (
                 <article
                   key={client.id}
                   className={clsx(
@@ -3983,14 +4590,41 @@ function ClientsModal({
                           </span>
                         )}
                       </div>
-                      <p className="mt-1 truncate text-[9px] text-slate-400">
-                        {client.email || "Sin correo"}
-                      </p>
+                      {client.email ? (
+                        <a
+                          href={`mailto:${client.email}`}
+                          className="mt-1 block truncate text-[9px] font-medium text-[#0879ea] hover:underline"
+                        >
+                          {client.email}
+                        </a>
+                      ) : (
+                        <p className="mt-1 truncate text-[9px] text-slate-400">
+                          Sin correo
+                        </p>
+                      )}
                     </div>
                   </div>
                   <p className="mt-3 min-h-8 text-[9px] leading-4 text-slate-500">
                     {client.notes || "Sin notas adicionales."}
                   </p>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <div className="rounded-lg bg-slate-50 px-3 py-2">
+                      <p className="text-[12px] font-bold text-slate-800">
+                        {clientProjects.length}
+                      </p>
+                      <p className="text-[8px] uppercase tracking-wide text-slate-400">
+                        Proyectos
+                      </p>
+                    </div>
+                    <div className="rounded-lg bg-slate-50 px-3 py-2">
+                      <p className="text-[12px] font-bold text-slate-800">
+                        {clientTasks.length}
+                      </p>
+                      <p className="text-[8px] uppercase tracking-wide text-slate-400">
+                        Tareas
+                      </p>
+                    </div>
+                  </div>
                   {client.categories.length > 0 && (
                     <div className="mt-3 flex flex-wrap gap-1.5">
                       {client.categories.map((category) => (
@@ -4012,6 +4646,7 @@ function ClientsModal({
                           setEmail(client.email);
                           setNotes(client.notes);
                           setCategories(client.categories.join(", "));
+                          setFormOpen(true);
                         }}
                         className="focus-ring rounded-lg border border-slate-200 px-3 py-2 text-[9px] font-semibold text-slate-600 hover:bg-slate-50"
                       >
@@ -4036,8 +4671,9 @@ function ClientsModal({
                     </div>
                   )}
                 </article>
-              ))}
-              {!clients.length && (
+                );
+              })}
+              {!visibleClients.length && (
                 <div className="col-span-full rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center">
                   <ContactRound className="mx-auto size-7 text-slate-300" />
                   <p className="mt-3 text-[11px] font-semibold text-slate-500">
@@ -4534,13 +5170,22 @@ function NotificationsPopover({
   onTaskOpen: (taskId: string) => void;
   onClose: () => void;
 }) {
+  const [notificationFilter, setNotificationFilter] = useState<
+    "unread" | "all"
+  >("unread");
+  const unreadCount = notifications.filter((item) => !item.readAt).length;
+  const visibleNotifications =
+    notificationFilter === "unread"
+      ? notifications.filter((item) => !item.readAt)
+      : notifications;
+
   return (
     <div className="mac-popover absolute right-0 top-[calc(100%+8px)] z-50 w-[340px] max-w-[calc(100vw-24px)] overflow-hidden rounded-2xl border border-black/10 bg-white/95 shadow-[0_22px_65px_rgba(15,23,42,.22)] backdrop-blur-2xl">
       <header className="flex items-center border-b border-black/5 px-4 py-3">
         <div>
           <p className="text-[12px] font-bold text-slate-800">Notificaciones</p>
           <p className="text-[9px] text-slate-400">
-            {notifications.filter((item) => !item.readAt).length} sin leer
+            {unreadCount} sin leer
           </p>
         </div>
         <button
@@ -4557,8 +5202,30 @@ function NotificationsPopover({
           <X className="size-3.5" />
         </button>
       </header>
+      <div className="flex gap-1 border-b border-black/5 px-3 py-2">
+        {(
+          [
+            ["unread", "No leídas"],
+            ["all", "Todas"],
+          ] as const
+        ).map(([filter, label]) => (
+          <button
+            key={filter}
+            onClick={() => setNotificationFilter(filter)}
+            aria-pressed={notificationFilter === filter}
+            className={clsx(
+              "focus-ring rounded-lg px-3 py-1.5 text-[9px] font-semibold",
+              notificationFilter === filter
+                ? "bg-slate-100 text-slate-700"
+                : "text-slate-400 hover:text-slate-600",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <div className="soft-scrollbar max-h-[390px] overflow-y-auto p-2">
-        {notifications.map((notification) => (
+        {visibleNotifications.map((notification) => (
           <button
             key={notification.id}
             onClick={() => {
@@ -4589,12 +5256,14 @@ function NotificationsPopover({
             </span>
           </button>
         ))}
-        {notifications.length === 0 && (
+        {visibleNotifications.length === 0 && (
           <div className="grid min-h-36 place-items-center text-center">
             <div>
               <Bell className="mx-auto size-6 text-slate-300" />
               <p className="mt-2 text-[10px] text-slate-400">
-                No hay novedades todavía.
+                {notificationFilter === "unread"
+                  ? "No tenés notificaciones pendientes."
+                  : "No hay novedades todavía."}
               </p>
             </div>
           </div>
@@ -4655,6 +5324,8 @@ function TimeReportsModal({
     (total, entry) => total + elapsedSeconds(entry, now),
     0,
   );
+  const effectiveSeconds = nonOverlappingTimeSeconds(filtered, now);
+  const overlapSeconds = overlappingTimeSeconds(filtered, now);
   const billableSeconds = filtered.reduce(
     (total, entry) =>
       total + (entry.billable ? elapsedSeconds(entry, now) : 0),
@@ -4665,6 +5336,9 @@ function TimeReportsModal({
     0,
   );
   const activeCount = filtered.filter((entry) => !entry.endedAt).length;
+  const missingRateCount = filtered.filter(
+    (entry) => entry.billable && entry.hourlyRate <= 0,
+  ).length;
 
   function exportCsv() {
     const csv = buildTimeReportCsv(filtered, currency);
@@ -4677,6 +5351,96 @@ function TimeReportsModal({
     anchor.download = `taska-tiempo-${from || "inicio"}-${to || "hoy"}.csv`;
     anchor.click();
     URL.revokeObjectURL(url);
+  }
+
+  function escapeReportValue(value: unknown) {
+    return String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  function reportRows() {
+    return filtered
+      .map(
+        (entry) => `<tr>
+          <td>${escapeReportValue(entry.user.name)}</td>
+          <td>${escapeReportValue(entry.taskCode)}</td>
+          <td>${escapeReportValue(entry.taskTitle)}</td>
+          <td>${escapeReportValue(entry.projectName)}</td>
+          <td>${escapeReportValue(entry.description || "Sin descripción")}</td>
+          <td>${escapeReportValue(formatDuration(elapsedSeconds(entry, now)))}</td>
+          <td>${entry.billable ? "Facturable" : "Interno"}</td>
+          <td>${escapeReportValue(`${currency} ${timeEntryCost(entry, now).toFixed(2)}`)}</td>
+        </tr>`,
+      )
+      .join("");
+  }
+
+  function reportDocument(printMode = false) {
+    return `<!doctype html>
+      <html lang="es">
+        <head>
+          <meta charset="utf-8" />
+          <title>Reporte de tiempo Taska</title>
+          <style>
+            body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;margin:32px}
+            h1{font-size:24px;margin:0 0 6px}.meta{color:#667085;font-size:12px;margin-bottom:24px}
+            .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:24px}
+            .metric{border:1px solid #e4e7ec;border-radius:10px;padding:12px}.metric strong{display:block;font-size:17px}.metric span{font-size:11px;color:#667085}
+            table{width:100%;border-collapse:collapse;font-size:11px}th{text-align:left;background:#f2f4f7;color:#475467}
+            th,td{border:1px solid #e4e7ec;padding:8px;vertical-align:top}tr:nth-child(even){background:#fafafa}
+            .warning{background:#fffaeb;border:1px solid #fedf89;border-radius:8px;padding:10px;margin:0 0 16px;font-size:11px}
+            @page{size:landscape;margin:12mm}@media print{body{margin:0}.no-print{display:none}}
+          </style>
+        </head>
+        <body>
+          <h1>Auditoría de tiempo y costos</h1>
+          <p class="meta">${escapeReportValue(from || "Inicio")} — ${escapeReportValue(to || "Hoy")} · generado ${escapeReportValue(new Intl.DateTimeFormat("es-UY", { dateStyle: "medium", timeStyle: "short" }).format(now))}</p>
+          ${
+            overlapSeconds > 0
+              ? `<p class="warning">Hay ${escapeReportValue(formatDuration(overlapSeconds))} de timers superpuestos. El tiempo real elimina el doble conteo por persona.</p>`
+              : ""
+          }
+          <div class="metrics">
+            <div class="metric"><strong>${escapeReportValue(formatDuration(effectiveSeconds))}</strong><span>Tiempo real</span></div>
+            <div class="metric"><strong>${escapeReportValue(formatDuration(totalSeconds))}</strong><span>Tiempo bruto</span></div>
+            <div class="metric"><strong>${escapeReportValue(formatDuration(billableSeconds))}</strong><span>Facturable</span></div>
+            <div class="metric"><strong>${escapeReportValue(`${currency} ${totalCost.toFixed(2)}`)}</strong><span>Costo bruto</span></div>
+          </div>
+          <table>
+            <thead><tr><th>Persona</th><th>Código</th><th>Tarea</th><th>Proyecto</th><th>Descripción</th><th>Duración</th><th>Tipo</th><th>Costo</th></tr></thead>
+            <tbody>${reportRows()}</tbody>
+          </table>
+          ${printMode ? "<script>window.addEventListener('load',()=>window.print())</script>" : ""}
+        </body>
+      </html>`;
+  }
+
+  function exportExcel() {
+    const blob = new Blob([`\uFEFF${reportDocument()}`], {
+      type: "application/vnd.ms-excel;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `taska-tiempo-${from || "inicio"}-${to || "hoy"}.xls`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function printReport() {
+    const reportWindow = window.open(
+      "",
+      "_blank",
+      "popup=yes,width=1200,height=800",
+    );
+    if (!reportWindow) return;
+    reportWindow.opener = null;
+    reportWindow.document.write(reportDocument(true));
+    reportWindow.document.close();
   }
 
   return (
@@ -4701,14 +5465,32 @@ function TimeReportsModal({
               Visibilidad administrativa por persona, proyecto y período
             </p>
           </div>
-          <button
-            onClick={exportCsv}
-            disabled={filtered.length === 0}
-            className="mac-button-primary focus-ring ml-auto flex items-center gap-2 rounded-lg px-3 py-2 text-[10px] font-bold text-white disabled:opacity-40"
-          >
-            <FileDown className="size-3.5" />
-            Exportar CSV
-          </button>
+          <div className="ml-auto hidden items-center gap-1 sm:flex">
+            <button
+              onClick={exportCsv}
+              disabled={filtered.length === 0}
+              className="focus-ring flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-bold text-slate-600 disabled:opacity-40"
+            >
+              <FileDown className="size-3.5" />
+              CSV
+            </button>
+            <button
+              onClick={exportExcel}
+              disabled={filtered.length === 0}
+              className="focus-ring flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-bold text-slate-600 disabled:opacity-40"
+            >
+              <FileSpreadsheet className="size-3.5" />
+              Excel
+            </button>
+            <button
+              onClick={printReport}
+              disabled={filtered.length === 0}
+              className="mac-button-primary focus-ring flex items-center gap-2 rounded-lg px-3 py-2 text-[10px] font-bold text-white disabled:opacity-40"
+            >
+              <Printer className="size-3.5" />
+              PDF / imprimir
+            </button>
+          </div>
           <button
             onClick={onClose}
             className="focus-ring ml-2 rounded-lg p-2 text-slate-400 hover:bg-slate-100"
@@ -4719,14 +5501,65 @@ function TimeReportsModal({
         </header>
 
         <div className="soft-scrollbar flex-1 overflow-y-auto p-5 sm:p-7">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="mb-4 grid grid-cols-3 gap-2 sm:hidden">
+            <button
+              onClick={exportCsv}
+              disabled={filtered.length === 0}
+              className="focus-ring flex items-center justify-center gap-1 rounded-lg border border-slate-200 px-2 py-2 text-[9px] font-bold text-slate-600 disabled:opacity-40"
+            >
+              <FileDown className="size-3.5" /> CSV
+            </button>
+            <button
+              onClick={exportExcel}
+              disabled={filtered.length === 0}
+              className="focus-ring flex items-center justify-center gap-1 rounded-lg border border-slate-200 px-2 py-2 text-[9px] font-bold text-slate-600 disabled:opacity-40"
+            >
+              <FileSpreadsheet className="size-3.5" /> Excel
+            </button>
+            <button
+              onClick={printReport}
+              disabled={filtered.length === 0}
+              className="mac-button-primary focus-ring flex items-center justify-center gap-1 rounded-lg px-2 py-2 text-[9px] font-bold text-white disabled:opacity-40"
+            >
+              <Printer className="size-3.5" /> PDF
+            </button>
+          </div>
+          {(overlapSeconds > 0 || missingRateCount > 0) && (
+            <div className="mb-5 grid gap-2">
+              {overlapSeconds > 0 && (
+                <p className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[11px] font-semibold leading-5 text-amber-700">
+                  <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+                  Se detectaron {formatDuration(overlapSeconds)} de timers
+                  superpuestos. “Tiempo real” elimina el doble conteo por
+                  persona; “tiempo bruto” conserva todos los registros para la
+                  auditoría.
+                </p>
+              )}
+              {missingRateCount > 0 && (
+                <p className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-[11px] font-semibold leading-5 text-rose-700">
+                  <CircleDollarSign className="mt-0.5 size-4 shrink-0" />
+                  Hay {missingRateCount} registros facturables sin tarifa
+                  configurada. El costo mostrado está incompleto.
+                </p>
+              )}
+            </div>
+          )}
+
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             {[
               {
-                label: "Tiempo total",
-                value: formatDuration(totalSeconds),
-                detail: `${filtered.length} registros`,
+                label: "Tiempo real",
+                value: formatDuration(effectiveSeconds),
+                detail: "Sin doble conteo por persona",
                 icon: TimerReset,
                 color: "text-[#0a84ff] bg-[#0a84ff]/10",
+              },
+              {
+                label: "Tiempo bruto",
+                value: formatDuration(totalSeconds),
+                detail: `${filtered.length} registros`,
+                icon: Clock3,
+                color: "text-sky-600 bg-sky-50",
               },
               {
                 label: "Tiempo facturable",
@@ -4738,9 +5571,12 @@ function TimeReportsModal({
                 color: "text-emerald-600 bg-emerald-50",
               },
               {
-                label: "Costo auditado",
+                label: "Costo bruto",
                 value: `${currency} ${totalCost.toFixed(2)}`,
-                detail: "Tarifa histórica por registro",
+                detail:
+                  missingRateCount > 0
+                    ? `${missingRateCount} sin tarifa`
+                    : "Tarifa histórica por registro",
                 icon: CircleDollarSign,
                 color: "text-violet-600 bg-violet-50",
               },
@@ -4838,18 +5674,18 @@ function TimeReportsModal({
           </div>
 
           <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200 bg-white">
-            <div className="hidden grid-cols-[120px_1fr_1fr_100px_100px_42px] border-b border-slate-100 bg-slate-50 px-4 py-3 text-[8px] font-bold uppercase tracking-wide text-slate-400 md:grid">
+            <div className="hidden grid-cols-[120px_1fr_1fr_100px_100px_90px] border-b border-slate-100 bg-slate-50 px-4 py-3 text-[8px] font-bold uppercase tracking-wide text-slate-400 md:grid">
               <span>Persona</span>
               <span>Tarea</span>
               <span>Descripción</span>
               <span>Duración</span>
               <span>Costo</span>
-              <span />
+              <span>Tipo / estado</span>
             </div>
             {filtered.map((entry) => (
               <article
                 key={entry.id}
-                className="grid gap-2 border-b border-slate-100 p-4 last:border-0 md:grid-cols-[120px_1fr_1fr_100px_100px_42px] md:items-center md:gap-0"
+                className="grid gap-2 border-b border-slate-100 p-4 last:border-0 md:grid-cols-[120px_1fr_1fr_100px_100px_90px] md:items-center md:gap-0"
               >
                 <div className="flex min-w-0 items-center gap-2">
                   <Avatar person={entry.user} size="sm" />
@@ -4876,21 +5712,30 @@ function TimeReportsModal({
                 </span>
                 <span
                   className={clsx(
-                    "size-2 rounded-full",
-                    entry.endedAt
-                      ? entry.billable
-                        ? "bg-emerald-400"
-                        : "bg-slate-300"
-                      : "animate-pulse bg-rose-500",
+                    "inline-flex w-fit items-center gap-1.5 rounded-full px-2 py-1 text-[9px] font-semibold",
+                    !entry.endedAt
+                      ? "bg-rose-50 text-rose-600"
+                      : entry.billable
+                        ? "bg-emerald-50 text-emerald-700"
+                        : "bg-slate-100 text-slate-500",
                   )}
-                  title={
-                    entry.endedAt
-                      ? entry.billable
-                        ? "Facturable"
-                        : "Interno"
-                      : "En curso"
-                  }
-                />
+                >
+                  <span
+                    className={clsx(
+                      "size-1.5 rounded-full",
+                      !entry.endedAt
+                        ? "animate-pulse bg-rose-500"
+                        : entry.billable
+                          ? "bg-emerald-400"
+                          : "bg-slate-400",
+                    )}
+                  />
+                  {!entry.endedAt
+                    ? "En curso"
+                    : entry.billable
+                      ? "Facturable"
+                      : "Interno"}
+                </span>
               </article>
             ))}
             {filtered.length === 0 && (
@@ -5125,33 +5970,35 @@ function SettingsModal({
                           espacio.
                         </span>
                       </span>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-label="Modo oscuro"
-                        aria-checked={settings.theme === "dark"}
-                        onClick={() =>
-                          onSettingsUpdate({
-                            theme:
-                              settings.theme === "dark" ? "light" : "dark",
-                          })
-                        }
-                        className={clsx(
-                          "focus-ring relative h-6 w-11 shrink-0 rounded-full p-0.5 transition",
-                          settings.theme === "dark"
-                            ? "bg-[#0a84ff]"
-                            : "bg-slate-300",
-                        )}
+                      <div
+                        className="flex rounded-lg border border-slate-200 bg-slate-50 p-1"
+                        aria-label="Tema de la interfaz"
                       >
-                        <span
-                          className={clsx(
-                            "block size-5 rounded-full bg-white shadow-sm transition-transform",
-                            settings.theme === "dark" && "translate-x-5",
-                          )}
-                        />
-                      </button>
+                        {(
+                          [
+                            ["light", "Claro"],
+                            ["dark", "Oscuro"],
+                            ["system", "Sistema"],
+                          ] as const
+                        ).map(([theme, label]) => (
+                          <button
+                            key={theme}
+                            type="button"
+                            onClick={() => onSettingsUpdate({ theme })}
+                            className={clsx(
+                              "focus-ring rounded-md px-2.5 py-1.5 text-[9px] font-semibold transition",
+                              settings.theme === theme
+                                ? "bg-white text-slate-800 shadow-sm"
+                                : "text-slate-400 hover:text-slate-700",
+                            )}
+                            aria-pressed={settings.theme === theme}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    <label className="flex items-center gap-3 p-4">
+                    <div className="flex items-center gap-3 p-4">
                       <span className="flex-1">
                         <span className="block text-[11px] font-semibold text-slate-700">
                           Vista compacta
@@ -5160,36 +6007,131 @@ function SettingsModal({
                           Reduce el alto de cada fila en la lista.
                         </span>
                       </span>
-                      <input
-                        type="checkbox"
-                        checked={settings.compactMode}
-                        onChange={(event) =>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={settings.compactMode}
+                        aria-label="Vista compacta"
+                        onClick={() =>
                           onSettingsUpdate({
-                            compactMode: event.target.checked,
+                            compactMode: !settings.compactMode,
                           })
                         }
-                        className="size-4 accent-[#0a84ff]"
-                      />
-                    </label>
-                    <label className="flex items-center gap-3 p-4">
+                        className={clsx(
+                          "focus-ring relative h-6 w-11 shrink-0 rounded-full p-0.5 transition",
+                          settings.compactMode
+                            ? "bg-[#0a84ff]"
+                            : "bg-slate-300",
+                        )}
+                      >
+                        <span
+                          className={clsx(
+                            "block size-5 rounded-full bg-white shadow-sm transition-transform",
+                            settings.compactMode && "translate-x-5",
+                          )}
+                        />
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-3 p-4">
                       <span className="flex-1">
                         <span className="block text-[11px] font-semibold text-slate-700">
                           Mostrar completadas
                         </span>
                         <span className="mt-0.5 block text-[9px] text-slate-400">
-                          Incluye las tareas aprobadas en lista y tablero.
+                          Incluye las tareas completadas en lista y tablero.
                         </span>
                       </span>
-                      <input
-                        type="checkbox"
-                        checked={settings.showCompleted}
-                        onChange={(event) =>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={settings.showCompleted}
+                        aria-label="Mostrar completadas"
+                        onClick={() =>
                           onSettingsUpdate({
-                            showCompleted: event.target.checked,
+                            showCompleted: !settings.showCompleted,
                           })
                         }
-                        className="size-4 accent-[#0a84ff]"
-                      />
+                        className={clsx(
+                          "focus-ring relative h-6 w-11 shrink-0 rounded-full p-0.5 transition",
+                          settings.showCompleted
+                            ? "bg-[#0a84ff]"
+                            : "bg-slate-300",
+                        )}
+                      >
+                        <span
+                          className={clsx(
+                            "block size-5 rounded-full bg-white shadow-sm transition-transform",
+                            settings.showCompleted && "translate-x-5",
+                          )}
+                        />
+                      </button>
+                    </div>
+                  </div>
+                </section>
+                <section>
+                  <h3 className="text-[12px] font-bold text-slate-800">
+                    Registro de tiempo
+                  </h3>
+                  <div className="mt-3 divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white">
+                    <div className="flex items-center gap-3 p-4">
+                      <span className="flex-1">
+                        <span className="block text-[11px] font-semibold text-slate-700">
+                          Advertir timers superpuestos
+                        </span>
+                        <span className="mt-0.5 block text-[9px] text-slate-400">
+                          Conserva timers paralelos, pero diferencia tiempo
+                          bruto de tiempo real.
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={settings.warnTimerOverlaps}
+                        aria-label="Advertir timers superpuestos"
+                        onClick={() =>
+                          onSettingsUpdate({
+                            warnTimerOverlaps: !settings.warnTimerOverlaps,
+                          })
+                        }
+                        className={clsx(
+                          "focus-ring relative h-6 w-11 shrink-0 rounded-full p-0.5 transition",
+                          settings.warnTimerOverlaps
+                            ? "bg-[#0a84ff]"
+                            : "bg-slate-300",
+                        )}
+                      >
+                        <span
+                          className={clsx(
+                            "block size-5 rounded-full bg-white shadow-sm transition-transform",
+                            settings.warnTimerOverlaps && "translate-x-5",
+                          )}
+                        />
+                      </button>
+                    </div>
+                    <label className="flex items-center gap-3 p-4">
+                      <span className="flex-1">
+                        <span className="block text-[11px] font-semibold text-slate-700">
+                          Avisar timer olvidado
+                        </span>
+                        <span className="mt-0.5 block text-[9px] text-slate-400">
+                          Muestra una alerta después de este tiempo continuo.
+                        </span>
+                      </span>
+                      <select
+                        value={settings.staleTimerHours}
+                        onChange={(event) =>
+                          onSettingsUpdate({
+                            staleTimerHours: Number(event.target.value),
+                          })
+                        }
+                        className="focus-ring rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-semibold text-slate-600"
+                      >
+                        {[4, 6, 8, 12].map((hours) => (
+                          <option key={hours} value={hours}>
+                            {hours} horas
+                          </option>
+                        ))}
+                      </select>
                     </label>
                   </div>
                 </section>
@@ -5222,6 +6164,50 @@ function SettingsModal({
                     {members.length}
                   </span>
                 </div>
+                <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-slate-50/70">
+                  <table className="w-full min-w-[520px] text-left text-[9px]">
+                    <thead className="border-b border-slate-200 text-slate-400">
+                      <tr>
+                        <th className="px-3 py-2.5 font-bold">Rol</th>
+                        <th className="px-3 py-2.5 font-bold">Tareas</th>
+                        <th className="px-3 py-2.5 font-bold">Integrantes</th>
+                        <th className="px-3 py-2.5 font-bold">Reportes</th>
+                        <th className="px-3 py-2.5 font-bold">Espacio</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 text-slate-600">
+                      {[
+                        ["Dueño", "Editar", "Administrar", "Auditar", "Eliminar"],
+                        ["Admin", "Editar", "Administrar", "Auditar", "Configurar"],
+                        ["Integrante", "Editar", "Ver", "Propios", "—"],
+                        ["Solo lectura", "Ver", "Ver", "—", "—"],
+                      ].map((row) => (
+                        <tr key={row[0]}>
+                          {row.map((cell, index) => (
+                            <td
+                              key={`${row[0]}-${index}`}
+                              className={clsx(
+                                "px-3 py-2.5",
+                                index === 0 && "font-bold text-slate-700",
+                              )}
+                            >
+                              {cell}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {canManage &&
+                  members.some((member) => member.hourlyRate <= 0) && (
+                    <p className="mt-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[9px] font-semibold leading-4 text-amber-700">
+                      <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                      {members.filter((member) => member.hourlyRate <= 0).length}{" "}
+                      integrantes no tienen tarifa horaria. Sus costos no se
+                      incluirán correctamente en los reportes.
+                    </p>
+                  )}
                 {canManage && (
                   <form
                     onSubmit={submitInvitation}
@@ -5349,7 +6335,11 @@ function SettingsModal({
                                 {invitation.email}
                               </span>
                               <span className="block text-[9px] text-slate-400">
-                                Rol: {invitation.role}
+                                Rol: {teamRoleLabels[invitation.role]} · vence{" "}
+                                {new Intl.DateTimeFormat("es-UY", {
+                                  day: "2-digit",
+                                  month: "short",
+                                }).format(new Date(invitation.expiresAt))}
                               </span>
                             </span>
                             <button
@@ -5562,6 +6552,7 @@ export function TaskaApp() {
     resetDemo,
   } = useTaskWorkspace();
   const [view, setView] = useState<View>("my_tasks");
+  const [taskScope, setTaskScope] = useState<TaskScope>("mine");
   const [projectTab, setProjectTab] = useState<ProjectTab>("list");
   const [query, setQuery] = useState("");
   const [priority, setPriority] = useState<TaskPriority | "todas">("todas");
@@ -5640,6 +6631,10 @@ export function TaskaApp() {
     window.history.replaceState({}, "", url);
   }, [selectedTaskId, taskUrlReady]);
 
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }, [activeWorkspaceId, projectId, projectTab, view]);
+
   const activeWorkspace =
     workspaces.find((workspace) => workspace.id === activeWorkspaceId) ??
     workspaces[0] ??
@@ -5716,12 +6711,12 @@ export function TaskaApp() {
   const filteredTasks = useMemo(
     () => {
       const sourceTasks =
-        view === "my_tasks" || view === "gantt"
+        view === "gantt" || taskScope === "mine"
           ? activeTasks
           : activeTopLevelTasks;
       return sourceTasks.filter((task) => {
         const isMine =
-          view !== "my_tasks" ||
+          taskScope !== "mine" ||
           isTaskAssignedToCurrentUser(
             task,
             currentUserId,
@@ -5750,6 +6745,7 @@ export function TaskaApp() {
       settings.showCompleted,
       activeTasks,
       activeTopLevelTasks,
+      taskScope,
       view,
     ],
   );
@@ -5894,14 +6890,18 @@ export function TaskaApp() {
   }
 
   const viewTitle =
-    view === "my_tasks"
-      ? "Mis tareas"
-      : view === "all_tasks"
-        ? "Todas las tareas"
+    view === "my_tasks" || view === "all_tasks"
+      ? taskScope === "mine"
+        ? "Mis tareas"
+        : "Todas las tareas"
         : view === "board"
-          ? "Tablero creativo"
+          ? taskScope === "mine"
+            ? "Mi tablero"
+            : "Tablero del espacio"
           : view === "gantt"
-            ? "Cronograma del espacio"
+            ? taskScope === "mine"
+              ? "Mi planificación"
+              : "Gantt del espacio"
             : "Archivo de procesos";
 
   if (initializing) {
@@ -5920,9 +6920,14 @@ export function TaskaApp() {
       className="mac-wallpaper flex min-h-screen bg-[#f1f3f6]"
       style={{ "--app-accent": settings.accentColor } as CSSProperties}
     >
+      <a href="#main-content" className="skip-link">
+        Saltar al contenido
+      </a>
       <Sidebar
         view={view}
         onViewChange={(nextView) => {
+          if (nextView === "my_tasks") setTaskScope("mine");
+          if (nextView === "all_tasks") setTaskScope("all");
           setView(nextView);
           setProjectId("todos");
           setSelectedTaskId(null);
@@ -5952,6 +6957,7 @@ export function TaskaApp() {
         canViewTimeReports={canAuditTime}
         isPlatformAdmin={isPlatformAdmin}
         onProjectSelect={(nextProjectId) => {
+          setTaskScope("all");
           setProjectId(nextProjectId);
           setView("all_tasks");
           setProjectTab("list");
@@ -5959,7 +6965,7 @@ export function TaskaApp() {
         }}
       />
 
-      <main className="min-w-0 flex-1">
+      <main id="main-content" className="min-w-0 flex-1" tabIndex={-1}>
         <header className="sticky top-0 z-30 flex h-16 items-center border-b border-[#e6e8ee] bg-white/95 px-4 backdrop-blur sm:px-7 lg:h-[70px] lg:px-9">
           <button
             onClick={() => setMobileMenu(true)}
@@ -5985,11 +6991,9 @@ export function TaskaApp() {
                     ? "Tablero"
                     : projectTab === "timeline"
                       ? "Cronograma"
-                      : projectTab === "dashboard"
-                        ? "Panel"
-                        : projectTab === "gantt"
-                          ? "Gantt"
-                          : "Lista"}
+                      : projectTab === "gantt"
+                        ? "Gantt"
+                        : "Lista"}
               </span>
             </div>
           ) : (
@@ -6017,6 +7021,8 @@ export function TaskaApp() {
             <ActiveTimersMenu
               entries={activeTimeEntries}
               open={timersOpen}
+              staleTimerHours={settings.staleTimerHours}
+              warnOverlaps={settings.warnTimerOverlaps}
               onToggle={() => {
                 setNotificationsOpen(false);
                 setTimersOpen((current) => !current);
@@ -6030,6 +7036,15 @@ export function TaskaApp() {
                 void stopTimer(entryId)
                   .then(() => notify("Timer detenido"))
                   .catch(() => notify("No se pudo detener el timer"));
+              }}
+              onStopAll={() => {
+                void Promise.all(
+                  activeTimeEntries.map((entry) => stopTimer(entry.id)),
+                )
+                  .then(() => notify("Todos los timers fueron detenidos"))
+                  .catch(() =>
+                    notify("Algunos timers no pudieron detenerse"),
+                  );
               }}
             />
             <div className="relative">
@@ -6098,7 +7113,7 @@ export function TaskaApp() {
                 void updateStatus(task.id, next);
                 notify(
                   next === "resuelto"
-                    ? "Tarea marcada como aprobada"
+                    ? "Tarea completada"
                     : "Tarea reabierta",
                 );
               }}
@@ -6113,6 +7128,7 @@ export function TaskaApp() {
             />
           ) : (
             <>
+              {view !== "archive" && (
               <section className="animate-enter">
             <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
               <div>
@@ -6140,7 +7156,7 @@ export function TaskaApp() {
                 {
                   label: "Tareas activas",
                   value: openCount,
-                  trend: `${activeTopLevelTasks.length} tareas activas`,
+                  trend: `${openCount} tareas raíz sin completar`,
                   icon: Inbox,
                   color: "text-violet-600",
                   iconBg: "bg-violet-50",
@@ -6154,7 +7170,7 @@ export function TaskaApp() {
                   iconBg: "bg-rose-50",
                 },
                 {
-                  label: "Aprobadas",
+                  label: "Completadas",
                   value: resolvedCount,
                   trend: "En este espacio",
                   icon: CheckCircle2,
@@ -6207,8 +7223,9 @@ export function TaskaApp() {
               })}
             </div>
               </section>
+              )}
 
-              <section className="mt-8">
+              <section className={view === "archive" ? "mt-0" : "mt-8"}>
             <div className="flex flex-col gap-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -6223,66 +7240,99 @@ export function TaskaApp() {
                         } en esta vista`}
                   </p>
                 </div>
-                <div className="flex items-center rounded-lg border border-slate-200 bg-white p-1">
-                  <button
-                    onClick={() => setView("my_tasks")}
-                    className={clsx(
-                      "focus-ring rounded-md px-2.5 py-1.5 text-[10px] font-semibold transition sm:px-3",
-                      view === "my_tasks"
-                        ? "bg-slate-100 text-slate-800"
-                        : "text-slate-400 hover:text-slate-600",
-                    )}
-                  >
-                    Mías
-                  </button>
-                  <button
-                    onClick={() => setView("all_tasks")}
-                    className={clsx(
-                      "focus-ring rounded-md px-2.5 py-1.5 text-[10px] font-semibold transition sm:px-3",
-                      view === "all_tasks"
-                        ? "bg-slate-100 text-slate-800"
-                        : "text-slate-400 hover:text-slate-600",
-                    )}
-                  >
-                    Lista
-                  </button>
-                  <button
-                    onClick={() => setView("board")}
-                    className={clsx(
-                      "focus-ring flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[10px] font-semibold transition sm:px-3",
-                      view === "board"
-                        ? "bg-slate-100 text-slate-800"
-                        : "text-slate-400 hover:text-slate-600",
-                    )}
-                  >
-                    <Columns3 className="size-3" />
-                    Tablero
-                  </button>
-                  <button
-                    onClick={() => setView("gantt")}
-                    className={clsx(
-                      "focus-ring flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[10px] font-semibold transition sm:px-3",
-                      view === "gantt"
-                        ? "bg-slate-100 text-slate-800"
-                        : "text-slate-400 hover:text-slate-600",
-                    )}
-                  >
-                    <ChartGantt className="size-3" />
-                    Gantt
-                  </button>
-                  <button
-                    onClick={() => setView("archive")}
-                    className={clsx(
-                      "focus-ring flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[10px] font-semibold transition sm:px-3",
-                      view === "archive"
-                        ? "bg-slate-100 text-slate-800"
-                        : "text-slate-400 hover:text-slate-600",
-                    )}
-                  >
-                    <Archive className="size-3" />
-                    Archivo
-                  </button>
-                </div>
+                {view !== "archive" && (
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <div
+                      className="flex items-center rounded-lg border border-slate-200 bg-white p-1"
+                      aria-label="Alcance de tareas"
+                    >
+                      {(
+                        [
+                          ["mine", "Mías"],
+                          ["all", "Todas"],
+                        ] as const
+                      ).map(([scope, label]) => (
+                        <button
+                          key={scope}
+                          onClick={() => {
+                            setTaskScope(scope);
+                            if (
+                              view === "my_tasks" ||
+                              view === "all_tasks"
+                            ) {
+                              setView(
+                                scope === "mine"
+                                  ? "my_tasks"
+                                  : "all_tasks",
+                              );
+                            }
+                          }}
+                          aria-pressed={taskScope === scope}
+                          className={clsx(
+                            "focus-ring rounded-md px-3 py-1.5 text-[10px] font-semibold transition",
+                            taskScope === scope
+                              ? "bg-slate-100 text-slate-800"
+                              : "text-slate-400 hover:text-slate-600",
+                          )}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <div
+                      className="flex items-center rounded-lg border border-slate-200 bg-white p-1"
+                      aria-label="Tipo de vista"
+                    >
+                      {[
+                        {
+                          id: "list" as const,
+                          label: "Lista",
+                          icon: ListTodo,
+                        },
+                        {
+                          id: "board" as const,
+                          label: "Tablero",
+                          icon: Columns3,
+                        },
+                        {
+                          id: "gantt" as const,
+                          label: "Gantt",
+                          icon: ChartGantt,
+                        },
+                      ].map((item) => {
+                        const active =
+                          item.id === "list"
+                            ? view === "my_tasks" || view === "all_tasks"
+                            : view === item.id;
+                        const Icon = item.icon;
+                        return (
+                          <button
+                            key={item.id}
+                            onClick={() =>
+                              setView(
+                                item.id === "list"
+                                  ? taskScope === "mine"
+                                    ? "my_tasks"
+                                    : "all_tasks"
+                                  : item.id,
+                              )
+                            }
+                            aria-pressed={active}
+                            className={clsx(
+                              "focus-ring flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[10px] font-semibold transition",
+                              active
+                                ? "bg-slate-100 text-slate-800"
+                                : "text-slate-400 hover:text-slate-600",
+                            )}
+                          >
+                            <Icon className="size-3.5" />
+                            {item.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -6295,6 +7345,8 @@ export function TaskaApp() {
                     className="focus-ring h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-[11px]"
                   />
                 </div>
+                {view !== "archive" && (
+                  <>
                 <label className="relative">
                   <span className="sr-only">Filtrar por prioridad</span>
                   <select
@@ -6380,6 +7432,8 @@ export function TaskaApp() {
                     Limpiar
                   </button>
                 )}
+                  </>
+                )}
               </div>
             </div>
 
@@ -6428,7 +7482,7 @@ export function TaskaApp() {
                     void updateStatus(task.id, next);
                     notify(
                       next === "resuelto"
-                        ? "Tarea marcada como aprobada"
+                        ? "Tarea completada"
                         : "Tarea reabierta",
                     );
                   }}
@@ -6441,7 +7495,10 @@ export function TaskaApp() {
         </div>
       </main>
 
-      <nav className="fixed inset-x-0 bottom-0 z-30 flex h-[66px] items-center justify-around border-t border-slate-200 bg-white/95 px-3 backdrop-blur lg:hidden">
+      <nav
+        aria-label="Navegación móvil"
+        className="fixed inset-x-0 bottom-0 z-30 flex h-[66px] items-center justify-around border-t border-slate-200 bg-white/95 px-3 backdrop-blur lg:hidden"
+      >
         {[
           { id: "my_tasks" as const, label: "Mis tareas", icon: ListTodo },
           { id: "all_tasks" as const, label: "Tareas", icon: Inbox },
@@ -6453,7 +7510,11 @@ export function TaskaApp() {
           return (
             <button
               key={item.id}
-              onClick={() => setView(item.id)}
+              onClick={() => {
+                if (item.id === "my_tasks") setTaskScope("mine");
+                if (item.id === "all_tasks") setTaskScope("all");
+                setView(item.id);
+              }}
               className={clsx(
                 "focus-ring flex min-w-0 flex-1 flex-col items-center gap-1 rounded-lg py-2 text-[9px] font-semibold",
                 view === item.id ? "text-violet-600" : "text-slate-400",
@@ -6744,6 +7805,8 @@ export function TaskaApp() {
       {clientsOpen && activeWorkspace && (
         <ClientsModal
           clients={clients}
+          projects={projects}
+          tasks={activeTasks}
           workspaceId={activeWorkspace.id}
           canManage={["owner", "admin"].includes(activeWorkspace.role)}
           onClose={() => setClientsOpen(false)}

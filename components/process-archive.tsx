@@ -628,7 +628,19 @@ export function ArchiveView({
   onTrash: (taskId: string) => void;
 }) {
   const [section, setSection] = useState<"archive" | "trash">("archive");
+  const [clientFilter, setClientFilter] = useState("all");
+  const [projectFilter, setProjectFilter] = useState("all");
   const normalizedQuery = query.trim().toLowerCase();
+  const clients = [
+    ...new Set(tasks.map((task) => task.client).filter(Boolean)),
+  ].sort();
+  const projects = [
+    ...new Map(
+      tasks.flatMap((task) =>
+        task.projects.map((project) => [project.id, project] as const),
+      ),
+    ).values(),
+  ].sort((a, b) => a.name.localeCompare(b.name));
   const visible = tasks.filter((task) => {
     const inSection =
       section === "trash" ? Boolean(task.deletedAt) : !task.deletedAt;
@@ -650,7 +662,13 @@ export function ArchiveView({
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
-    return inSection && (!normalizedQuery || haystack.includes(normalizedQuery));
+    return (
+      inSection &&
+      (clientFilter === "all" || task.client === clientFilter) &&
+      (projectFilter === "all" ||
+        task.projects.some((project) => project.id === projectFilter)) &&
+      (!normalizedQuery || haystack.includes(normalizedQuery))
+    );
   });
 
   return (
@@ -680,10 +698,40 @@ export function ArchiveView({
             Papelera
           </button>
         </div>
-        <p className="flex items-center gap-2 text-[10px] text-slate-400">
-          <LockKeyhole className="size-3.5" />
-          Los expedientes archivados son de solo lectura
-        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={clientFilter}
+            onChange={(event) => setClientFilter(event.target.value)}
+            className="focus-ring rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-semibold text-slate-600"
+            aria-label="Filtrar archivo por cliente"
+          >
+            <option value="all">Todos los clientes</option>
+            {clients.map((client) => (
+              <option key={client} value={client}>
+                {client}
+              </option>
+            ))}
+          </select>
+          <select
+            value={projectFilter}
+            onChange={(event) => setProjectFilter(event.target.value)}
+            className="focus-ring rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-semibold text-slate-600"
+            aria-label="Filtrar archivo por proyecto"
+          >
+            <option value="all">Todos los proyectos</option>
+            {projects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </select>
+          <p className="flex items-center gap-2 text-[10px] text-slate-400">
+            <LockKeyhole className="size-3.5" />
+            {section === "trash"
+              ? "La papelera conserva los expedientes durante 30 días"
+              : "Los expedientes archivados son de solo lectura"}
+          </p>
+        </div>
       </div>
       <div className="divide-y divide-slate-100">
         {visible.map((task) => (
@@ -744,8 +792,24 @@ export function ArchiveView({
           <div className="grid place-items-center px-5 py-16 text-center">
             <Search className="size-7 text-slate-300" />
             <p className="mt-3 text-[11px] font-semibold text-slate-500">
-              No hay expedientes en esta sección.
+              {normalizedQuery ||
+              clientFilter !== "all" ||
+              projectFilter !== "all"
+                ? "No encontramos expedientes con esos criterios."
+                : section === "trash"
+                  ? "La papelera está vacía."
+                  : "Todavía no archivaste ningún proceso."}
             </p>
+            {section === "archive" &&
+              !normalizedQuery &&
+              clientFilter === "all" &&
+              projectFilter === "all" && (
+                <p className="mt-2 max-w-sm text-[10px] leading-5 text-slate-400">
+                  Cuando cierres una tarea, elegí “Archivar” y documentá la
+                  conclusión y los aprendizajes. Quedará disponible como
+                  referencia para el equipo.
+                </p>
+              )}
           </div>
         )}
       </div>
