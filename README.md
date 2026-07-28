@@ -41,8 +41,8 @@ espacio compartido.
   pedido de cambio, entrega, nota interna o incidente, con visibilidad
   diferenciada.
 - Comentarios, notificaciones y adjuntos privados de hasta 10 MB. Los adjuntos
-  conservan versiones y estados de aprobación (borrador, enviado, cambios,
-  aprobado y final).
+  se pueden cargar en lote desde la descripción y conservan versiones y
+  estados de aprobación (borrador, enviado, cambios, aprobado y final).
 - Plantillas reutilizables para campañas, redes, calendarios mensuales,
   branding y eventos, con brief y subtareas estándar.
 - Resumen por tarea de personas involucradas, intercambios, tiempo registrado

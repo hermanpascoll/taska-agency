@@ -1450,7 +1450,7 @@ function TaskDrawer({
   onCommentDelete: (commentId: string) => void;
   onSubtaskCreate: (title: string, assigneeId: string) => void;
   onSubtaskUpdate: (taskId: string, input: UpdateTaskInput) => void;
-  onAttachmentUpload: (file: File) => void;
+  onAttachmentUpload: (files: File[]) => void;
   onAttachmentDelete: (attachment: TaskAttachment) => void;
   onAttachmentRestore: (attachment: TaskAttachment) => void;
   onAttachmentStatus: (
@@ -1885,9 +1885,20 @@ function TaskDrawer({
           <div className="my-7 h-px bg-slate-100" />
 
           <section>
-            <h3 className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
-              Descripción
-            </h3>
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
+                Descripción
+              </h3>
+              <button
+                type="button"
+                onClick={() => attachmentInput.current?.click()}
+                className="focus-ring flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[9px] font-semibold text-[#0879ea] hover:bg-[#0a84ff]/10"
+                aria-label="Adjuntar archivos desde la descripción"
+              >
+                <Paperclip className="size-3.5" />
+                Adjuntar archivos
+              </button>
+            </div>
             <textarea
               key={`${task.id}-description`}
               defaultValue={task.description}
@@ -1901,6 +1912,34 @@ function TaskDrawer({
               className="focus-ring mt-3 min-h-20 w-full resize-y rounded-xl border border-transparent bg-transparent p-2 text-[13px] leading-6 text-slate-600 hover:border-slate-200 focus:border-violet-200"
               aria-label="Descripción de la tarea"
             />
+            {task.attachments.some(
+              (attachment) => !attachment.deletedAt,
+            ) && (
+              <div
+                className="mt-2 flex flex-wrap gap-2"
+                data-testid="description-attachments"
+              >
+                {task.attachments
+                  .filter((attachment) => !attachment.deletedAt)
+                  .map((attachment) => (
+                    <button
+                      key={attachment.id}
+                      type="button"
+                      onClick={() => onAttachmentOpen(attachment)}
+                      className="focus-ring flex max-w-full items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[9px] font-semibold text-slate-600 hover:border-[#0a84ff]/30 hover:bg-[#0a84ff]/5 hover:text-[#0879ea]"
+                      aria-label={`Abrir adjunto ${attachment.name}`}
+                    >
+                      <FileText className="size-3.5 shrink-0 text-[#0a84ff]" />
+                      <span className="max-w-44 truncate">
+                        {attachment.name}
+                      </span>
+                      <span className="shrink-0 font-normal text-slate-400">
+                        · {formatBytes(attachment.size)}
+                      </span>
+                    </button>
+                  ))}
+              </div>
+            )}
             <label className="mt-4 block">
               <span className="mb-2 flex items-center gap-2 text-[10px] font-semibold text-slate-500">
                 <Tags className="size-3.5" />
@@ -2040,10 +2079,12 @@ function TaskDrawer({
               <input
                 ref={attachmentInput}
                 type="file"
+                multiple
+                aria-label="Seleccionar archivos para la tarea"
                 className="sr-only"
                 onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) onAttachmentUpload(file);
+                  const files = Array.from(event.target.files ?? []);
+                  if (files.length) onAttachmentUpload(files);
                   event.target.value = "";
                 }}
               />
@@ -2363,6 +2404,7 @@ function NewTaskModal({
   projects,
   clients,
   people,
+  defaultProjectId,
   defaultStatus,
   onClose,
   onCreate,
@@ -2370,24 +2412,25 @@ function NewTaskModal({
   projects: Project[];
   clients: Client[];
   people: Person[];
+  defaultProjectId?: string;
   defaultStatus: TaskStatus;
   onClose: () => void;
   onCreate: (task: NewTaskInput) => void;
 }) {
+  const defaultProject =
+    projects.find((project) => project.id === defaultProjectId) ?? projects[0];
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [projectId, setProjectId] = useState(projects[0]?.id ?? "");
+  const [projectId, setProjectId] = useState(defaultProject?.id ?? "");
   const [projectIds, setProjectIds] = useState<string[]>(
-    projects[0] ? [projects[0].id] : [],
+    defaultProject ? [defaultProject.id] : [],
   );
   const [status, setStatus] = useState<TaskStatus>(defaultStatus);
   const [priority, setPriority] = useState<TaskPriority>("media");
   const [assigneeId, setAssigneeId] = useState(people[0]?.id ?? "");
-  const [clientId, setClientId] = useState(
-    projects[0]?.clientId ?? "",
-  );
+  const [clientId, setClientId] = useState(defaultProject?.clientId ?? "");
   const [clientCategory, setClientCategory] = useState(
-    projects[0]?.clientCategory ?? "",
+    defaultProject?.clientCategory ?? "",
   );
   const [tags, setTags] = useState("");
   const [startDate, setStartDate] = useState(() =>
@@ -2525,6 +2568,7 @@ function NewTaskModal({
               </span>
               <select
                 required
+                aria-label="Proyecto principal"
                 value={projectId}
                 onChange={(event) => {
                   const nextProjectId = event.target.value;
@@ -5627,16 +5671,25 @@ export function TaskaApp() {
             void updateTask(taskId, input);
             notify("Subtarea actualizada");
           }}
-          onAttachmentUpload={(file) => {
-            void uploadAttachment(selectedTask, file)
-              .then(() => notify("Archivo adjuntado"))
-              .catch((error: unknown) =>
+          onAttachmentUpload={(files) => {
+            void (async () => {
+              try {
+                for (const file of files) {
+                  await uploadAttachment(selectedTask, file);
+                }
+                notify(
+                  files.length === 1
+                    ? "Archivo adjuntado"
+                    : `${files.length} archivos adjuntados`,
+                );
+              } catch (error: unknown) {
                 notify(
                   error instanceof Error
                     ? error.message
-                    : "No se pudo adjuntar el archivo",
-                ),
-              );
+                    : "No se pudieron adjuntar los archivos",
+                );
+              }
+            })();
           }}
           onAttachmentDelete={(attachment) => {
             void deleteAttachment(selectedTask.id, attachment);
@@ -5730,6 +5783,9 @@ export function TaskaApp() {
           projects={projects}
           clients={clients}
           people={people}
+          defaultProjectId={
+            projectId === "todos" ? undefined : projectId
+          }
           defaultStatus={newTaskStatus}
           onClose={() => setShowNewTask(false)}
           onCreate={(input) => void handleCreate(input)}

@@ -38,6 +38,86 @@ test("crea una tarea y conserva el cambio al recargar", async ({ page }) => {
   ).toBeVisible();
 });
 
+test("crea la tarea dentro del proyecto seleccionado", async ({ page }) => {
+  await page.getByRole("button", { name: "Marca Sur", exact: true }).click();
+  await page.getByRole("button", { name: "Nueva tarea" }).click();
+
+  await expect(page.getByLabel("Proyecto principal")).toHaveValue(
+    "marca-sur",
+  );
+  await expect(
+    page.getByRole("checkbox", { name: "Marca Sur" }),
+  ).toBeChecked();
+
+  await page
+    .getByLabel("Nombre de la tarea")
+    .fill("Preparar presentación de identidad");
+  await page.getByRole("button", { name: "Crear tarea" }).click();
+  await expect(page.getByLabel("Título de la tarea")).toHaveValue(
+    "Preparar presentación de identidad",
+  );
+
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const raw = window.localStorage.getItem("taska-demo-workspace-v2");
+        if (!raw) return null;
+        const snapshot = JSON.parse(raw) as {
+          tasks: Array<{
+            title: string;
+            project: { id: string };
+            projects: Array<{ id: string }>;
+          }>;
+        };
+        const task = snapshot.tasks.find(
+          (item) => item.title === "Preparar presentación de identidad",
+        );
+        return task
+          ? {
+              primary: task.project.id,
+              linked: task.projects.map((project) => project.id),
+            }
+          : null;
+      }),
+    )
+    .toEqual({ primary: "marca-sur", linked: ["marca-sur"] });
+});
+
+test("adjunta varios archivos desde la descripción de la tarea", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Todas las tareas" }).click();
+  await page
+    .getByRole("button", {
+      name: /AG-147 Verano Brava Cerrar copies/,
+    })
+    .click();
+
+  await page.getByLabel("Seleccionar archivos para la tarea").setInputFiles([
+    {
+      name: "brief-invierno.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("Brief de campaña de invierno"),
+    },
+    {
+      name: "referencias-visuales.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("Referencias para el equipo creativo"),
+    },
+  ]);
+
+  const descriptionAttachments = page.getByTestId(
+    "description-attachments",
+  );
+  await expect(
+    descriptionAttachments.getByText("brief-invierno.txt"),
+  ).toBeVisible();
+  await expect(
+    descriptionAttachments.getByText("referencias-visuales.txt"),
+  ).toBeVisible();
+  await expect(page.getByText("2 archivos adjuntados")).toBeVisible();
+});
+
 test("mueve una tarjeta con drag-and-drop real", async ({ page }) => {
   await page.getByRole("button", { name: "Todas las tareas" }).click();
   await page.getByRole("button", { name: "Tablero" }).last().click();
