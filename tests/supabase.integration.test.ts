@@ -200,10 +200,41 @@ describe.skipIf(!configured)("Supabase real: autenticación y persistencia", () 
       candidate_billable: true,
     });
     expect(timer.error).toBeNull();
+    const secondTimer = await supabase!.rpc("start_task_timer", {
+      candidate_task_id: nextOccurrence.data!.id,
+      candidate_description: "Segundo timer simultáneo",
+      candidate_billable: false,
+    });
+    expect(secondTimer.error).toBeNull();
+    const activeTimers = await supabase!
+      .from("time_entries")
+      .select("id, task_id")
+      .eq("team_id", createdWorkspaceId)
+      .eq("user_id", auth.data.user!.id)
+      .is("ended_at", null);
+    expect(activeTimers.error).toBeNull();
+    expect(activeTimers.data).toHaveLength(2);
+    expect(activeTimers.data?.map((entry) => entry.task_id)).toEqual(
+      expect.arrayContaining([created.data!.id, nextOccurrence.data!.id]),
+    );
+
+    const duplicateTimer = await supabase!.rpc("start_task_timer", {
+      candidate_task_id: created.data!.id,
+      candidate_description: "No debe duplicarse",
+      candidate_billable: true,
+    });
+    expect(duplicateTimer.error?.message).toContain(
+      "already active for this task",
+    );
+
     const stopped = await supabase!.rpc("stop_task_timer", {
       candidate_entry_id: timer.data,
     });
     expect(stopped.error).toBeNull();
+    const stoppedSecond = await supabase!.rpc("stop_task_timer", {
+      candidate_entry_id: secondTimer.data,
+    });
+    expect(stoppedSecond.error).toBeNull();
     const persistedTime = await supabase!
       .from("time_entries")
       .select("id, description, ended_at")
@@ -315,6 +346,20 @@ describe.skipIf(!archiveConfigured)(
         .single();
       expect(task.error).toBeNull();
 
+      const parallelTask = await session!
+        .from("tasks")
+        .insert({
+          team_id: workspaceId,
+          project_id: project.data!.id,
+          title: "Trabajo paralelo",
+          description: "Valida timers simultáneos del mismo usuario.",
+          status: "en_progreso",
+          priority: "media",
+        })
+        .select("id")
+        .single();
+      expect(parallelTask.error).toBeNull();
+
       const comment = await session!.from("comments").insert({
         task_id: task.data!.id,
         author_id: userId,
@@ -365,6 +410,29 @@ describe.skipIf(!archiveConfigured)(
         candidate_billable: true,
       });
       expect(timer.error).toBeNull();
+      const parallelTimer = await session!.rpc("start_task_timer", {
+        candidate_task_id: parallelTask.data!.id,
+        candidate_description: "Trabajo en paralelo",
+        candidate_billable: false,
+      });
+      expect(parallelTimer.error).toBeNull();
+      const activeTimers = await session!
+        .from("time_entries")
+        .select("id, task_id")
+        .eq("team_id", workspaceId)
+        .eq("user_id", userId)
+        .is("ended_at", null);
+      expect(activeTimers.error).toBeNull();
+      expect(activeTimers.data).toHaveLength(2);
+
+      const duplicateTimer = await session!.rpc("start_task_timer", {
+        candidate_task_id: task.data!.id,
+        candidate_description: "Duplicado",
+        candidate_billable: true,
+      });
+      expect(duplicateTimer.error?.message).toContain(
+        "already active for this task",
+      );
 
       const archived = await session!.rpc("archive_task_record", {
         candidate_task_id: task.data!.id,
@@ -400,6 +468,17 @@ describe.skipIf(!archiveConfigured)(
         .single();
       expect(stoppedTimer.error).toBeNull();
       expect(stoppedTimer.data?.ended_at).toBeTruthy();
+      const parallelTimerState = await session!
+        .from("time_entries")
+        .select("ended_at")
+        .eq("id", parallelTimer.data)
+        .single();
+      expect(parallelTimerState.error).toBeNull();
+      expect(parallelTimerState.data?.ended_at).toBeNull();
+      const stoppedParallel = await session!.rpc("stop_task_timer", {
+        candidate_entry_id: parallelTimer.data,
+      });
+      expect(stoppedParallel.error).toBeNull();
 
       const forbiddenEdit = await session!
         .from("tasks")
@@ -434,6 +513,6 @@ describe.skipIf(!archiveConfigured)(
         candidate_task_id: task.data!.id,
       });
       expect(finalRestore.error).toBeNull();
-    });
+    }, 15_000);
   },
 );

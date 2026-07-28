@@ -55,7 +55,8 @@ espacio compartido.
 - Drag-and-drop HTML5 real en Kanban, con selector accesible como alternativa.
 - Filtros por texto, prioridad, campaña, estado, responsable y vencimiento.
 - Preferencias de perfil, densidad de lista y visibilidad de tareas completadas.
-- Cronómetro por tarea, carga manual y un único timer activo por persona.
+- Cronómetro por tarea, carga manual y varios timers simultáneos por persona
+  (máximo uno por tarea), resumidos y controlables desde el encabezado.
 - Tarifas horarias por integrante, tiempo facturable y costos históricos.
 - Auditoría administrativa por persona, proyecto, período y tipo de tiempo.
 - Exportación CSV de reportes restringida a dueños y administradores.

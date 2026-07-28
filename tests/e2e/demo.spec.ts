@@ -231,12 +231,15 @@ test("registra tiempo y exporta la auditoría con permisos", async ({ page }) =>
     .fill("Revisión visual automatizada");
   await page.getByRole("button", { name: "Iniciar timer" }).click();
   await expect(
-    page.getByRole("button", { name: "Detener timer activo" }),
+    page.getByRole("button", { name: "Timers activos: 1" }),
   ).toBeVisible();
   await page.waitForTimeout(1100);
   await page
     .getByRole("button", { name: "Detener timer de la tarea" })
     .click();
+  await expect(
+    page.getByRole("button", { name: "Timers activos: 0" }),
+  ).toBeVisible();
   await expect(page.getByText("2 registros")).toBeVisible();
   await page.getByRole("button", { name: "Cerrar", exact: true }).click();
 
@@ -248,6 +251,60 @@ test("registra tiempo y exporta la auditoría con permisos", async ({ page }) =>
   await page.getByRole("button", { name: "Exportar CSV" }).click();
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/^taska-tiempo-.*\.csv$/);
+});
+
+test("resume y controla varios timers activos desde el encabezado", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Todas las tareas" }).click();
+  await page
+    .getByRole("button", {
+      name: /AG-142 Lanzamiento Aura Adaptar campaña/,
+    })
+    .click();
+  await page
+    .getByPlaceholder("¿En qué estás trabajando?")
+    .fill("Dirección creativa");
+  await page.getByRole("button", { name: "Iniciar timer" }).click();
+  await page.getByRole("button", { name: "Cerrar", exact: true }).click();
+
+  await page
+    .getByRole("button", {
+      name: /AG-140 Marca Sur Entregar propuesta/,
+    })
+    .click();
+  await page
+    .getByPlaceholder("¿En qué estás trabajando?")
+    .fill("Presentación al cliente");
+  await page.getByRole("button", { name: "Iniciar timer" }).click();
+  await page.getByRole("button", { name: "Cerrar", exact: true }).click();
+
+  await page.getByRole("button", { name: "Timers activos: 2" }).click();
+  const menu = page.getByTestId("active-timers-menu");
+  await expect(menu).toBeVisible();
+  await expect(
+    menu.getByText("Adaptar campaña de lanzamiento a stories"),
+  ).toBeVisible();
+  await expect(menu.getByText("Entregar propuesta de rebranding")).toBeVisible();
+  await expect(menu.getByText("Dirección creativa")).toBeVisible();
+  await expect(menu.getByText("Presentación al cliente")).toBeVisible();
+
+  await menu
+    .getByRole("button", {
+      name: "Detener timer de Adaptar campaña de lanzamiento a stories",
+    })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Timers activos: 1" }),
+  ).toBeVisible();
+  await menu
+    .getByRole("button", {
+      name: "Detener timer de Entregar propuesta de rebranding",
+    })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Timers activos: 0" }),
+  ).toBeVisible();
 });
 
 test("crea, documenta, archiva y restaura un expediente de proceso", async ({

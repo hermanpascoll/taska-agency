@@ -253,40 +253,165 @@ function PriorityBadge({ priority }: { priority: TaskPriority }) {
   );
 }
 
-function ActiveTimerPill({
-  entry,
+function ActiveTimersMenu({
+  entries,
+  open,
+  onToggle,
+  onClose,
   onOpen,
   onStop,
 }: {
-  entry: TimeEntry;
-  onOpen: () => void;
-  onStop: () => void;
+  entries: TimeEntry[];
+  open: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  onOpen: (taskId: string) => void;
+  onStop: (entryId: string) => void;
 }) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
+    if (entries.length === 0) return;
     const interval = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [entries.length]);
+
+  const totalSeconds = entries.reduce(
+    (total, entry) => total + elapsedSeconds(entry, now),
+    0,
+  );
 
   return (
-    <div className="hidden items-center overflow-hidden rounded-lg border border-rose-200 bg-rose-50 shadow-sm md:flex">
+    <div className="relative">
       <button
-        onClick={onOpen}
-        className="focus-ring flex items-center gap-2 px-3 py-2 text-[9px] font-semibold text-rose-700"
+        onClick={onToggle}
+        className={clsx(
+          "focus-ring relative flex h-9 items-center gap-2 rounded-lg border px-2.5 text-[10px] font-semibold transition sm:h-10 sm:px-3",
+          entries.length > 0
+            ? "border-rose-200 bg-rose-50 text-rose-700 shadow-sm hover:bg-rose-100"
+            : "border-transparent text-slate-400 hover:bg-slate-100 hover:text-slate-700",
+        )}
+        aria-label={`Timers activos: ${entries.length}`}
+        aria-expanded={open}
       >
-        <span className="size-2 animate-pulse rounded-full bg-rose-500" />
-        <span className="max-w-28 truncate">{entry.taskCode}</span>
-        <span className="font-mono font-bold tabular-nums">
-          {formatDuration(elapsedSeconds(entry, now))}
+        <span className="relative">
+          <Clock3 className="size-[17px]" />
+          {entries.length > 0 && (
+            <span className="absolute -right-1 -top-1 size-2 animate-pulse rounded-full bg-rose-500 ring-2 ring-rose-50" />
+          )}
         </span>
+        {entries.length > 0 && (
+          <>
+            <span className="grid min-w-4 place-items-center rounded-full bg-rose-600 px-1 py-0.5 text-[8px] font-bold leading-none text-white">
+              {entries.length}
+            </span>
+            <span className="hidden font-mono font-bold tabular-nums xl:inline">
+              {formatDuration(totalSeconds)}
+            </span>
+          </>
+        )}
       </button>
-      <button
-        onClick={onStop}
-        className="focus-ring border-l border-rose-200 p-2 text-rose-600 hover:bg-rose-100"
-        aria-label="Detener timer activo"
-      >
-        <Pause className="size-3.5 fill-current" />
-      </button>
+
+      {open && (
+        <div
+          className="mac-popover fixed left-3 right-3 top-16 z-50 w-auto max-w-none overflow-hidden rounded-2xl border border-black/10 bg-white/95 shadow-[0_22px_65px_rgba(15,23,42,.22)] backdrop-blur-2xl sm:absolute sm:left-auto sm:right-0 sm:top-[calc(100%+8px)] sm:w-[390px] sm:max-w-[calc(100vw-24px)]"
+          data-testid="active-timers-menu"
+        >
+          <header className="flex items-center gap-3 border-b border-black/5 px-4 py-3.5">
+            <span
+              className={clsx(
+                "grid size-9 shrink-0 place-items-center rounded-xl",
+                entries.length > 0
+                  ? "bg-rose-50 text-rose-600"
+                  : "bg-slate-100 text-slate-400",
+              )}
+            >
+              <Clock3 className="size-[18px]" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[12px] font-bold text-slate-800">
+                Timers activos
+              </p>
+              <p className="mt-0.5 text-[9px] text-slate-400">
+                {entries.length === 0
+                  ? "No estás registrando tiempo ahora"
+                  : `${entries.length} ${entries.length === 1 ? "tarea en curso" : "tareas en curso"} · ${formatDuration(totalSeconds)} acumulado`}
+              </p>
+            </div>
+            <button
+              onClick={onClose}
+              className="focus-ring ml-auto rounded-md p-1 text-slate-400 hover:bg-slate-100"
+              aria-label="Cerrar timers activos"
+            >
+              <X className="size-3.5" />
+            </button>
+          </header>
+
+          <div className="soft-scrollbar max-h-[430px] overflow-y-auto p-2">
+            {entries.map((entry) => (
+              <article
+                key={entry.id}
+                className="group rounded-xl border border-transparent p-3 transition hover:border-slate-200 hover:bg-slate-50"
+              >
+                <div className="flex items-start gap-3">
+                  <span className="mt-1 size-2 shrink-0 animate-pulse rounded-full bg-rose-500 shadow-[0_0_0_4px_rgba(244,63,94,.1)]" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="truncate text-[9px] font-bold uppercase tracking-[0.04em] text-slate-400">
+                        {entry.taskCode} · {entry.projectName}
+                      </p>
+                      {entry.billable && (
+                        <span className="shrink-0 rounded bg-emerald-50 px-1.5 py-0.5 text-[8px] font-bold text-emerald-600">
+                          Facturable
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-1 truncate text-[11px] font-semibold text-slate-700">
+                      {entry.taskTitle}
+                    </p>
+                    <p className="mt-1 truncate text-[9px] text-slate-400">
+                      {entry.description || "Sin descripción"}
+                    </p>
+                  </div>
+                  <span className="shrink-0 font-mono text-[11px] font-bold tabular-nums text-rose-600">
+                    {formatDuration(elapsedSeconds(entry, now))}
+                  </span>
+                </div>
+                <div className="mt-2.5 flex justify-end gap-1.5">
+                  <button
+                    onClick={() => onOpen(entry.taskId)}
+                    className="focus-ring rounded-lg px-2.5 py-1.5 text-[9px] font-semibold text-[#0879ea] hover:bg-[#0a84ff]/10"
+                    aria-label={`Abrir ${entry.taskTitle}`}
+                  >
+                    Abrir tarea
+                  </button>
+                  <button
+                    onClick={() => onStop(entry.id)}
+                    className="focus-ring flex items-center gap-1.5 rounded-lg bg-rose-50 px-2.5 py-1.5 text-[9px] font-semibold text-rose-600 hover:bg-rose-100"
+                    aria-label={`Detener timer de ${entry.taskTitle}`}
+                  >
+                    <Pause className="size-3 fill-current" />
+                    Detener
+                  </button>
+                </div>
+              </article>
+            ))}
+
+            {entries.length === 0 && (
+              <div className="grid min-h-40 place-items-center px-5 text-center">
+                <div>
+                  <TimerReset className="mx-auto size-7 text-slate-300" />
+                  <p className="mt-2 text-[10px] font-semibold text-slate-500">
+                    Todo en pausa
+                  </p>
+                  <p className="mt-1 text-[9px] leading-4 text-slate-400">
+                    Iniciá un timer desde cualquier tarea y aparecerá acá.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -4634,6 +4759,7 @@ export function TaskaApp() {
   const [adminOpen, setAdminOpen] = useState(false);
   const [clientsOpen, setClientsOpen] = useState(false);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
+  const [timersOpen, setTimersOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [timeReportsOpen, setTimeReportsOpen] = useState(false);
@@ -4697,10 +4823,13 @@ export function TaskaApp() {
   const canAuditTime = canAuditTimeReports(activeWorkspace?.role);
   const canTrackTime =
     (currentMembership?.role ?? activeWorkspace?.role) !== "viewer";
-  const activeTimeEntry =
-    timeEntries.find(
-      (entry) => entry.user.id === currentUserId && !entry.endedAt,
-    ) ?? null;
+  const activeTimeEntries = useMemo(
+    () =>
+      timeEntries.filter(
+        (entry) => entry.user.id === currentUserId && !entry.endedAt,
+      ),
+    [currentUserId, timeEntries],
+  );
   const topLevelTasks = useMemo(
     () => tasks.filter((task) => !task.parentTaskId),
     [tasks],
@@ -4725,6 +4854,10 @@ export function TaskaApp() {
   );
   const selectedTask =
     tasks.find((task) => task.id === selectedTaskId) ?? null;
+  const selectedActiveTimeEntry = selectedTask
+    ? (activeTimeEntries.find((entry) => entry.taskId === selectedTask.id) ??
+      null)
+    : null;
   const selectedParentTask = selectedTask?.parentTaskId
     ? (tasks.find((task) => task.id === selectedTask.parentTaskId) ?? null)
     : null;
@@ -4983,19 +5116,30 @@ export function TaskaApp() {
                 Sincronizando
               </span>
             )}
-            {activeTimeEntry && (
-              <ActiveTimerPill
-                entry={activeTimeEntry}
-                onOpen={() => setSelectedTaskId(activeTimeEntry.taskId)}
-                onStop={() => {
-                  void stopTimer(activeTimeEntry.id);
-                  notify("Timer detenido");
-                }}
-              />
-            )}
+            <ActiveTimersMenu
+              entries={activeTimeEntries}
+              open={timersOpen}
+              onToggle={() => {
+                setNotificationsOpen(false);
+                setTimersOpen((current) => !current);
+              }}
+              onClose={() => setTimersOpen(false)}
+              onOpen={(taskId) => {
+                setSelectedTaskId(taskId);
+                setTimersOpen(false);
+              }}
+              onStop={(entryId) => {
+                void stopTimer(entryId)
+                  .then(() => notify("Timer detenido"))
+                  .catch(() => notify("No se pudo detener el timer"));
+              }}
+            />
             <div className="relative">
               <button
-                onClick={() => setNotificationsOpen((current) => !current)}
+                onClick={() => {
+                  setTimersOpen(false);
+                  setNotificationsOpen((current) => !current);
+                }}
                 className="focus-ring relative rounded-lg p-2.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
                 aria-label="Notificaciones"
                 aria-expanded={notificationsOpen}
@@ -5410,7 +5554,7 @@ export function TaskaApp() {
           parentTask={selectedParentTask}
           subtasks={selectedSubtasks}
           timeEntries={selectedTimeEntries}
-          activeTimeEntry={activeTimeEntry}
+          activeTimeEntry={selectedActiveTimeEntry}
           people={people}
           projects={projects}
           clients={clients}

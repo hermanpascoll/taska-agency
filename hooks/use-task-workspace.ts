@@ -1756,6 +1756,16 @@ export function useTaskWorkspace() {
     async (taskId: string, description: string, billable: boolean) => {
       const task = allTasks.find((item) => item.id === taskId);
       if (!task) throw new Error("La tarea no existe.");
+      const existingTimer = allTimeEntries.find(
+        (item) =>
+          item.workspaceId === activeWorkspaceId &&
+          item.taskId === taskId &&
+          item.user.id === currentUserId &&
+          !item.endedAt,
+      );
+      if (existingTimer) {
+        throw new Error("Ya tenés un timer activo para esta tarea.");
+      }
       const user =
         allPeople.find((person) => person.id === currentUserId) ?? demoPeople[0];
       const hourlyRate =
@@ -1783,25 +1793,7 @@ export function useTaskWorkspace() {
         hourlyRate,
         createdAt: "Ahora",
       };
-      setAllTimeEntries((current) => [
-        entry,
-        ...current.map((item) =>
-          item.workspaceId === activeWorkspaceId &&
-          item.user.id === currentUserId &&
-          !item.endedAt
-            ? {
-                ...item,
-                endedAt: nowIso,
-                durationSeconds: Math.max(
-                  item.durationSeconds,
-                  Math.floor(
-                    (now.getTime() - new Date(item.startedAt).getTime()) / 1000,
-                  ),
-                ),
-              }
-            : item,
-        ),
-      ]);
+      setAllTimeEntries((current) => [entry, ...current]);
       setAllTasks((current) =>
         current.map((item) =>
           item.id === taskId
@@ -1833,6 +1825,7 @@ export function useTaskWorkspace() {
       activeWorkspaceId,
       allPeople,
       allTasks,
+      allTimeEntries,
       currentUserId,
       members,
       mode,
