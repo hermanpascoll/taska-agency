@@ -83,7 +83,7 @@ test("crea la tarea dentro del proyecto seleccionado", async ({ page }) => {
     .toEqual({ primary: "marca-sur", linked: ["marca-sur"] });
 });
 
-test("muestra el proyecto como espacio de trabajo con detalle acoplado", async ({
+test("muestra el proyecto como espacio de trabajo con detalle flotante", async ({
   page,
 }) => {
   await page
@@ -106,7 +106,7 @@ test("muestra el proyecto como espacio de trabajo con detalle acoplado", async (
     })
     .click();
 
-  await expect(page.getByTestId("docked-task-detail")).toBeVisible();
+  await expect(page.getByTestId("task-detail")).toBeVisible();
   await expect(workspace).toBeVisible();
   await expect(page.getByTestId("task-description-document")).toBeVisible();
 });
@@ -376,7 +376,6 @@ test("crea clientes y vincula una tarea a varios proyectos", async ({
   await expect(page.getByLabel("Título de la tarea")).toHaveValue(
     "Tarea multiproyecto E2E",
   );
-  await page.getByTestId("task-fields-disclosure").click();
   await expect(
     page.getByLabel("Cliente de la tarea").locator("option:checked"),
   ).toHaveText("Cliente E2E");

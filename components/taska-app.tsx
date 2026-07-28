@@ -1031,8 +1031,11 @@ function TaskList({
             "group border-b border-slate-100 last:border-b-0",
             projectMode &&
               selectedTaskId === task.id &&
-              "bg-[#0a84ff]/[0.075]",
+              "task-row-selected",
           )}
+          data-selected={
+            projectMode && selectedTaskId === task.id ? "true" : undefined
+          }
         >
           <div
             className={clsx(
@@ -1821,7 +1824,6 @@ function TaskTimerSection({
 
 function TaskDrawer({
   task,
-  docked = false,
   parentTask,
   subtasks,
   timeEntries,
@@ -1855,7 +1857,6 @@ function TaskDrawer({
   onTimeEntryDelete,
 }: {
   task: Task;
-  docked?: boolean;
   parentTask: Task | null;
   subtasks: Task[];
   timeEntries: TimeEntry[];
@@ -1953,28 +1954,19 @@ function TaskDrawer({
 
   return (
     <div
-      className={clsx(
-        "fixed z-[70] flex justify-end",
-        docked
-          ? "inset-0 xl:bottom-0 xl:left-auto xl:right-0 xl:top-0 xl:w-[min(42vw,640px)]"
-          : "inset-0",
-      )}
-      data-testid={docked ? "docked-task-detail" : "task-detail"}
+      className="fixed inset-0 z-[70] flex items-center justify-center p-0 sm:p-5 lg:p-8"
+      data-testid="task-detail"
     >
       <button
-        className={clsx(
-          "absolute inset-0 bg-slate-950/30 backdrop-blur-[1px]",
-          docked && "xl:hidden",
-        )}
+        className="absolute inset-0 bg-slate-950/45 backdrop-blur-[3px]"
         onClick={onClose}
         aria-label="Cerrar detalle"
       />
       <aside
-        className={clsx(
-          "animate-drawer relative flex h-full w-full max-w-[620px] flex-col bg-white shadow-[-24px_0_60px_rgba(15,23,42,0.16)]",
-          docked &&
-            "xl:max-w-none xl:border-l xl:border-slate-200 xl:shadow-[-8px_0_24px_rgba(15,23,42,0.08)]",
-        )}
+        className="animate-task-modal relative flex h-full w-full max-w-[1120px] flex-col overflow-hidden border-slate-200 bg-white shadow-[0_30px_90px_rgba(15,23,42,0.3)] sm:h-[calc(100vh-2.5rem)] sm:max-h-[920px] sm:rounded-2xl sm:border lg:h-[calc(100vh-4rem)]"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Detalle de ${task.title}`}
       >
         <header className="flex h-16 shrink-0 items-center border-b border-slate-100 px-5 sm:px-7">
           <button
@@ -2068,39 +2060,9 @@ function TaskDrawer({
           </h2>
           <TaskLastEdited task={task} />
 
-          <details
-            open={!docked}
-            className={clsx(
-              docked &&
-                "xl:mt-4 xl:rounded-xl xl:border xl:border-slate-200 xl:bg-slate-50/60",
-            )}
-          >
-            <summary
-              className={clsx(
-                "list-none",
-                docked
-                  ? "focus-ring hidden cursor-pointer items-center gap-2 rounded-xl px-3 py-2.5 text-[10px] text-slate-500 hover:bg-slate-100 xl:flex"
-                  : "hidden",
-              )}
-              data-testid="task-fields-disclosure"
-            >
-              <SlidersHorizontal className="size-3.5 text-slate-400" />
-              <span className="font-semibold text-slate-700">
-                Campos de la tarea
-              </span>
-              <span className="truncate">
-                {statusMeta[task.status].label} ·{" "}
-                {task.assignee?.name.split(" ")[0] ?? "Sin asignar"} ·{" "}
-                {priorityMeta[task.priority].label} · {task.dueLabel}
-              </span>
-              <ChevronDown className="ml-auto size-3.5 shrink-0 text-slate-400" />
-            </summary>
+          <details open>
             <div
-              className={clsx(
-                "mt-7 grid grid-cols-[112px_1fr] gap-y-4 text-[12px]",
-                docked &&
-                  "xl:mt-0 xl:grid-cols-[92px_1fr] xl:gap-y-2.5 xl:border-t xl:border-slate-200 xl:px-3 xl:py-3 xl:text-[11px]",
-              )}
+              className="mt-7 grid grid-cols-[112px_1fr] gap-y-4 text-[12px] lg:grid-cols-[132px_1fr]"
             >
             <span className="flex items-center gap-2 text-slate-400">
               <Circle className="size-3.5" />
@@ -2364,12 +2326,7 @@ function TaskDrawer({
             </div>
           </details>
 
-          <div
-            className={clsx(
-              "my-7 h-px bg-slate-100",
-              docked && "xl:my-4",
-            )}
-          />
+          <div className="my-7 h-px bg-slate-100" />
 
           <section>
             <h3 className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
@@ -2827,10 +2784,7 @@ function TaskDrawer({
 
         <form
           onSubmit={submitComment}
-          className={clsx(
-            "shrink-0 border-t border-slate-100 bg-white p-4 sm:px-7",
-            docked && "xl:px-4 xl:py-3",
-          )}
+          className="shrink-0 border-t border-slate-100 bg-white p-4 sm:px-7"
         >
           <div className="flex items-start gap-3">
             <Avatar person={currentPerson} size="sm" />
@@ -2839,10 +2793,7 @@ function TaskDrawer({
                 value={comment}
                 onChange={(event) => setComment(event.target.value)}
                 placeholder="Sumá feedback o una actualización…"
-                className={clsx(
-                  "min-h-14 w-full resize-none border-0 bg-transparent px-1 text-[12px] text-slate-700 outline-none placeholder:text-slate-400",
-                  docked && "xl:min-h-8",
-                )}
+                className="min-h-14 w-full resize-none border-0 bg-transparent px-1 text-[12px] text-slate-700 outline-none placeholder:text-slate-400"
               />
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap gap-1.5">
@@ -5532,15 +5483,6 @@ export function TaskaApp() {
         : [],
     [activeTopLevelTasks, focusedProject],
   );
-  const dockedTask = Boolean(
-    focusedProject &&
-      selectedTask &&
-      !selectedTask.archivedAt &&
-      !selectedTask.deletedAt &&
-      selectedTask.projects.some(
-        (project) => project.id === focusedProject.id,
-      ),
-  );
   const selectedActiveTimeEntry = selectedTask
     ? (activeTimeEntries.find((entry) => entry.taskId === selectedTask.id) ??
       null)
@@ -5795,12 +5737,7 @@ export function TaskaApp() {
         }}
       />
 
-      <main
-        className={clsx(
-          "min-w-0 flex-1 transition-[padding] duration-200",
-          dockedTask && "xl:pr-[min(42vw,640px)]",
-        )}
-      >
+      <main className="min-w-0 flex-1">
         <header className="sticky top-0 z-30 flex h-16 items-center border-b border-[#e6e8ee] bg-white/95 px-4 backdrop-blur sm:px-7 lg:h-[70px] lg:px-9">
           <button
             onClick={() => setMobileMenu(true)}
@@ -5908,10 +5845,7 @@ export function TaskaApp() {
             >
               <Plus className="size-4 stroke-[2.5]" />
               <span
-                className={clsx(
-                  "hidden xs:inline sm:inline",
-                  dockedTask && "xl:hidden 2xl:inline",
-                )}
+                className="hidden xs:inline sm:inline"
               >
                 Nueva tarea
               </span>
@@ -6337,7 +6271,6 @@ export function TaskaApp() {
       ) : (
         <TaskDrawer
           task={selectedTask}
-          docked={dockedTask}
           parentTask={selectedParentTask}
           subtasks={selectedSubtasks}
           timeEntries={selectedTimeEntries}
