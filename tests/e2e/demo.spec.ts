@@ -308,6 +308,29 @@ test("administra integrantes e invitaciones desde Preferencias", async ({
   await expect(page.getByText("Invitaciones pendientes")).toBeVisible();
 });
 
+test("activa y conserva el modo oscuro", async ({ page }) => {
+  await page.getByRole("button", { name: "Abrir menú de perfil" }).click();
+  await page
+    .getByRole("button", { name: "Mi perfil y apariencia" })
+    .click();
+
+  const darkMode = page.getByRole("switch", { name: "Modo oscuro" });
+  await expect(darkMode).toHaveAttribute("aria-checked", "false");
+  await darkMode.click();
+  await expect(darkMode).toHaveAttribute("aria-checked", "true");
+  await expect(page.locator("html")).toHaveClass(/dark/);
+
+  await page.getByRole("button", { name: "Cerrar configuración" }).click();
+  await page.reload();
+
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await expect
+    .poll(() =>
+      page.evaluate(() => window.localStorage.getItem("taska-theme")),
+    )
+    .toBe("dark");
+});
+
 test("crea clientes y vincula una tarea a varios proyectos", async ({
   page,
 }) => {

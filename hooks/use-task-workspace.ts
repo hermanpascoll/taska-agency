@@ -82,11 +82,28 @@ import type {
 } from "@/lib/types";
 
 const demoStorageKey = "taska-demo-workspace-v2";
+const themeStorageKey = "taska-theme";
 const defaultSettings: AppSettings = {
   compactMode: false,
   showCompleted: true,
   accentColor: "#0A84FF",
+  theme: "light",
 };
+
+function loadStoredSettings(): AppSettings {
+  if (typeof window === "undefined") return defaultSettings;
+  try {
+    return {
+      ...defaultSettings,
+      theme:
+        window.localStorage.getItem(themeStorageKey) === "dark"
+          ? "dark"
+          : "light",
+    };
+  } catch {
+    return defaultSettings;
+  }
+}
 
 function localId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -235,7 +252,8 @@ export function useTaskWorkspace() {
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(
     supabaseConfigured ? "" : demoWorkspaces[0].id,
   );
-  const [settings, setSettings] = useState<AppSettings>(defaultSettings);
+  const [settings, setSettings] =
+    useState<AppSettings>(loadStoredSettings);
   const [mode, setMode] = useState<"demo" | "supabase">(
     supabaseConfigured ? "supabase" : "demo",
   );
@@ -406,7 +424,13 @@ export function useTaskWorkspace() {
           if (snapshot.peopleByWorkspace) {
             setPeopleByWorkspace(snapshot.peopleByWorkspace);
           }
-          if (snapshot.settings) setSettings(snapshot.settings);
+          if (snapshot.settings) {
+            setSettings((current) => ({
+              ...defaultSettings,
+              ...snapshot.settings,
+              theme: current.theme,
+            }));
+          }
         }
       } catch (error) {
         console.warn("No se pudo restaurar la demo guardada:", error);
@@ -1749,6 +1773,13 @@ export function useTaskWorkspace() {
   );
 
   const updateSettings = useCallback((input: Partial<AppSettings>) => {
+    if (input.theme) {
+      document.documentElement.classList.toggle(
+        "dark",
+        input.theme === "dark",
+      );
+      window.localStorage.setItem(themeStorageKey, input.theme);
+    }
     setSettings((current) => ({ ...current, ...input }));
   }, []);
 

@@ -10,6 +10,15 @@
   --app-accent: #0a84ff;
 }
 
+html.dark {
+  --background: #111113;
+  --foreground: #f5f5f7;
+  --sidebar: #1c1c1e;
+  --accent-soft: #102a43;
+  --line: #38383a;
+  color-scheme: dark;
+}
+
 @theme inline {
   --font-sans: var(--font-inter);
   --color-background: var(--background);
@@ -94,6 +103,274 @@ a {
 .finder-sidebar {
   -webkit-backdrop-filter: blur(28px) saturate(1.35);
   backdrop-filter: blur(28px) saturate(1.35);
+}
+
+html.dark body {
+  background: #111113;
+  color: #f5f5f7;
+}
+
+html.dark .mac-wallpaper {
+  background:
+    radial-gradient(circle at 84% 5%, rgb(10 132 255 / 12%), transparent 28rem),
+    radial-gradient(circle at 58% 100%, rgb(126 87 194 / 10%), transparent 36rem),
+    linear-gradient(145deg, #171719 0%, #0f0f11 100%);
+}
+
+html.dark .mac-window {
+  box-shadow:
+    0 28px 80px rgb(0 0 0 / 48%),
+    0 1px 0 rgb(255 255 255 / 5%) inset;
+}
+
+html.dark .mac-titlebar {
+  background:
+    linear-gradient(rgb(45 45 48 / 88%), rgb(31 31 34 / 92%)),
+    rgb(36 36 39 / 92%);
+}
+
+html.dark .finder-sidebar,
+html.dark [class~="bg-[#e9ebef]/95"] {
+  background-color: rgb(29 29 32 / 95%);
+  box-shadow: inset -1px 0 rgb(255 255 255 / 7%);
+}
+
+html.dark .bg-white,
+html.dark [class~="bg-white/95"],
+html.dark [class~="bg-white/96"],
+html.dark [class~="bg-white/90"],
+html.dark [class~="bg-white/85"],
+html.dark [class~="bg-white/82"],
+html.dark [class~="bg-white/80"],
+html.dark [class~="bg-white/70"],
+html.dark [class~="bg-white/60"],
+html.dark [class~="bg-white/55"],
+html.dark [class~="bg-white/20"] {
+  background-color: rgb(30 30 32 / 96%);
+}
+
+html.dark .bg-slate-50,
+html.dark [class~="bg-slate-50/80"],
+html.dark [class~="bg-slate-50/70"],
+html.dark [class~="bg-slate-50/60"],
+html.dark [class~="xl:bg-slate-50/60"],
+html.dark [class~="bg-[#fafbfc]"],
+html.dark [class~="bg-[#f8f9fb]"],
+html.dark [class~="bg-[#f7f8fa]"],
+html.dark [class~="bg-[#f6f7f9]"],
+html.dark [class~="bg-[#f2f7ff]"],
+html.dark [class~="bg-[#f1f3f6]"] {
+  background-color: #252527;
+}
+
+html.dark .bg-slate-100,
+html.dark [class~="bg-slate-100/80"],
+html.dark [class~="bg-slate-200/70"] {
+  background-color: #2d2d30;
+}
+
+html.dark .bg-slate-200 {
+  background-color: #3a3a3d;
+}
+
+html.dark .bg-slate-300 {
+  background-color: #545458;
+}
+
+html.dark [class~="bg-black/5"],
+html.dark [class~="bg-black/[0.045]"],
+html.dark [class~="bg-black/[0.06]"],
+html.dark [class~="bg-black/[0.07]"] {
+  background-color: rgb(255 255 255 / 6%);
+}
+
+html.dark .text-slate-900 {
+  color: #f5f5f7;
+}
+
+html.dark .text-slate-800 {
+  color: #ededf0;
+}
+
+html.dark .text-slate-700 {
+  color: #dddde1;
+}
+
+html.dark .text-slate-600 {
+  color: #b7b7bd;
+}
+
+html.dark .text-slate-500 {
+  color: #9a9aa1;
+}
+
+html.dark .text-slate-400 {
+  color: #85858d;
+}
+
+html.dark .text-slate-300 {
+  color: #6f6f77;
+}
+
+html.dark .border-slate-100,
+html.dark .border-slate-200,
+html.dark .border-slate-300,
+html.dark [class~="xl:border-slate-200"],
+html.dark [class~="border-slate-200/70"],
+html.dark [class~="border-[#e5e7ed]"],
+html.dark [class~="border-[#e6e8ee]"] {
+  border-color: #3a3a3d;
+}
+
+html.dark .border-black\/5,
+html.dark .border-black\/10,
+html.dark [class~="border-black/[0.06]"],
+html.dark [class~="border-black/[0.07]"],
+html.dark [class~="border-white/80"],
+html.dark [class~="border-white/70"],
+html.dark .border-white {
+  border-color: rgb(255 255 255 / 9%);
+}
+
+html.dark .divide-slate-100 > :not(:last-child) {
+  border-color: #3a3a3d;
+}
+
+html.dark .bg-rose-50,
+html.dark [class~="bg-rose-50/60"],
+html.dark .bg-rose-100 {
+  background-color: rgb(244 63 94 / 13%);
+}
+
+html.dark .bg-emerald-50 {
+  background-color: rgb(16 185 129 / 13%);
+}
+
+html.dark .bg-violet-50 {
+  background-color: rgb(139 92 246 / 14%);
+}
+
+html.dark .bg-sky-50 {
+  background-color: rgb(14 165 233 / 13%);
+}
+
+html.dark .bg-amber-50 {
+  background-color: rgb(245 158 11 / 13%);
+}
+
+html.dark .bg-orange-50 {
+  background-color: rgb(249 115 22 / 13%);
+}
+
+html.dark .bg-indigo-50 {
+  background-color: rgb(99 102 241 / 16%);
+}
+
+html.dark .text-rose-600,
+html.dark .text-rose-700,
+html.dark .text-rose-800 {
+  color: #fb7185;
+}
+
+html.dark .text-emerald-600,
+html.dark .text-emerald-700,
+html.dark .text-emerald-800\/70 {
+  color: #34d399;
+}
+
+html.dark .text-violet-500,
+html.dark .text-violet-600,
+html.dark .text-violet-700,
+html.dark .text-violet-800 {
+  color: #a78bfa;
+}
+
+html.dark [class~="text-violet-700/80"] {
+  color: #a78bfa;
+}
+
+html.dark [class~="text-rose-700/70"] {
+  color: #fb7185;
+}
+
+html.dark [class~="text-emerald-800/70"] {
+  color: #34d399;
+}
+
+html.dark .text-sky-600,
+html.dark .text-sky-700,
+html.dark .text-indigo-600,
+html.dark .text-\[\#0879ea\],
+html.dark .text-\[\#0a84ff\],
+html.dark .text-\[\#5545e2\],
+html.dark .text-\[\#6556ee\] {
+  color: #64b5ff;
+}
+
+html.dark .text-amber-600,
+html.dark .text-amber-700,
+html.dark .text-orange-700 {
+  color: #fbbf24;
+}
+
+html.dark .border-orange-200 {
+  border-color: rgb(251 146 60 / 35%);
+}
+
+html.dark .border-rose-100,
+html.dark .border-rose-200 {
+  border-color: rgb(251 113 133 / 35%);
+}
+
+html.dark .border-emerald-200,
+html.dark .border-emerald-500 {
+  border-color: rgb(52 211 153 / 35%);
+}
+
+html.dark .border-violet-200,
+html.dark .border-violet-300 {
+  border-color: rgb(167 139 250 / 35%);
+}
+
+html.dark input,
+html.dark textarea,
+html.dark select {
+  caret-color: #f5f5f7;
+}
+
+html.dark input:not([type="checkbox"]):not([type="radio"]),
+html.dark textarea,
+html.dark select,
+html.dark .mac-input {
+  color: #ededf0;
+}
+
+html.dark select option {
+  background: #252527;
+  color: #ededf0;
+}
+
+html.dark ::placeholder {
+  color: #73737b;
+  opacity: 1;
+}
+
+html.dark [class*="hover:bg-slate-"]:hover,
+html.dark [class*="hover:bg-black"]:hover,
+html.dark [class*="hover:bg-white"]:hover {
+  background-color: rgb(255 255 255 / 7%);
+}
+
+html.dark [class*="hover:text-slate-"]:hover {
+  color: #f5f5f7;
+}
+
+html.dark .soft-scrollbar {
+  scrollbar-color: #4c4c50 transparent;
+}
+
+html.dark .soft-scrollbar::-webkit-scrollbar-thumb {
+  background: #4c4c50;
 }
 
 .hide-scrollbar {

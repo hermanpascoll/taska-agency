@@ -33,6 +33,7 @@ import {
   Menu,
   MessageSquare,
   MoreHorizontal,
+  Moon,
   Paperclip,
   Pause,
   Play,
@@ -4948,6 +4949,45 @@ function SettingsModal({
                     Apariencia
                   </h3>
                   <div className="mt-3 divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white">
+                    <div className="flex items-center gap-3 p-4">
+                      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-indigo-50 text-indigo-600">
+                        <Moon className="size-4" />
+                      </span>
+                      <span className="flex-1">
+                        <span className="block text-[11px] font-semibold text-slate-700">
+                          Modo oscuro
+                        </span>
+                        <span className="mt-0.5 block text-[9px] text-slate-400">
+                          Reduce el brillo y mantiene el contraste de todo el
+                          espacio.
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-label="Modo oscuro"
+                        aria-checked={settings.theme === "dark"}
+                        onClick={() =>
+                          onSettingsUpdate({
+                            theme:
+                              settings.theme === "dark" ? "light" : "dark",
+                          })
+                        }
+                        className={clsx(
+                          "focus-ring relative h-6 w-11 shrink-0 rounded-full p-0.5 transition",
+                          settings.theme === "dark"
+                            ? "bg-[#0a84ff]"
+                            : "bg-slate-300",
+                        )}
+                      >
+                        <span
+                          className={clsx(
+                            "block size-5 rounded-full bg-white shadow-sm transition-transform",
+                            settings.theme === "dark" && "translate-x-5",
+                          )}
+                        />
+                      </button>
+                    </div>
                     <label className="flex items-center gap-3 p-4">
                       <span className="flex-1">
                         <span className="block text-[11px] font-semibold text-slate-700">

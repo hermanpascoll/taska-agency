@@ -204,6 +204,7 @@ export type AppSettings = {
   compactMode: boolean;
   showCompleted: boolean;
   accentColor: string;
+  theme: "light" | "dark";
 };
 
 export type AdvancedFilters = {
