@@ -83,6 +83,34 @@ test("crea la tarea dentro del proyecto seleccionado", async ({ page }) => {
     .toEqual({ primary: "marca-sur", linked: ["marca-sur"] });
 });
 
+test("muestra el proyecto como espacio de trabajo con detalle acoplado", async ({
+  page,
+}) => {
+  await page
+    .getByRole("button", { name: "Lanzamiento Aura", exact: true })
+    .click();
+
+  const workspace = page.getByTestId("project-workspace");
+  await expect(workspace).toBeVisible();
+  await expect(
+    workspace.getByRole("heading", { name: "Lanzamiento Aura" }),
+  ).toBeVisible();
+  await expect(
+    workspace.getByRole("navigation", { name: "Vistas del proyecto" }),
+  ).toContainText("ResumenListaTableroCronogramaPanelGantt");
+  await expect(page.getByTestId("project-task-list")).toBeVisible();
+
+  await page
+    .getByRole("button", {
+      name: /AG-142 Lanzamiento Aura Adaptar campaña/,
+    })
+    .click();
+
+  await expect(page.getByTestId("docked-task-detail")).toBeVisible();
+  await expect(workspace).toBeVisible();
+  await expect(page.getByTestId("task-description-document")).toBeVisible();
+});
+
 test("embebe una imagen en la descripción al crear la tarea", async ({
   page,
 }) => {
@@ -120,6 +148,13 @@ test("embebe una imagen en la descripción al crear la tarea", async ({
     page.getByRole("img", {
       name: "Adjunto embebido referencia-asana.png",
     }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByTestId("task-description-document")
+      .getByRole("img", {
+        name: "Adjunto embebido referencia-asana.png",
+      }),
   ).toBeVisible();
   await expect(
     page.getByText("Tarea creada correctamente · 1 archivo embebido"),
@@ -318,6 +353,7 @@ test("crea clientes y vincula una tarea a varios proyectos", async ({
   await expect(page.getByLabel("Título de la tarea")).toHaveValue(
     "Tarea multiproyecto E2E",
   );
+  await page.getByTestId("task-fields-disclosure").click();
   await expect(
     page.getByLabel("Cliente de la tarea").locator("option:checked"),
   ).toHaveText("Cliente E2E");

@@ -23,6 +23,7 @@ import {
   GitBranch,
   GripVertical,
   Hourglass,
+  ImagePlus,
   Inbox,
   LayoutDashboard,
   ListFilter,
@@ -119,6 +120,13 @@ import type {
 } from "@/lib/types";
 
 type View = "my_tasks" | "all_tasks" | "board" | "gantt" | "archive";
+type ProjectTab =
+  | "overview"
+  | "list"
+  | "board"
+  | "timeline"
+  | "dashboard"
+  | "gantt";
 
 const recurrenceLabels: Record<TaskRecurrence, string> = {
   none: "No se repite",
@@ -389,11 +397,11 @@ function EmbeddedTaskAttachment({
   }
 
   return (
-    <figure className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+    <figure className="overflow-hidden rounded-lg bg-white">
       <button
         type="button"
         onClick={onOpen}
-        className="focus-ring block w-full bg-slate-100"
+        className="focus-ring block w-full overflow-hidden rounded-lg bg-slate-100"
         aria-label={`Abrir imagen ${attachment.name}`}
       >
         {previewUrl ? (
@@ -403,7 +411,7 @@ function EmbeddedTaskAttachment({
             <img
               src={previewUrl}
               alt={`Adjunto embebido ${attachment.name}`}
-              className="max-h-[460px] w-full object-contain"
+              className="max-h-[520px] w-full object-contain"
             />
           </>
         ) : (
@@ -412,7 +420,7 @@ function EmbeddedTaskAttachment({
           </span>
         )}
       </button>
-      <figcaption className="flex items-center gap-2 border-t border-slate-200 bg-white px-3 py-2">
+      <figcaption className="flex items-center gap-2 px-1 py-2">
         <FileText className="size-3.5 shrink-0 text-[#0a84ff]" />
         <span className="min-w-0 flex-1 truncate text-[10px] font-semibold text-slate-600">
           {attachment.name}
@@ -986,32 +994,49 @@ function TaskList({
   onSelect,
   onComplete,
   compact = false,
+  projectMode = false,
+  selectedTaskId = null,
 }: {
   tasks: Task[];
   parentTasks: Map<string, Task>;
   onSelect: (task: Task) => void;
   onComplete: (task: Task) => void;
   compact?: boolean;
+  projectMode?: boolean;
+  selectedTaskId?: string | null;
 }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-[#e5e7ed] bg-white shadow-[0_1px_2px_rgba(25,32,50,0.03)]">
+    <div
+      className={clsx(
+        "overflow-hidden border-[#e5e7ed] bg-white",
+        projectMode
+          ? "border-y"
+          : "rounded-2xl border shadow-[0_1px_2px_rgba(25,32,50,0.03)]",
+      )}
+      data-testid={projectMode ? "project-task-list" : undefined}
+    >
       <div className="hidden grid-cols-[minmax(300px,1.7fr)_minmax(130px,.7fr)_108px_122px_54px] items-center border-b border-slate-100 bg-[#fafbfc] px-5 py-3 text-[9px] font-bold uppercase tracking-[0.11em] text-slate-400 md:grid">
-        <span>Tarea</span>
+        <span>{projectMode ? "Nombre" : "Tarea"}</span>
         <span>Responsable</span>
         <span>Prioridad</span>
-        <span>Vencimiento</span>
+        <span>Fecha de entrega</span>
         <span />
       </div>
 
       {tasks.map((task) => (
         <article
           key={task.id}
-          className="group border-b border-slate-100 last:border-b-0"
+          className={clsx(
+            "group border-b border-slate-100 last:border-b-0",
+            projectMode &&
+              selectedTaskId === task.id &&
+              "bg-[#0a84ff]/[0.075]",
+          )}
         >
           <div
             className={clsx(
               "hidden grid-cols-[minmax(300px,1.7fr)_minmax(130px,.7fr)_108px_122px_54px] items-center px-5 transition hover:bg-[#f2f7ff] md:grid",
-              compact ? "py-2" : "py-3.5",
+              compact || projectMode ? "py-2" : "py-3.5",
             )}
           >
             <div className="flex min-w-0 items-center gap-3">
@@ -1153,6 +1178,236 @@ function TaskList({
         </article>
       ))}
     </div>
+  );
+}
+
+function ProjectWorkspaceView({
+  project,
+  tasks,
+  parentTasks,
+  tab,
+  selectedTaskId,
+  onTabChange,
+  onCreate,
+  onSelect,
+  onComplete,
+  onMove,
+  onUpdateDates,
+}: {
+  project: Project;
+  tasks: Task[];
+  parentTasks: Map<string, Task>;
+  tab: ProjectTab;
+  selectedTaskId: string | null;
+  onTabChange: (tab: ProjectTab) => void;
+  onCreate: () => void;
+  onSelect: (task: Task) => void;
+  onComplete: (task: Task) => void;
+  onMove: (taskId: string, status: TaskStatus) => void;
+  onUpdateDates: (
+    taskId: string,
+    input: Pick<UpdateTaskInput, "startDate" | "dueDate">,
+  ) => void;
+}) {
+  const completed = tasks.filter((task) => task.status === "resuelto").length;
+  const urgent = tasks.filter(
+    (task) =>
+      task.status !== "resuelto" &&
+      (task.priority === "urgente" || task.priority === "alta"),
+  ).length;
+  const progress = tasks.length
+    ? Math.round((completed / tasks.length) * 100)
+    : 0;
+  const tabs: Array<{ id: ProjectTab; label: string; icon?: typeof ListTodo }> =
+    [
+      { id: "overview", label: "Resumen" },
+      { id: "list", label: "Lista", icon: ListTodo },
+      { id: "board", label: "Tablero", icon: Columns3 },
+      { id: "timeline", label: "Cronograma", icon: CalendarDays },
+      { id: "dashboard", label: "Panel", icon: LayoutDashboard },
+      { id: "gantt", label: "Gantt", icon: ChartGantt },
+    ];
+
+  const metrics = [
+    {
+      label: "Tareas",
+      value: tasks.length,
+      icon: ListTodo,
+      color: "text-violet-600 bg-violet-50",
+    },
+    {
+      label: "Completadas",
+      value: completed,
+      icon: CheckCircle2,
+      color: "text-emerald-600 bg-emerald-50",
+    },
+    {
+      label: "Prioridad alta",
+      value: urgent,
+      icon: Zap,
+      color: "text-rose-600 bg-rose-50",
+    },
+    {
+      label: "Avance",
+      value: `${progress}%`,
+      icon: BarChart3,
+      color: "text-sky-600 bg-sky-50",
+    },
+  ];
+
+  return (
+    <section
+      className="animate-enter min-h-[calc(100vh-70px)] bg-white"
+      data-testid="project-workspace"
+    >
+      <header className="border-b border-slate-200 bg-white px-5 pt-5 sm:px-7">
+        <div className="flex items-center gap-3">
+          <span
+            className="grid size-9 shrink-0 place-items-center rounded-xl text-white shadow-sm"
+            style={{ backgroundColor: project.color }}
+          >
+            <ListTodo className="size-[18px]" />
+          </span>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h1 className="truncate text-[20px] font-bold tracking-[-0.025em] text-slate-900">
+                {project.name}
+              </h1>
+              <ChevronDown className="size-3.5 text-slate-400" />
+            </div>
+            <p className="mt-0.5 flex items-center gap-1.5 text-[9px] text-slate-400">
+              <span className="size-1.5 rounded-full bg-emerald-500" />
+              Proyecto activo · {tasks.length} tareas
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onCreate}
+            className="mac-button-primary focus-ring ml-auto flex items-center gap-1.5 rounded-lg px-3 py-2 text-[10px] font-bold text-white"
+          >
+            <Plus className="size-3.5" />
+            Agregar tarea
+          </button>
+        </div>
+        <nav
+          className="soft-scrollbar mt-5 flex gap-1 overflow-x-auto"
+          aria-label="Vistas del proyecto"
+        >
+          {tabs.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.id}
+                onClick={() => onTabChange(item.id)}
+                className={clsx(
+                  "focus-ring relative flex shrink-0 items-center gap-1.5 px-3 pb-3 pt-1 text-[10px] font-semibold transition",
+                  tab === item.id
+                    ? "text-slate-900 after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-[#5b4bec]"
+                    : "text-slate-400 hover:text-slate-700",
+                )}
+              >
+                {Icon && <Icon className="size-3" />}
+                {item.label}
+              </button>
+            );
+          })}
+        </nav>
+      </header>
+
+      <div className="py-4">
+        {tab === "overview" || tab === "dashboard" ? (
+          <div className="px-5 sm:px-7">
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              {metrics.map((metric) => {
+                const Icon = metric.icon;
+                return (
+                  <article
+                    key={metric.label}
+                    className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+                  >
+                    <span
+                      className={clsx(
+                        "grid size-8 place-items-center rounded-lg",
+                        metric.color,
+                      )}
+                    >
+                      <Icon className="size-4" />
+                    </span>
+                    <p className="mt-3 text-[20px] font-bold tracking-[-0.03em] text-slate-900">
+                      {metric.value}
+                    </p>
+                    <p className="mt-0.5 text-[9px] font-semibold text-slate-400">
+                      {metric.label}
+                    </p>
+                  </article>
+                );
+              })}
+            </div>
+            <h2 className="mb-3 mt-6 text-[11px] font-bold uppercase tracking-[0.1em] text-slate-400">
+              Trabajo del proyecto
+            </h2>
+            <TaskList
+              tasks={tasks}
+              parentTasks={parentTasks}
+              projectMode
+              selectedTaskId={selectedTaskId}
+              onSelect={onSelect}
+              onComplete={onComplete}
+            />
+          </div>
+        ) : tab === "board" ? (
+          <div className="px-5 sm:px-7">
+            <KanbanBoard
+              tasks={tasks}
+              onSelect={onSelect}
+              onCreate={() => onCreate()}
+              onMove={onMove}
+            />
+          </div>
+        ) : tab === "timeline" || tab === "gantt" ? (
+          <div className="px-5 sm:px-7">
+            <GanttChart
+              tasks={tasks}
+              onSelect={onSelect}
+              onUpdateDates={onUpdateDates}
+            />
+          </div>
+        ) : (
+          <>
+            <div className="mb-4 flex items-center px-5 sm:px-7">
+              <button
+                type="button"
+                onClick={onCreate}
+                className="focus-ring flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+              >
+                <Plus className="size-3.5" />
+                Agregar tarea
+                <ChevronDown className="size-3 text-slate-400" />
+              </button>
+              <span className="ml-auto text-[9px] text-slate-400">
+                {completed}/{tasks.length} completadas
+              </span>
+            </div>
+            <TaskList
+              tasks={tasks}
+              parentTasks={parentTasks}
+              projectMode
+              selectedTaskId={selectedTaskId}
+              onSelect={onSelect}
+              onComplete={onComplete}
+            />
+            <button
+              type="button"
+              onClick={onCreate}
+              className="focus-ring mx-5 mt-3 flex items-center gap-2 rounded-lg px-3 py-2 text-[10px] font-semibold text-slate-400 hover:bg-slate-50 hover:text-slate-700 sm:mx-7"
+            >
+              <Plus className="size-3.5" />
+              Agregar tarea…
+            </button>
+          </>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -1565,6 +1820,7 @@ function TaskTimerSection({
 
 function TaskDrawer({
   task,
+  docked = false,
   parentTask,
   subtasks,
   timeEntries,
@@ -1598,6 +1854,7 @@ function TaskDrawer({
   onTimeEntryDelete,
 }: {
   task: Task;
+  docked?: boolean;
   parentTask: Task | null;
   subtasks: Task[];
   timeEntries: TimeEntry[];
@@ -1694,13 +1951,30 @@ function TaskDrawer({
   }
 
   return (
-    <div className="fixed inset-0 z-[70] flex justify-end">
+    <div
+      className={clsx(
+        "fixed z-[70] flex justify-end",
+        docked
+          ? "inset-0 xl:bottom-0 xl:left-auto xl:right-0 xl:top-0 xl:w-[min(42vw,640px)]"
+          : "inset-0",
+      )}
+      data-testid={docked ? "docked-task-detail" : "task-detail"}
+    >
       <button
-        className="absolute inset-0 bg-slate-950/30 backdrop-blur-[1px]"
+        className={clsx(
+          "absolute inset-0 bg-slate-950/30 backdrop-blur-[1px]",
+          docked && "xl:hidden",
+        )}
         onClick={onClose}
         aria-label="Cerrar detalle"
       />
-      <aside className="animate-drawer relative flex h-full w-full max-w-[620px] flex-col bg-white shadow-[-24px_0_60px_rgba(15,23,42,0.16)]">
+      <aside
+        className={clsx(
+          "animate-drawer relative flex h-full w-full max-w-[620px] flex-col bg-white shadow-[-24px_0_60px_rgba(15,23,42,0.16)]",
+          docked &&
+            "xl:max-w-none xl:border-l xl:border-slate-200 xl:shadow-[-8px_0_24px_rgba(15,23,42,0.08)]",
+        )}
+      >
         <header className="flex h-16 shrink-0 items-center border-b border-slate-100 px-5 sm:px-7">
           <button
             onClick={() =>
@@ -1793,7 +2067,40 @@ function TaskDrawer({
           </h2>
           <TaskLastEdited task={task} />
 
-          <div className="mt-7 grid grid-cols-[112px_1fr] gap-y-4 text-[12px]">
+          <details
+            open={!docked}
+            className={clsx(
+              docked &&
+                "xl:mt-4 xl:rounded-xl xl:border xl:border-slate-200 xl:bg-slate-50/60",
+            )}
+          >
+            <summary
+              className={clsx(
+                "list-none",
+                docked
+                  ? "focus-ring hidden cursor-pointer items-center gap-2 rounded-xl px-3 py-2.5 text-[10px] text-slate-500 hover:bg-slate-100 xl:flex"
+                  : "hidden",
+              )}
+              data-testid="task-fields-disclosure"
+            >
+              <SlidersHorizontal className="size-3.5 text-slate-400" />
+              <span className="font-semibold text-slate-700">
+                Campos de la tarea
+              </span>
+              <span className="truncate">
+                {statusMeta[task.status].label} ·{" "}
+                {task.assignee?.name.split(" ")[0] ?? "Sin asignar"} ·{" "}
+                {priorityMeta[task.priority].label} · {task.dueLabel}
+              </span>
+              <ChevronDown className="ml-auto size-3.5 shrink-0 text-slate-400" />
+            </summary>
+            <div
+              className={clsx(
+                "mt-7 grid grid-cols-[112px_1fr] gap-y-4 text-[12px]",
+                docked &&
+                  "xl:mt-0 xl:grid-cols-[92px_1fr] xl:gap-y-2.5 xl:border-t xl:border-slate-200 xl:px-3 xl:py-3 xl:text-[11px]",
+              )}
+            >
             <span className="flex items-center gap-2 text-slate-400">
               <Circle className="size-3.5" />
               Estado
@@ -2053,56 +2360,82 @@ function TaskDrawer({
                 </div>
               </>
             )}
-          </div>
+            </div>
+          </details>
 
-          <div className="my-7 h-px bg-slate-100" />
+          <div
+            className={clsx(
+              "my-7 h-px bg-slate-100",
+              docked && "xl:my-4",
+            )}
+          />
 
           <section>
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
-                Descripción
-              </h3>
-              <button
-                type="button"
-                onClick={() => attachmentInput.current?.click()}
-                className="focus-ring flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[9px] font-semibold text-[#0879ea] hover:bg-[#0a84ff]/10"
-                aria-label="Adjuntar archivos desde la descripción"
-              >
-                <Paperclip className="size-3.5" />
-                Adjuntar archivos
-              </button>
-            </div>
-            <textarea
-              key={`${task.id}-description`}
-              defaultValue={task.description}
-              onBlur={(event) => {
-                const description = event.target.value.trim();
-                if (description !== task.description) {
-                  onTaskUpdate({ description });
-                }
-              }}
-              placeholder="Esta tarea todavía no tiene descripción."
-              className="focus-ring mt-3 min-h-20 w-full resize-y rounded-xl border border-transparent bg-transparent p-2 text-[13px] leading-6 text-slate-600 hover:border-slate-200 focus:border-violet-200"
-              aria-label="Descripción de la tarea"
-            />
-            {task.attachments.some(
-              (attachment) => !attachment.deletedAt,
-            ) && (
-              <div
-                className="mt-3 space-y-3"
-                data-testid="description-attachments"
-              >
-                {task.attachments
-                  .filter((attachment) => !attachment.deletedAt)
-                  .map((attachment) => (
-                    <EmbeddedTaskAttachment
-                      key={attachment.id}
-                      attachment={attachment}
-                      onOpen={() => onAttachmentOpen(attachment)}
-                    />
-                  ))}
+            <h3 className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
+              Descripción
+            </h3>
+            <div
+              className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition focus-within:border-[#0a84ff]/40 focus-within:ring-2 focus-within:ring-[#0a84ff]/10"
+              data-testid="task-description-document"
+            >
+              <textarea
+                key={`${task.id}-description`}
+                defaultValue={task.description}
+                onBlur={(event) => {
+                  const description = event.target.value.trim();
+                  if (description !== task.description) {
+                    onTaskUpdate({ description });
+                  }
+                }}
+                placeholder="Escribí el brief, contexto, objetivos y referencias de esta tarea…"
+                className="min-h-40 w-full resize-y border-0 bg-transparent px-4 py-4 text-[13px] leading-6 text-slate-700 outline-none placeholder:text-slate-400"
+                aria-label="Descripción de la tarea"
+              />
+              {task.attachments.some(
+                (attachment) => !attachment.deletedAt,
+              ) && (
+                <div
+                  className="space-y-5 px-4 pb-4"
+                  data-testid="description-attachments"
+                >
+                  {task.attachments
+                    .filter((attachment) => !attachment.deletedAt)
+                    .map((attachment) => (
+                      <EmbeddedTaskAttachment
+                        key={attachment.id}
+                        attachment={attachment}
+                        onOpen={() => onAttachmentOpen(attachment)}
+                      />
+                    ))}
+                </div>
+              )}
+              <div className="flex items-center gap-2 border-t border-slate-100 bg-slate-50/70 px-3 py-2">
+                <button
+                  type="button"
+                  onClick={() => attachmentInput.current?.click()}
+                  className="focus-ring flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[9px] font-semibold text-[#0879ea] hover:bg-[#0a84ff]/10"
+                  aria-label="Insertar imagen o archivo en la descripción"
+                >
+                  <ImagePlus className="size-3.5" />
+                  Insertar imagen o archivo
+                </button>
+                <span className="ml-auto hidden text-[8px] text-slate-400 sm:inline">
+                  Se guarda al salir del campo
+                </span>
               </div>
-            )}
+              <input
+                ref={attachmentInput}
+                type="file"
+                multiple
+                aria-label="Seleccionar archivos para la tarea"
+                className="sr-only"
+                onChange={(event) => {
+                  const files = Array.from(event.target.files ?? []);
+                  if (files.length) onAttachmentUpload(files);
+                  event.target.value = "";
+                }}
+              />
+            </div>
             <label className="mt-4 block">
               <span className="mb-2 flex items-center gap-2 text-[10px] font-semibold text-slate-500">
                 <Tags className="size-3.5" />
@@ -2239,18 +2572,6 @@ function TaskDrawer({
                 <Plus className="size-3.5" />
                 Adjuntar
               </button>
-              <input
-                ref={attachmentInput}
-                type="file"
-                multiple
-                aria-label="Seleccionar archivos para la tarea"
-                className="sr-only"
-                onChange={(event) => {
-                  const files = Array.from(event.target.files ?? []);
-                  if (files.length) onAttachmentUpload(files);
-                  event.target.value = "";
-                }}
-              />
             </div>
             <div className="mt-3 space-y-2">
               {task.attachments.map((attachment) => (
@@ -2505,7 +2826,10 @@ function TaskDrawer({
 
         <form
           onSubmit={submitComment}
-          className="shrink-0 border-t border-slate-100 bg-white p-4 sm:px-7"
+          className={clsx(
+            "shrink-0 border-t border-slate-100 bg-white p-4 sm:px-7",
+            docked && "xl:px-4 xl:py-3",
+          )}
         >
           <div className="flex items-start gap-3">
             <Avatar person={currentPerson} size="sm" />
@@ -2514,7 +2838,10 @@ function TaskDrawer({
                 value={comment}
                 onChange={(event) => setComment(event.target.value)}
                 placeholder="Sumá feedback o una actualización…"
-                className="min-h-14 w-full resize-none border-0 bg-transparent px-1 text-[12px] text-slate-700 outline-none placeholder:text-slate-400"
+                className={clsx(
+                  "min-h-14 w-full resize-none border-0 bg-transparent px-1 text-[12px] text-slate-700 outline-none placeholder:text-slate-400",
+                  docked && "xl:min-h-8",
+                )}
               />
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap gap-1.5">
@@ -5032,13 +5359,12 @@ export function TaskaApp() {
     resetDemo,
   } = useTaskWorkspace();
   const [view, setView] = useState<View>("my_tasks");
+  const [projectTab, setProjectTab] = useState<ProjectTab>("list");
   const [query, setQuery] = useState("");
   const [priority, setPriority] = useState<TaskPriority | "todas">("todas");
   const [projectId, setProjectId] = useState("todos");
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    return new URLSearchParams(window.location.search).get("task");
-  });
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [taskUrlReady, setTaskUrlReady] = useState(false);
   const [mobileMenu, setMobileMenu] = useState(false);
   const [showNewTask, setShowNewTask] = useState(false);
   const [newTaskStatus, setNewTaskStatus] = useState<TaskStatus>("nuevo");
@@ -5088,18 +5414,28 @@ export function TaskaApp() {
   }, [mode]);
 
   useEffect(() => {
+    const initialSync = window.setTimeout(() => {
+      setSelectedTaskId(
+        new URLSearchParams(window.location.search).get("task"),
+      );
+      setTaskUrlReady(true);
+    }, 0);
     const onPopState = () =>
       setSelectedTaskId(new URLSearchParams(window.location.search).get("task"));
     window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
+    return () => {
+      window.clearTimeout(initialSync);
+      window.removeEventListener("popstate", onPopState);
+    };
   }, []);
 
   useEffect(() => {
+    if (!taskUrlReady) return;
     const url = new URL(window.location.href);
     if (selectedTaskId) url.searchParams.set("task", selectedTaskId);
     else url.searchParams.delete("task");
     window.history.replaceState({}, "", url);
-  }, [selectedTaskId]);
+  }, [selectedTaskId, taskUrlReady]);
 
   const activeWorkspace =
     workspaces.find((workspace) => workspace.id === activeWorkspaceId) ??
@@ -5143,6 +5479,28 @@ export function TaskaApp() {
   );
   const selectedTask =
     tasks.find((task) => task.id === selectedTaskId) ?? null;
+  const focusedProject =
+    projectId === "todos"
+      ? null
+      : (projects.find((project) => project.id === projectId) ?? null);
+  const focusedProjectTasks = useMemo(
+    () =>
+      focusedProject
+        ? activeTopLevelTasks.filter((task) =>
+            task.projects.some((project) => project.id === focusedProject.id),
+          )
+        : [],
+    [activeTopLevelTasks, focusedProject],
+  );
+  const dockedTask = Boolean(
+    focusedProject &&
+      selectedTask &&
+      !selectedTask.archivedAt &&
+      !selectedTask.deletedAt &&
+      selectedTask.projects.some(
+        (project) => project.id === focusedProject.id,
+      ),
+  );
   const selectedActiveTimeEntry = selectedTask
     ? (activeTimeEntries.find((entry) => entry.taskId === selectedTask.id) ??
       null)
@@ -5360,7 +5718,11 @@ export function TaskaApp() {
     >
       <Sidebar
         view={view}
-        onViewChange={setView}
+        onViewChange={(nextView) => {
+          setView(nextView);
+          setProjectId("todos");
+          setSelectedTaskId(null);
+        }}
         projects={projects}
         workspaces={workspaces}
         activeWorkspaceId={activeWorkspaceId}
@@ -5373,6 +5735,7 @@ export function TaskaApp() {
           setActiveWorkspaceId(workspaceId);
           setProjectId("todos");
           setSelectedTaskId(null);
+          setProjectTab("list");
         }}
         onCreateWorkspace={() => setShowNewWorkspace(true)}
         onCreateProject={() => setShowNewProject(true)}
@@ -5387,10 +5750,17 @@ export function TaskaApp() {
         onProjectSelect={(nextProjectId) => {
           setProjectId(nextProjectId);
           setView("all_tasks");
+          setProjectTab("list");
+          setSelectedTaskId(null);
         }}
       />
 
-      <main className="min-w-0 flex-1">
+      <main
+        className={clsx(
+          "min-w-0 flex-1 transition-[padding] duration-200",
+          dockedTask && "xl:pr-[min(42vw,640px)]",
+        )}
+      >
         <header className="sticky top-0 z-30 flex h-16 items-center border-b border-[#e6e8ee] bg-white/95 px-4 backdrop-blur sm:px-7 lg:h-[70px] lg:px-9">
           <button
             onClick={() => setMobileMenu(true)}
@@ -5399,19 +5769,45 @@ export function TaskaApp() {
           >
             <Menu className="size-5" />
           </button>
-          <div className="relative hidden w-full max-w-[390px] sm:block">
-            <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Buscar tareas, campañas o clientes…"
-              className="focus-ring h-10 w-full rounded-xl border border-slate-200 bg-[#f8f9fb] pl-10 pr-14 text-[12px] text-slate-700 placeholder:text-slate-400"
-              aria-label="Buscar tareas"
-            />
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[9px] font-medium text-slate-400">
-              ⌘ K
-            </span>
-          </div>
+          {focusedProject ? (
+            <div className="hidden min-w-0 items-center gap-2 sm:flex">
+              <span
+                className="size-2.5 shrink-0 rounded-[3px]"
+                style={{ backgroundColor: focusedProject.color }}
+              />
+              <span className="truncate text-[12px] font-semibold text-slate-700">
+                {focusedProject.name}
+              </span>
+              <span className="text-[10px] text-slate-300">/</span>
+              <span className="text-[10px] text-slate-400">
+                {projectTab === "overview"
+                  ? "Resumen"
+                  : projectTab === "board"
+                    ? "Tablero"
+                    : projectTab === "timeline"
+                      ? "Cronograma"
+                      : projectTab === "dashboard"
+                        ? "Panel"
+                        : projectTab === "gantt"
+                          ? "Gantt"
+                          : "Lista"}
+              </span>
+            </div>
+          ) : (
+            <div className="relative hidden w-full max-w-[390px] sm:block">
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Buscar tareas, campañas o clientes…"
+                className="focus-ring h-10 w-full rounded-xl border border-slate-200 bg-[#f8f9fb] pl-10 pr-14 text-[12px] text-slate-700 placeholder:text-slate-400"
+                aria-label="Buscar tareas"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[9px] font-medium text-slate-400">
+                ⌘ K
+              </span>
+            </div>
+          )}
           <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
             {syncing && (
               <span className="hidden items-center gap-2 text-[10px] font-medium text-slate-400 md:flex">
@@ -5468,15 +5864,60 @@ export function TaskaApp() {
             <button
               onClick={() => openNewTask()}
               className="mac-button-primary focus-ring flex items-center gap-2 rounded-lg px-3.5 py-2.5 text-[11px] font-bold text-white sm:px-4"
+              aria-label="Nueva tarea"
             >
               <Plus className="size-4 stroke-[2.5]" />
-              <span className="hidden xs:inline sm:inline">Nueva tarea</span>
+              <span
+                className={clsx(
+                  "hidden xs:inline sm:inline",
+                  dockedTask && "xl:hidden 2xl:inline",
+                )}
+              >
+                Nueva tarea
+              </span>
             </button>
           </div>
         </header>
 
-        <div className="mx-auto max-w-[1500px] px-4 pb-24 pt-6 sm:px-7 lg:px-9 lg:pb-10 lg:pt-8">
-          <section className="animate-enter">
+        <div
+          className={clsx(
+            focusedProject
+              ? "pb-24 lg:pb-0"
+              : "mx-auto max-w-[1500px] px-4 pb-24 pt-6 sm:px-7 lg:px-9 lg:pb-10 lg:pt-8",
+          )}
+        >
+          {focusedProject ? (
+            <ProjectWorkspaceView
+              project={focusedProject}
+              tasks={focusedProjectTasks}
+              parentTasks={parentTasks}
+              tab={projectTab}
+              selectedTaskId={selectedTaskId}
+              onTabChange={setProjectTab}
+              onCreate={() => openNewTask()}
+              onSelect={(task) => setSelectedTaskId(task.id)}
+              onComplete={(task) => {
+                const next =
+                  task.status === "resuelto" ? "en_progreso" : "resuelto";
+                void updateStatus(task.id, next);
+                notify(
+                  next === "resuelto"
+                    ? "Tarea marcada como aprobada"
+                    : "Tarea reabierta",
+                );
+              }}
+              onMove={(taskId, status) => {
+                void updateStatus(taskId, status);
+                notify(`Tarea movida a ${statusMeta[status].label}`);
+              }}
+              onUpdateDates={(taskId, input) => {
+                void updateTask(taskId, input);
+                notify("Fechas reprogramadas");
+              }}
+            />
+          ) : (
+            <>
+              <section className="animate-enter">
             <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-[0.13em] text-[#6556ee]">
@@ -5569,9 +6010,9 @@ export function TaskaApp() {
                 );
               })}
             </div>
-          </section>
+              </section>
 
-          <section className="mt-8">
+              <section className="mt-8">
             <div className="flex flex-col gap-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -5798,7 +6239,9 @@ export function TaskaApp() {
                 />
               )}
             </div>
-          </section>
+              </section>
+            </>
+          )}
         </div>
       </main>
 
@@ -5854,6 +6297,7 @@ export function TaskaApp() {
       ) : (
         <TaskDrawer
           task={selectedTask}
+          docked={dockedTask}
           parentTask={selectedParentTask}
           subtasks={selectedSubtasks}
           timeEntries={selectedTimeEntries}
