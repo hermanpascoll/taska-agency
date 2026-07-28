@@ -13,7 +13,7 @@ test("crea una tarea y conserva el cambio al recargar", async ({ page }) => {
   await page.getByRole("button", { name: "Nueva tarea" }).click();
   await page.getByLabel("Nombre de la tarea").fill("Revisar home Apple");
   await page
-    .getByLabel("Descripción")
+    .getByLabel("Descripción", { exact: true })
     .fill("Validar jerarquía, espaciado y estados del Finder.");
   await page.getByRole("button", { name: "Crear tarea" }).click();
   await expect(page.getByLabel("Título de la tarea")).toHaveValue(
@@ -81,6 +81,49 @@ test("crea la tarea dentro del proyecto seleccionado", async ({ page }) => {
       }),
     )
     .toEqual({ primary: "marca-sur", linked: ["marca-sur"] });
+});
+
+test("embebe una imagen en la descripción al crear la tarea", async ({
+  page,
+}) => {
+  const pixelPng = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+    "base64",
+  );
+
+  await page.getByRole("button", { name: "Nueva tarea" }).click();
+  await page
+    .getByLabel("Nombre de la tarea")
+    .fill("Revisar visual embebido");
+  await page
+    .getByLabel("Descripción", { exact: true })
+    .fill("Referencia visual para revisar con el equipo.");
+  await page
+    .getByLabel("Seleccionar archivos para la descripción")
+    .setInputFiles({
+      name: "referencia-asana.png",
+      mimeType: "image/png",
+      buffer: pixelPng,
+    });
+
+  await expect(
+    page.getByRole("img", {
+      name: "Vista previa de referencia-asana.png",
+    }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Crear tarea" }).click();
+
+  await expect(page.getByLabel("Título de la tarea")).toHaveValue(
+    "Revisar visual embebido",
+  );
+  await expect(
+    page.getByRole("img", {
+      name: "Adjunto embebido referencia-asana.png",
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Tarea creada correctamente · 1 archivo embebido"),
+  ).toBeVisible();
 });
 
 test("adjunta varios archivos desde la descripción de la tarea", async ({

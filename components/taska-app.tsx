@@ -253,6 +253,179 @@ function PriorityBadge({ priority }: { priority: TaskPriority }) {
   );
 }
 
+function isImageFile(mimeType: string) {
+  return mimeType.startsWith("image/");
+}
+
+function PendingDescriptionAttachment({
+  file,
+  onRemove,
+}: {
+  file: File;
+  onRemove: () => void;
+}) {
+  const [previewUrl] = useState<string | null>(() =>
+    isImageFile(file.type) ? URL.createObjectURL(file) : null,
+  );
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
+  return (
+    <div className="group relative overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+      {previewUrl ? (
+        <>
+          {/* Private blob previews cannot use the Next image optimizer. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={previewUrl}
+            alt={`Vista previa de ${file.name}`}
+            className="max-h-72 w-full bg-slate-100 object-contain"
+          />
+          <div className="flex items-center gap-2 border-t border-slate-200 bg-white/95 px-3 py-2">
+            <FileText className="size-3.5 shrink-0 text-[#0a84ff]" />
+            <span className="min-w-0 flex-1 truncate text-[10px] font-semibold text-slate-600">
+              {file.name}
+            </span>
+            <span className="shrink-0 text-[9px] text-slate-400">
+              {formatBytes(file.size)}
+            </span>
+          </div>
+        </>
+      ) : (
+        <div className="flex items-center gap-3 px-3 py-3">
+          <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-white text-[#0a84ff] shadow-sm">
+            <FileText className="size-4" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[10px] font-semibold text-slate-700">
+              {file.name}
+            </span>
+            <span className="mt-0.5 block text-[9px] text-slate-400">
+              {formatBytes(file.size)} · Se cargará al crear la tarea
+            </span>
+          </span>
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={onRemove}
+        className="focus-ring absolute right-2 top-2 grid size-7 place-items-center rounded-full bg-slate-950/70 text-white shadow-lg backdrop-blur hover:bg-rose-600"
+        aria-label={`Quitar ${file.name}`}
+      >
+        <X className="size-3.5" />
+      </button>
+    </div>
+  );
+}
+
+function EmbeddedTaskAttachment({
+  attachment,
+  onOpen,
+}: {
+  attachment: TaskAttachment;
+  onOpen: () => void;
+}) {
+  const image = isImageFile(attachment.mimeType);
+  const [signedUrl, setSignedUrl] = useState<string | null>(null);
+  const previewUrl = attachment.dataUrl ?? signedUrl;
+
+  useEffect(() => {
+    let active = true;
+    if (
+      !image ||
+      attachment.dataUrl ||
+      !attachment.storagePath
+    ) {
+      return () => {
+        active = false;
+      };
+    }
+
+    const supabase = createClient();
+    if (!supabase) return;
+    void supabase.storage
+      .from("task-attachments")
+      .createSignedUrl(attachment.storagePath, 60 * 60)
+      .then(({ data }: { data: { signedUrl: string } | null }) => {
+        if (active && data?.signedUrl) setSignedUrl(data.signedUrl);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    attachment.dataUrl,
+    attachment.storagePath,
+    image,
+  ]);
+
+  if (!image) {
+    return (
+      <button
+        type="button"
+        onClick={onOpen}
+        className="focus-ring flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-left hover:border-[#0a84ff]/30 hover:bg-[#0a84ff]/5"
+        aria-label={`Abrir adjunto ${attachment.name}`}
+      >
+        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-white text-[#0a84ff] shadow-sm">
+          <FileText className="size-4" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[10px] font-semibold text-slate-700">
+            {attachment.name}
+          </span>
+          <span className="mt-0.5 block text-[9px] text-slate-400">
+            {formatBytes(attachment.size)} · v
+            {attachment.versionNumber ?? 1}
+          </span>
+        </span>
+        <Download className="size-3.5 shrink-0 text-slate-400" />
+      </button>
+    );
+  }
+
+  return (
+    <figure className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="focus-ring block w-full bg-slate-100"
+        aria-label={`Abrir imagen ${attachment.name}`}
+      >
+        {previewUrl ? (
+          <>
+            {/* Private signed URLs and data URLs bypass image optimization. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={previewUrl}
+              alt={`Adjunto embebido ${attachment.name}`}
+              className="max-h-[460px] w-full object-contain"
+            />
+          </>
+        ) : (
+          <span className="grid min-h-44 place-items-center text-[10px] text-slate-400">
+            Cargando vista previa…
+          </span>
+        )}
+      </button>
+      <figcaption className="flex items-center gap-2 border-t border-slate-200 bg-white px-3 py-2">
+        <FileText className="size-3.5 shrink-0 text-[#0a84ff]" />
+        <span className="min-w-0 flex-1 truncate text-[10px] font-semibold text-slate-600">
+          {attachment.name}
+        </span>
+        <span className="shrink-0 text-[9px] text-slate-400">
+          {formatBytes(attachment.size)} · v
+          {attachment.versionNumber ?? 1}
+        </span>
+      </figcaption>
+    </figure>
+  );
+}
+
 function ActiveTimersMenu({
   entries,
   open,
@@ -1916,27 +2089,17 @@ function TaskDrawer({
               (attachment) => !attachment.deletedAt,
             ) && (
               <div
-                className="mt-2 flex flex-wrap gap-2"
+                className="mt-3 space-y-3"
                 data-testid="description-attachments"
               >
                 {task.attachments
                   .filter((attachment) => !attachment.deletedAt)
                   .map((attachment) => (
-                    <button
+                    <EmbeddedTaskAttachment
                       key={attachment.id}
-                      type="button"
-                      onClick={() => onAttachmentOpen(attachment)}
-                      className="focus-ring flex max-w-full items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[9px] font-semibold text-slate-600 hover:border-[#0a84ff]/30 hover:bg-[#0a84ff]/5 hover:text-[#0879ea]"
-                      aria-label={`Abrir adjunto ${attachment.name}`}
-                    >
-                      <FileText className="size-3.5 shrink-0 text-[#0a84ff]" />
-                      <span className="max-w-44 truncate">
-                        {attachment.name}
-                      </span>
-                      <span className="shrink-0 font-normal text-slate-400">
-                        · {formatBytes(attachment.size)}
-                      </span>
-                    </button>
+                      attachment={attachment}
+                      onOpen={() => onAttachmentOpen(attachment)}
+                    />
                   ))}
               </div>
             )}
@@ -2415,7 +2578,7 @@ function NewTaskModal({
   defaultProjectId?: string;
   defaultStatus: TaskStatus;
   onClose: () => void;
-  onCreate: (task: NewTaskInput) => void;
+  onCreate: (task: NewTaskInput, files: File[]) => Promise<void>;
 }) {
   const defaultProject =
     projects.find((project) => project.id === defaultProjectId) ?? projects[0];
@@ -2446,34 +2609,45 @@ function NewTaskModal({
     useState<TaskRecurrence>("none");
   const [recurrenceInterval, setRecurrenceInterval] = useState(1);
   const [templateId, setTemplateId] = useState("");
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const descriptionAttachmentInput = useRef<HTMLInputElement>(null);
   const selectedClient =
     clients.find((client) => client.id === clientId) ?? null;
 
-  function submit(event: FormEvent) {
+  async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!title.trim()) return;
-    onCreate({
-      title: title.trim(),
-      description: description.trim(),
-      projectId,
-      projectIds,
-      status,
-      priority,
-      assigneeId,
-      client: selectedClient?.name ?? "",
-      clientId: clientId || null,
-      clientCategory: clientCategory || null,
-      startDate,
-      dueDate,
-      dueTime,
-      tags: tags
-        .split(",")
-        .map((tag) => tag.trim())
-        .filter(Boolean),
-      recurrenceRule,
-      recurrenceInterval,
-      templateId: templateId || undefined,
-    });
+    if (!title.trim() || submitting) return;
+    setSubmitting(true);
+    try {
+      await onCreate(
+        {
+          title: title.trim(),
+          description: description.trim(),
+          projectId,
+          projectIds,
+          status,
+          priority,
+          assigneeId,
+          client: selectedClient?.name ?? "",
+          clientId: clientId || null,
+          clientCategory: clientCategory || null,
+          startDate,
+          dueDate,
+          dueTime,
+          tags: tags
+            .split(",")
+            .map((tag) => tag.trim())
+            .filter(Boolean),
+          recurrenceRule,
+          recurrenceInterval,
+          templateId: templateId || undefined,
+        },
+        pendingFiles,
+      );
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -2549,17 +2723,81 @@ function NewTaskModal({
               className="focus-ring w-full rounded-xl border border-slate-200 px-4 py-3 text-[13px] text-slate-800 placeholder:text-slate-400"
             />
           </label>
-          <label className="block">
-            <span className="mb-2 block text-[11px] font-bold text-slate-600">
-              Descripción
-            </span>
-            <textarea
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              placeholder="Agregá el brief, los formatos y el resultado esperado…"
-              className="focus-ring min-h-24 w-full resize-none rounded-xl border border-slate-200 px-4 py-3 text-[13px] leading-relaxed text-slate-800 placeholder:text-slate-400"
-            />
-          </label>
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <label
+                htmlFor="new-task-description"
+                className="block text-[11px] font-bold text-slate-600"
+              >
+                Descripción
+              </label>
+              <button
+                type="button"
+                onClick={() => descriptionAttachmentInput.current?.click()}
+                className="focus-ring flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[9px] font-semibold text-[#0879ea] hover:bg-[#0a84ff]/10"
+                aria-label="Adjuntar archivos a la descripción"
+              >
+                <Paperclip className="size-3.5" />
+                Adjuntar archivos
+              </button>
+            </div>
+            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white focus-within:border-violet-300 focus-within:ring-2 focus-within:ring-violet-100">
+              <textarea
+                id="new-task-description"
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                placeholder="Agregá el brief, los formatos y el resultado esperado…"
+                className="min-h-28 w-full resize-y border-0 px-4 py-3 text-[13px] leading-relaxed text-slate-800 outline-none placeholder:text-slate-400"
+              />
+              {pendingFiles.length > 0 && (
+                <div
+                  className="space-y-3 border-t border-slate-100 bg-slate-50/70 p-3"
+                  data-testid="new-task-description-attachments"
+                >
+                  {pendingFiles.map((file, index) => (
+                    <PendingDescriptionAttachment
+                      key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
+                      file={file}
+                      onRemove={() =>
+                        setPendingFiles((current) =>
+                          current.filter(
+                            (_, currentIndex) => currentIndex !== index,
+                          ),
+                        )
+                      }
+                    />
+                  ))}
+                </div>
+              )}
+              <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/50 px-3 py-2">
+                <button
+                  type="button"
+                  onClick={() => descriptionAttachmentInput.current?.click()}
+                  className="focus-ring flex items-center gap-1.5 rounded-lg px-2 py-1 text-[9px] font-semibold text-slate-500 hover:bg-white hover:text-[#0879ea]"
+                >
+                  <Paperclip className="size-3.5" />
+                  Imagen o archivo
+                </button>
+                <span className="text-[8px] text-slate-400">
+                  Hasta 10 MB por archivo
+                </span>
+              </div>
+              <input
+                ref={descriptionAttachmentInput}
+                type="file"
+                multiple
+                aria-label="Seleccionar archivos para la descripción"
+                className="sr-only"
+                onChange={(event) => {
+                  const files = Array.from(event.target.files ?? []);
+                  if (files.length) {
+                    setPendingFiles((current) => [...current, ...files]);
+                  }
+                  event.target.value = "";
+                }}
+              />
+            </div>
+          </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label>
@@ -2842,9 +3080,16 @@ function NewTaskModal({
           >
             Cancelar
           </button>
-          <button className="focus-ring flex items-center gap-2 rounded-lg bg-[#5b4bec] px-4 py-2.5 text-[11px] font-bold text-white shadow-[0_6px_16px_rgba(91,75,236,0.24)] transition hover:bg-[#4f40da]">
-            <Plus className="size-4" />
-            Crear tarea
+          <button
+            disabled={submitting}
+            className="focus-ring flex items-center gap-2 rounded-lg bg-[#5b4bec] px-4 py-2.5 text-[11px] font-bold text-white shadow-[0_6px_16px_rgba(91,75,236,0.24)] transition hover:bg-[#4f40da] disabled:cursor-wait disabled:opacity-70"
+          >
+            {submitting ? (
+              <LoaderCircle className="size-4 animate-spin" />
+            ) : (
+              <Plus className="size-4" />
+            )}
+            {submitting ? "Creando y cargando…" : "Crear tarea"}
           </button>
         </footer>
       </form>
@@ -4994,7 +5239,7 @@ export function TaskaApp() {
     window.setTimeout(() => setToast(null), 2500);
   }
 
-  async function handleCreate(input: NewTaskInput) {
+  async function handleCreate(input: NewTaskInput, files: File[] = []) {
     try {
       const task = await createTask(input);
       const template = findProcessTemplate(input.templateId);
@@ -5014,14 +5259,28 @@ export function TaskaApp() {
           });
         }
       }
+      let failedUploads = 0;
+      for (const file of files) {
+        try {
+          await uploadAttachment(task, file);
+        } catch {
+          failedUploads += 1;
+        }
+      }
       setShowNewTask(false);
       setSelectedTaskId(task.id);
-      notify(
+      const creationMessage =
         input.parentTaskId
           ? "Subtarea creada correctamente"
           : template
             ? `Proceso creado con ${template.steps.length} pasos`
-            : "Tarea creada correctamente",
+            : "Tarea creada correctamente";
+      notify(
+        failedUploads > 0
+          ? `${creationMessage}; ${failedUploads} ${failedUploads === 1 ? "archivo no pudo cargarse" : "archivos no pudieron cargarse"}`
+          : files.length > 0
+            ? `${creationMessage} · ${files.length} ${files.length === 1 ? "archivo embebido" : "archivos embebidos"}`
+            : creationMessage,
       );
     } catch {
       notify("No se pudo crear la tarea");
@@ -5788,7 +6047,7 @@ export function TaskaApp() {
           }
           defaultStatus={newTaskStatus}
           onClose={() => setShowNewTask(false)}
-          onCreate={(input) => void handleCreate(input)}
+          onCreate={handleCreate}
         />
       )}
 
