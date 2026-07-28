@@ -64,10 +64,12 @@ import { clsx } from "clsx";
 import { AdminPanel } from "@/components/admin-panel";
 import { GanttChart } from "@/components/gantt-chart";
 import {
+  ActivityHistory,
   ArchivedTaskDrawer,
   ArchiveTaskModal,
   ArchiveView,
   ProcessBriefAndHistory,
+  TaskLastEdited,
 } from "@/components/process-archive";
 import { useTaskWorkspace } from "@/hooks/use-task-workspace";
 import {
@@ -1491,6 +1493,7 @@ function TaskDrawer({
               aria-label="Título de la tarea"
             />
           </h2>
+          <TaskLastEdited task={task} />
 
           <div className="mt-7 grid grid-cols-[112px_1fr] gap-y-4 text-[12px]">
             <span className="flex items-center gap-2 text-slate-400">
@@ -1893,6 +1896,7 @@ function TaskDrawer({
                   y responsables. Este historial no se modifica.
                 </p>
               )}
+            <ActivityHistory task={task} subtasks={subtasks} />
           </section>
 
           <section className="mt-8">

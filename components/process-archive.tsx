@@ -5,6 +5,7 @@ import {
   ArchiveRestore,
   BookOpen,
   CheckCircle2,
+  ChevronDown,
   Copy,
   Download,
   FileText,
@@ -13,9 +14,11 @@ import {
   Link2,
   LockKeyhole,
   MessageSquare,
+  Paperclip,
   Printer,
   RotateCcw,
   Search,
+  TimerReset,
   Trash2,
   X,
 } from "lucide-react";
@@ -286,58 +289,325 @@ export function ProcessBriefAndHistory({
         </div>
       </section>
 
-      <EventTimeline events={task.events ?? []} compact />
     </>
   );
 }
 
-function EventTimeline({
-  events,
-  compact = false,
-}: {
-  events: TaskEvent[];
-  compact?: boolean;
-}) {
-  const ordered = useMemo(
-    () =>
-      [...events].sort(
-        (left, right) =>
-          new Date(right.createdAt).getTime() -
-          new Date(left.createdAt).getTime(),
-      ),
-    [events],
-  );
+type ActivityCategory = "tasks" | "comments" | "time" | "files";
+type ActivityFilter = "all" | ActivityCategory;
+type ProcessActivityEvent = TaskEvent & {
+  sourceTaskId: string;
+  sourceTaskCode: string;
+  sourceTaskTitle: string;
+  fromSubtask: boolean;
+};
+
+const activityFilters: Array<{
+  id: ActivityFilter;
+  label: string;
+}> = [
+  { id: "all", label: "Todo" },
+  { id: "tasks", label: "Tareas" },
+  { id: "comments", label: "Comentarios" },
+  { id: "time", label: "Tiempo" },
+  { id: "files", label: "Archivos" },
+];
+
+function eventTime(value: string) {
+  if (value === "Ahora") return Number.MAX_SAFE_INTEGER;
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function eventCategory(event: TaskEvent): ActivityCategory {
+  if (
+    event.type.startsWith("comment_") ||
+    event.type === "comment_added" ||
+    event.type === "comment_removed"
+  ) {
+    return "comments";
+  }
+  if (
+    event.type.startsWith("timer_") ||
+    event.type.startsWith("time_") ||
+    event.type === "time_added"
+  ) {
+    return "time";
+  }
+  if (event.type.startsWith("attachment_")) return "files";
+  return "tasks";
+}
+
+function activityIcon(category: ActivityCategory) {
+  if (category === "comments") return MessageSquare;
+  if (category === "time") return TimerReset;
+  if (category === "files") return Paperclip;
+  return CheckCircle2;
+}
+
+function activityColors(category: ActivityCategory) {
+  if (category === "comments") {
+    return "bg-violet-50 text-violet-600 ring-violet-100";
+  }
+  if (category === "time") {
+    return "bg-sky-50 text-sky-600 ring-sky-100";
+  }
+  if (category === "files") {
+    return "bg-amber-50 text-amber-600 ring-amber-100";
+  }
+  return "bg-emerald-50 text-emerald-600 ring-emerald-100";
+}
+
+function activityDetail(event: ProcessActivityEvent) {
+  const metadata = event.metadata ?? {};
+  if (typeof metadata.excerpt === "string") return metadata.excerpt;
+  if (typeof metadata.description === "string" && metadata.description) {
+    return metadata.description;
+  }
+
+  for (const key of ["title", "status", "priority"] as const) {
+    const change = metadata[key];
+    if (
+      change &&
+      typeof change === "object" &&
+      "from" in change &&
+      "to" in change
+    ) {
+      const from = String((change as { from?: unknown }).from ?? "—");
+      const to = String((change as { to?: unknown }).to ?? "—");
+      return `${from} → ${to}`;
+    }
+  }
+  return null;
+}
+
+function collectActivity(task: Task, subtasks: Task[]) {
+  return [task, ...subtasks]
+    .flatMap<ProcessActivityEvent>((source) =>
+      (source.events ?? []).map((event) => ({
+        ...event,
+        sourceTaskId: source.id,
+        sourceTaskCode: source.code,
+        sourceTaskTitle: source.title,
+        fromSubtask: source.id !== task.id,
+      })),
+    )
+    .sort(
+      (left, right) =>
+        eventTime(right.createdAt) - eventTime(left.createdAt),
+    );
+}
+
+function latestEdit(task: Task) {
+  return [...(task.events ?? [])]
+    .filter((event) => eventCategory(event) === "tasks")
+    .sort(
+      (left, right) =>
+        eventTime(right.createdAt) - eventTime(left.createdAt),
+    )[0];
+}
+
+export function TaskLastEdited({ task }: { task: Task }) {
+  const event = latestEdit(task);
+  if (!event) return null;
+  const created = event.type === "task_created";
 
   return (
-    <section className={compact ? "mt-8" : "mt-6"}>
-      <h3 className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
-        <History className="size-3.5" />
-        Historial inmutable
-      </h3>
-      <div className="mt-3 space-y-2">
-        {ordered.map((event) => (
-          <div
-            key={event.id}
-            className="flex gap-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3"
-          >
-            <span className="mt-1 size-2 shrink-0 rounded-full bg-[#0a84ff]" />
-            <div className="min-w-0">
-              <p className="text-[11px] font-semibold text-slate-700">
-                {event.summary}
-              </p>
-              <p className="mt-0.5 text-[9px] text-slate-400">
-                {event.actor?.name ?? "Sistema"} · {humanDate(event.createdAt)}
-              </p>
-            </div>
+    <p
+      data-testid="task-last-edited"
+      className="mt-1.5 flex items-center gap-1.5 px-1 text-[9px] text-slate-400"
+    >
+      <span className="size-1.5 rounded-full bg-emerald-400" />
+      {created ? "Creado" : "Editado"} por{" "}
+      <span className="font-semibold text-slate-500">
+        {event.actor?.name ?? "Sistema"}
+      </span>
+      <span>·</span>
+      <span>{humanDate(event.createdAt)}</span>
+    </p>
+  );
+}
+
+export function ActivityHistory({
+  task,
+  subtasks,
+  defaultExpanded = false,
+}: {
+  task: Task;
+  subtasks: Task[];
+  defaultExpanded?: boolean;
+}) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  const [filter, setFilter] = useState<ActivityFilter>("all");
+  const [visibleCount, setVisibleCount] = useState(8);
+  const allEvents = useMemo(
+    () => collectActivity(task, subtasks),
+    [task, subtasks],
+  );
+  const visibleEvents = useMemo(
+    () =>
+      allEvents.filter(
+        (event) => filter === "all" || eventCategory(event) === filter,
+      ),
+    [allEvents, filter],
+  );
+  const latest = allEvents[0] ?? null;
+
+  return (
+    <div
+      data-testid="process-activity-history"
+      className="mt-4 overflow-hidden rounded-xl border border-white bg-white shadow-sm"
+    >
+      <button
+        type="button"
+        onClick={() => setExpanded((current) => !current)}
+        aria-expanded={expanded}
+        aria-label={
+          expanded
+            ? "Ocultar historial del proceso"
+            : "Mostrar historial del proceso"
+        }
+        className="focus-ring flex w-full items-center gap-3 px-3.5 py-3 text-left sm:px-4"
+      >
+        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-[#0a84ff]/10 text-[#0879ea]">
+          <History className="size-4" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-slate-600">
+              Historial del proceso
+            </span>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[8px] font-bold text-slate-500">
+              {allEvents.length} movimientos
+            </span>
+            {subtasks.length > 0 && (
+              <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[8px] font-bold text-violet-600">
+                {subtasks.length}{" "}
+                {subtasks.length === 1 ? "subtarea" : "subtareas"}
+              </span>
+            )}
+          </span>
+          <span className="mt-1 block truncate text-[9px] text-slate-400">
+            {latest
+              ? `Último: ${latest.summary} · ${
+                  latest.actor?.name ?? "Sistema"
+                }`
+              : "Todavía no hay movimientos registrados"}
+          </span>
+        </span>
+        <ChevronDown
+          className={clsx(
+            "size-4 shrink-0 text-slate-400 transition-transform",
+            expanded && "rotate-180",
+          )}
+        />
+      </button>
+
+      {expanded && (
+        <div className="border-t border-slate-100 px-3.5 pb-3.5 pt-3 sm:px-4 sm:pb-4">
+          <div className="flex gap-1 overflow-x-auto pb-1">
+            {activityFilters.map((item) => {
+              const count =
+                item.id === "all"
+                  ? allEvents.length
+                  : allEvents.filter(
+                      (event) => eventCategory(event) === item.id,
+                    ).length;
+              return (
+                <button
+                  type="button"
+                  key={item.id}
+                  onClick={() => {
+                    setFilter(item.id);
+                    setVisibleCount(8);
+                  }}
+                  className={clsx(
+                    "focus-ring whitespace-nowrap rounded-lg px-2.5 py-1.5 text-[9px] font-semibold transition",
+                    filter === item.id
+                      ? "bg-slate-800 text-white"
+                      : "bg-slate-50 text-slate-500 hover:bg-slate-100",
+                  )}
+                  aria-pressed={filter === item.id}
+                  aria-label={`Filtrar historial: ${item.label}`}
+                >
+                  {item.label} · {count}
+                </button>
+              );
+            })}
           </div>
-        ))}
-        {ordered.length === 0 && (
-          <p className="rounded-xl border border-dashed border-slate-200 p-4 text-center text-[10px] text-slate-400">
-            El historial se completará con cada cambio del proceso.
+
+          <div className="relative mt-3">
+            <span className="absolute bottom-5 left-[15px] top-5 w-px bg-slate-100" />
+            <div className="relative divide-y divide-slate-100">
+              {visibleEvents.slice(0, visibleCount).map((event) => {
+                const category = eventCategory(event);
+                const Icon = activityIcon(category);
+                const detail = activityDetail(event);
+                return (
+                  <div
+                    key={event.id}
+                    className="relative flex gap-3 py-2.5 first:pt-1 last:pb-1"
+                  >
+                    <span
+                      className={clsx(
+                        "relative z-10 grid size-[30px] shrink-0 place-items-center rounded-full ring-4 ring-white",
+                        activityColors(category),
+                      )}
+                    >
+                      <Icon className="size-3.5" />
+                    </span>
+                    <div className="min-w-0 flex-1 pt-0.5">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <p className="text-[10px] font-semibold text-slate-700">
+                          {event.summary}
+                        </p>
+                        {event.fromSubtask && (
+                          <span
+                            className="max-w-full truncate rounded-md bg-violet-50 px-1.5 py-0.5 text-[8px] font-bold text-violet-600"
+                            title={event.sourceTaskTitle}
+                          >
+                            {event.sourceTaskCode} · {event.sourceTaskTitle}
+                          </span>
+                        )}
+                      </div>
+                      {detail && (
+                        <p className="mt-1 line-clamp-2 text-[9px] leading-4 text-slate-500">
+                          {detail}
+                        </p>
+                      )}
+                      <p className="mt-1 text-[8px] text-slate-400">
+                        {event.actor?.name ?? "Sistema"} ·{" "}
+                        {humanDate(event.createdAt)}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {visibleEvents.length === 0 && (
+              <p className="py-6 text-center text-[10px] text-slate-400">
+                No hay movimientos de este tipo.
+              </p>
+            )}
+          </div>
+
+          {visibleEvents.length > visibleCount && (
+            <button
+              type="button"
+              onClick={() => setVisibleCount((current) => current + 12)}
+              className="focus-ring mt-3 w-full rounded-lg bg-slate-50 py-2 text-[9px] font-semibold text-slate-500 hover:bg-slate-100"
+            >
+              Mostrar {Math.min(12, visibleEvents.length - visibleCount)}{" "}
+              movimientos anteriores
+            </button>
+          )}
+          <p className="mt-3 flex items-center gap-1.5 text-[8px] text-slate-400">
+            <LockKeyhole className="size-3" />
+            Registro automático e inmutable de la tarea y sus subtareas.
           </p>
-        )}
-      </div>
-    </section>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -553,6 +823,7 @@ export function ArchivedTaskDrawer({
           <h2 className="mt-2 text-[27px] font-bold tracking-[-0.03em] text-slate-900">
             {task.title}
           </h2>
+          <TaskLastEdited task={task} />
           <p className="mt-2 text-[12px] leading-6 text-slate-500">
             {task.description || "Sin descripción"}
           </p>
@@ -702,7 +973,21 @@ export function ArchivedTaskDrawer({
             </div>
           </section>
 
-          <EventTimeline events={task.events ?? []} />
+          <section className="mt-7 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+            <div>
+              <h3 className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500">
+                Resumen de actividad
+              </h3>
+              <p className="mt-1 text-[10px] text-slate-400">
+                Historial consolidado de la tarea y todas sus subtareas.
+              </p>
+            </div>
+            <ActivityHistory
+              task={task}
+              subtasks={subtasks}
+              defaultExpanded
+            />
+          </section>
         </div>
       </aside>
     </div>

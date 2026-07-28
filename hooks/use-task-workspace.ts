@@ -104,7 +104,7 @@ function localEvent(
     type,
     summary,
     metadata,
-    createdAt: "Ahora",
+    createdAt: new Date().toISOString(),
   };
 }
 
@@ -524,7 +524,6 @@ export function useTaskWorkspace() {
 
   const updateTask = useCallback(
     async (taskId: string, input: UpdateTaskInput) => {
-      const sourceBeforeUpdate = allTasks.find((task) => task.id === taskId);
       const actor =
         allPeople.find((person) => person.id === currentUserId) ?? null;
       setAllTasks((current) => {
@@ -698,15 +697,7 @@ export function useTaskWorkspace() {
       if (mode === "supabase") {
         try {
           await updateRemoteTask(taskId, input);
-          if (
-            sourceBeforeUpdate &&
-            !sourceBeforeUpdate.parentTaskId &&
-            sourceBeforeUpdate.status !== "resuelto" &&
-            input.status === "resuelto" &&
-            (sourceBeforeUpdate.recurrenceRule ?? "none") !== "none"
-          ) {
-            await refresh();
-          }
+          await refresh();
         } catch (error) {
           await refresh();
           throw error;
@@ -717,7 +708,6 @@ export function useTaskWorkspace() {
       allClients,
       allPeople,
       allProjects,
-      allTasks,
       currentUserId,
       mode,
       refresh,
@@ -894,7 +884,7 @@ export function useTaskWorkspace() {
                           : type === "client_feedback"
                             ? "Registró feedback del cliente"
                             : "Agregó un comentario",
-                    { type, visibility },
+                    { type, visibility, excerpt: body },
                   ),
                 ],
                 updatedAt: "Ahora",

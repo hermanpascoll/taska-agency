@@ -268,6 +268,13 @@ test("crea, documenta, archiva y restaura un expediente de proceso", async ({
     .getByLabel("Objetivo")
     .fill("Conservar el antecedente completo de la campaña");
   await page.getByLabel("Objetivo").press("Tab");
+  await expect(page.getByTestId("task-last-edited")).toContainText(
+    "Editado por",
+  );
+
+  await page.getByPlaceholder("Nueva subtarea…").fill("Control legal E2E");
+  await page.getByRole("button", { name: "Agregar", exact: true }).click();
+  await expect(page.getByText("0/6 completas")).toBeVisible();
 
   await page.getByLabel("Tipo de comentario").selectOption("decision");
   await page
@@ -276,6 +283,22 @@ test("crea, documenta, archiva y restaura un expediente de proceso", async ({
   await page.getByRole("button", { name: "Comentar" }).click();
   await expect(
     page.getByText("Se aprobó la ruta visual número dos."),
+  ).toBeVisible();
+
+  const activityHistory = page.getByTestId("process-activity-history");
+  await expect(activityHistory.getByText("Historial del proceso")).toBeVisible();
+  await activityHistory
+    .getByRole("button", { name: "Mostrar historial del proceso" })
+    .click();
+  await activityHistory
+    .getByRole("button", { name: "Filtrar historial: Tareas" })
+    .click();
+  await expect(activityHistory.getByText("Control legal E2E")).toBeVisible();
+  await activityHistory
+    .getByRole("button", { name: "Filtrar historial: Comentarios" })
+    .click();
+  await expect(
+    activityHistory.getByText("Se aprobó la ruta visual número dos."),
   ).toBeVisible();
 
   await page
@@ -305,7 +328,7 @@ test("crea, documenta, archiva y restaura un expediente de proceso", async ({
       "Se entregaron originales aprobados y adaptaciones.",
     ),
   ).toBeVisible();
-  await expect(archivedDrawer.getByText("Historial inmutable")).toBeVisible();
+  await expect(archivedDrawer.getByText("Historial del proceso")).toBeVisible();
 
   await archivedDrawer
     .getByRole("button", { name: "Restaurar", exact: true })

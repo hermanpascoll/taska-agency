@@ -32,6 +32,11 @@ espacio compartido.
   enlace directo, exportación HTML e impresión/PDF.
 - Historial automático e inmutable de cambios, responsables, estados,
   comentarios, archivos, timers, archivo y restauración.
+- Historial compacto integrado al resumen de actividad, desplegable y filtrable
+  por tareas, comentarios, tiempo y archivos; la tarea padre consolida también
+  la actividad de todas sus subtareas.
+- Indicador de última edición al estilo Google Drive con persona, fecha y hora,
+  actualizado después de cada cambio persistido.
 - Comentarios tipificados como decisión, aprobación, feedback de cliente,
   pedido de cambio, entrega, nota interna o incidente, con visibilidad
   diferenciada.
