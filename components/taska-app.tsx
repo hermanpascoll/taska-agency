@@ -63,7 +63,17 @@ import {
 import { clsx } from "clsx";
 import { AdminPanel } from "@/components/admin-panel";
 import { GanttChart } from "@/components/gantt-chart";
+import {
+  ArchivedTaskDrawer,
+  ArchiveTaskModal,
+  ArchiveView,
+  ProcessBriefAndHistory,
+} from "@/components/process-archive";
 import { useTaskWorkspace } from "@/hooks/use-task-workspace";
+import {
+  findProcessTemplate,
+  processTemplates,
+} from "@/lib/process-templates";
 import { createClient } from "@/lib/supabase/client";
 import {
   buildTimeReportCsv,
@@ -79,7 +89,11 @@ import type {
   AdvancedFilters,
   AppNotification,
   AppSettings,
+  ArchiveTaskInput,
+  AttachmentApprovalStatus,
   Client,
+  CommentType,
+  CommentVisibility,
   NewClientInput,
   NewManualTimeEntryInput,
   NewProjectInput,
@@ -102,7 +116,7 @@ import type {
   WorkspaceMember,
 } from "@/lib/types";
 
-type View = "my_tasks" | "all_tasks" | "board" | "gantt";
+type View = "my_tasks" | "all_tasks" | "board" | "gantt" | "archive";
 
 const recurrenceLabels: Record<TaskRecurrence, string> = {
   none: "No se repite",
@@ -110,6 +124,25 @@ const recurrenceLabels: Record<TaskRecurrence, string> = {
   weekly: "Semanal",
   biweekly: "Cada dos semanas",
   monthly: "Mensual",
+};
+
+const commentTypeLabels: Record<CommentType, string> = {
+  comment: "Comentario",
+  internal_note: "Nota interna",
+  client_feedback: "Feedback del cliente",
+  decision: "Decisión",
+  approval: "Aprobación",
+  change_request: "Pedido de cambio",
+  delivery: "Entrega",
+  incident: "Incidente",
+};
+
+const attachmentStatusLabels: Record<AttachmentApprovalStatus, string> = {
+  draft: "Borrador",
+  sent: "Enviado",
+  changes_requested: "Cambios solicitados",
+  approved: "Aprobado",
+  final: "Final",
 };
 
 const statusMeta: Record<
@@ -313,6 +346,7 @@ function Sidebar({
     { id: "all_tasks" as const, label: "Todas las tareas", icon: Inbox },
     { id: "board" as const, label: "Tablero", icon: Columns3 },
     { id: "gantt" as const, label: "Cronograma", icon: ChartGantt },
+    { id: "archive" as const, label: "Archivo de procesos", icon: Archive },
   ];
 
   function select(nextView: View) {
@@ -1245,6 +1279,7 @@ function TaskDrawer({
   canAuditTime,
   onClose,
   onTaskUpdate,
+  onTaskArchive,
   onTaskDelete,
   onTaskSelect,
   onComment,
@@ -1253,7 +1288,10 @@ function TaskDrawer({
   onSubtaskUpdate,
   onAttachmentUpload,
   onAttachmentDelete,
+  onAttachmentRestore,
+  onAttachmentStatus,
   onAttachmentOpen,
+  notify,
   onTimerStart,
   onTimerStop,
   onManualTimeCreate,
@@ -1274,21 +1312,35 @@ function TaskDrawer({
   canAuditTime: boolean;
   onClose: () => void;
   onTaskUpdate: (input: UpdateTaskInput) => void;
+  onTaskArchive: () => void;
   onTaskDelete: () => void;
   onTaskSelect: (taskId: string) => void;
-  onComment: (body: string) => void;
+  onComment: (
+    body: string,
+    type: CommentType,
+    visibility: CommentVisibility,
+  ) => void;
   onCommentDelete: (commentId: string) => void;
   onSubtaskCreate: (title: string, assigneeId: string) => void;
   onSubtaskUpdate: (taskId: string, input: UpdateTaskInput) => void;
   onAttachmentUpload: (file: File) => void;
   onAttachmentDelete: (attachment: TaskAttachment) => void;
+  onAttachmentRestore: (attachment: TaskAttachment) => void;
+  onAttachmentStatus: (
+    attachment: TaskAttachment,
+    status: AttachmentApprovalStatus,
+  ) => void;
   onAttachmentOpen: (attachment: TaskAttachment) => void;
+  notify: (message: string) => void;
   onTimerStart: (description: string, billable: boolean) => void;
   onTimerStop: (entryId: string) => void;
   onManualTimeCreate: (input: NewManualTimeEntryInput) => void;
   onTimeEntryDelete: (entryId: string) => void;
 }) {
   const [comment, setComment] = useState("");
+  const [commentType, setCommentType] = useState<CommentType>("comment");
+  const [commentVisibility, setCommentVisibility] =
+    useState<CommentVisibility>("team");
   const [subtaskTitle, setSubtaskTitle] = useState("");
   const [subtaskAssigneeId, setSubtaskAssigneeId] = useState(
     task.assignee?.id ?? currentPerson?.id ?? "",
@@ -1329,7 +1381,7 @@ function TaskDrawer({
     event.preventDefault();
     const body = comment.trim();
     if (!body) return;
-    onComment(body);
+    onComment(body, commentType, commentVisibility);
     setComment("");
   }
 
@@ -1368,6 +1420,16 @@ function TaskDrawer({
             {task.status === "resuelto" ? "Aprobada" : "Marcar aprobada"}
           </button>
           <div className="ml-auto flex items-center gap-1">
+            {!task.parentTaskId && (
+              <button
+                onClick={onTaskArchive}
+                className="focus-ring flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[10px] font-semibold text-slate-500 hover:bg-emerald-50 hover:text-emerald-700"
+                aria-label="Cerrar y archivar expediente"
+              >
+                <Archive className="size-4" />
+                <span className="hidden sm:inline">Archivar</span>
+              </button>
+            )}
             <button
               onClick={onTaskDelete}
               className="focus-ring rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
@@ -1742,6 +1804,14 @@ function TaskDrawer({
             </label>
           </section>
 
+          <ProcessBriefAndHistory
+            task={task}
+            subtasks={subtasks}
+            timeEntries={timeEntries}
+            onUpdate={onTaskUpdate}
+            notify={notify}
+          />
+
           <TaskTimerSection
             task={task}
             entries={timeEntries}
@@ -1853,36 +1923,75 @@ function TaskDrawer({
               {task.attachments.map((attachment) => (
                 <div
                   key={attachment.id}
-                  className="group flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3"
+                  className={clsx(
+                    "group flex flex-wrap items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3",
+                    attachment.deletedAt && "opacity-55",
+                  )}
                 >
                   <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-white text-[#0a84ff] shadow-sm">
                     <FileText className="size-4" />
                   </span>
                   <button
+                    disabled={Boolean(attachment.deletedAt)}
                     onClick={() => onAttachmentOpen(attachment)}
-                    className="focus-ring min-w-0 flex-1 rounded-md text-left"
+                    className="focus-ring min-w-0 flex-1 rounded-md text-left disabled:cursor-default"
                   >
                     <span className="block truncate text-[11px] font-semibold text-slate-700">
                       {attachment.name}
                     </span>
                     <span className="mt-0.5 block text-[9px] text-slate-400">
+                      v{attachment.versionNumber ?? 1} ·{" "}
                       {formatBytes(attachment.size)} · {attachment.uploader.name}
+                      {attachment.deletedAt && " · retirado"}
                     </span>
                   </button>
-                  <button
-                    onClick={() => onAttachmentOpen(attachment)}
-                    className="focus-ring rounded-md p-1.5 text-slate-400 hover:bg-white hover:text-[#0879ea]"
-                    aria-label={`Descargar ${attachment.name}`}
-                  >
-                    <Download className="size-3.5" />
-                  </button>
-                  <button
-                    onClick={() => onAttachmentDelete(attachment)}
-                    className="focus-ring rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                    aria-label={`Eliminar ${attachment.name}`}
-                  >
-                    <Trash2 className="size-3.5" />
-                  </button>
+                  {!attachment.deletedAt && (
+                    <>
+                      <select
+                        value={attachment.approvalStatus ?? "draft"}
+                        onChange={(event) =>
+                          onAttachmentStatus(
+                            attachment,
+                            event.target.value as AttachmentApprovalStatus,
+                          )
+                        }
+                        className="focus-ring rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[9px] font-semibold text-slate-600"
+                        aria-label={`Estado de aprobación de ${attachment.name}`}
+                      >
+                        {(
+                          Object.keys(
+                            attachmentStatusLabels,
+                          ) as AttachmentApprovalStatus[]
+                        ).map((status) => (
+                          <option key={status} value={status}>
+                            {attachmentStatusLabels[status]}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() => onAttachmentOpen(attachment)}
+                        className="focus-ring rounded-md p-1.5 text-slate-400 hover:bg-white hover:text-[#0879ea]"
+                        aria-label={`Descargar ${attachment.name}`}
+                      >
+                        <Download className="size-3.5" />
+                      </button>
+                      <button
+                        onClick={() => onAttachmentDelete(attachment)}
+                        className="focus-ring rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                        aria-label={`Retirar ${attachment.name}`}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </>
+                  )}
+                  {attachment.deletedAt && (
+                    <button
+                      onClick={() => onAttachmentRestore(attachment)}
+                      className="focus-ring rounded-lg bg-[#0a84ff]/10 px-2.5 py-1.5 text-[9px] font-semibold text-[#0879ea]"
+                    >
+                      Restaurar
+                    </button>
+                  )}
                 </div>
               ))}
               {task.attachments.length === 0 && (
@@ -2002,7 +2111,8 @@ function TaskDrawer({
                 Actividad
               </h3>
               <span className="text-[10px] text-slate-400">
-                {task.comments.length} comentarios
+                {task.comments.filter((item) => !item.deletedAt).length}{" "}
+                comentarios
               </span>
             </div>
             <div className="mt-4 space-y-5">
@@ -2019,16 +2129,33 @@ function TaskDrawer({
                           {item.createdAt}
                         </span>
                       </p>
-                      <button
-                        onClick={() => onCommentDelete(item.id)}
-                        className="focus-ring ml-auto rounded-md p-1 text-slate-300 hover:bg-rose-50 hover:text-rose-600"
-                        aria-label="Eliminar comentario"
-                      >
-                        <Trash2 className="size-3.5" />
-                      </button>
+                      <span className="ml-2 rounded-full bg-[#0a84ff]/10 px-2 py-0.5 text-[8px] font-bold text-[#0879ea]">
+                        {commentTypeLabels[item.type ?? "comment"]}
+                      </span>
+                      {item.visibility === "client" && (
+                        <span className="ml-1 rounded-full bg-amber-50 px-2 py-0.5 text-[8px] font-bold text-amber-700">
+                          Visible cliente
+                        </span>
+                      )}
+                      {!item.deletedAt && (
+                        <button
+                          onClick={() => onCommentDelete(item.id)}
+                          className="focus-ring ml-auto rounded-md p-1 text-slate-300 hover:bg-rose-50 hover:text-rose-600"
+                          aria-label="Retirar comentario"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      )}
                     </div>
-                    <p className="mt-1.5 rounded-xl rounded-tl-sm bg-slate-50 p-3 text-[12px] leading-5 text-slate-600">
-                      {item.body}
+                    <p
+                      className={clsx(
+                        "mt-1.5 rounded-xl rounded-tl-sm bg-slate-50 p-3 text-[12px] leading-5 text-slate-600",
+                        item.deletedAt && "italic text-slate-400",
+                      )}
+                    >
+                      {item.deletedAt
+                        ? "Comentario retirado. Su registro se conserva en el historial."
+                        : item.body}
                     </p>
                   </div>
                 </div>
@@ -2056,7 +2183,38 @@ function TaskDrawer({
                 placeholder="Sumá feedback o una actualización…"
                 className="min-h-14 w-full resize-none border-0 bg-transparent px-1 text-[12px] text-slate-700 outline-none placeholder:text-slate-400"
               />
-              <div className="flex justify-end">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap gap-1.5">
+                  <select
+                    value={commentType}
+                    onChange={(event) =>
+                      setCommentType(event.target.value as CommentType)
+                    }
+                    className="focus-ring rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-[9px] font-semibold text-slate-600"
+                    aria-label="Tipo de comentario"
+                  >
+                    {(Object.keys(commentTypeLabels) as CommentType[]).map(
+                      (type) => (
+                        <option key={type} value={type}>
+                          {commentTypeLabels[type]}
+                        </option>
+                      ),
+                    )}
+                  </select>
+                  <select
+                    value={commentVisibility}
+                    onChange={(event) =>
+                      setCommentVisibility(
+                        event.target.value as CommentVisibility,
+                      )
+                    }
+                    className="focus-ring rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-[9px] font-semibold text-slate-600"
+                    aria-label="Visibilidad del comentario"
+                  >
+                    <option value="team">Solo equipo</option>
+                    <option value="client">Visible cliente</option>
+                  </select>
+                </div>
                 <button
                   disabled={!comment.trim()}
                   className="focus-ring rounded-lg bg-[#5b4bec] px-3.5 py-2 text-[10px] font-bold text-white transition hover:bg-[#4f40da] disabled:cursor-not-allowed disabled:opacity-40"
@@ -2115,6 +2273,7 @@ function NewTaskModal({
   const [recurrenceRule, setRecurrenceRule] =
     useState<TaskRecurrence>("none");
   const [recurrenceInterval, setRecurrenceInterval] = useState(1);
+  const [templateId, setTemplateId] = useState("");
   const selectedClient =
     clients.find((client) => client.id === clientId) ?? null;
 
@@ -2141,6 +2300,7 @@ function NewTaskModal({
         .filter(Boolean),
       recurrenceRule,
       recurrenceInterval,
+      templateId: templateId || undefined,
     });
   }
 
@@ -2175,6 +2335,35 @@ function NewTaskModal({
         </header>
 
         <div className="space-y-5 px-5 py-6 sm:px-7">
+          <label className="block">
+            <span className="mb-2 flex items-center gap-2 text-[11px] font-bold text-slate-600">
+              <Sparkles className="size-3.5 text-violet-500" />
+              Plantilla de proceso
+            </span>
+            <select
+              value={templateId}
+              onChange={(event) => {
+                const nextId = event.target.value;
+                const template = findProcessTemplate(nextId);
+                setTemplateId(nextId);
+                if (!template) return;
+                setPriority(template.priority);
+                setTags(template.tags.join(", "));
+                if (!description.trim()) setDescription(template.description);
+              }}
+              className="focus-ring w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-[12px] text-slate-700"
+            >
+              <option value="">Empezar sin plantilla</option>
+              {processTemplates.map((template) => (
+                <option key={template.id} value={template.id}>
+                  {template.name} · {template.steps.length} pasos
+                </option>
+              ))}
+            </select>
+            <span className="mt-1.5 block text-[9px] text-slate-400">
+              Crea el brief y las subtareas estándar; después podés adaptarlas.
+            </span>
+          </label>
           <label className="block">
             <span className="mb-2 block text-[11px] font-bold text-slate-600">
               Nombre de la tarea
@@ -4389,7 +4578,9 @@ export function TaskaApp() {
     setActiveWorkspaceId,
     updateTask,
     updateStatus,
+    archiveTask,
     deleteTask,
+    restoreTask,
     addComment,
     deleteComment,
     createTask,
@@ -4409,6 +4600,8 @@ export function TaskaApp() {
     revokeInvitation,
     uploadAttachment,
     deleteAttachment,
+    restoreAttachment,
+    updateAttachmentStatus,
     openAttachment,
     markNotificationRead,
     markAllNotificationsRead,
@@ -4424,7 +4617,10 @@ export function TaskaApp() {
   const [query, setQuery] = useState("");
   const [priority, setPriority] = useState<TaskPriority | "todas">("todas");
   const [projectId, setProjectId] = useState("todos");
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return new URLSearchParams(window.location.search).get("task");
+  });
   const [mobileMenu, setMobileMenu] = useState(false);
   const [showNewTask, setShowNewTask] = useState(false);
   const [newTaskStatus, setNewTaskStatus] = useState<TaskStatus>("nuevo");
@@ -4441,6 +4637,7 @@ export function TaskaApp() {
     null,
   );
   const [taskToDeleteId, setTaskToDeleteId] = useState<string | null>(null);
+  const [taskToArchiveId, setTaskToArchiveId] = useState<string | null>(null);
   const [advancedFilters, setAdvancedFilters] = useState<AdvancedFilters>({
     status: "todos",
     assigneeId: "todos",
@@ -4471,6 +4668,20 @@ export function TaskaApp() {
     return () => controller.abort();
   }, [mode]);
 
+  useEffect(() => {
+    const onPopState = () =>
+      setSelectedTaskId(new URLSearchParams(window.location.search).get("task"));
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (selectedTaskId) url.searchParams.set("task", selectedTaskId);
+    else url.searchParams.delete("task");
+    window.history.replaceState({}, "", url);
+  }, [selectedTaskId]);
+
   const activeWorkspace =
     workspaces.find((workspace) => workspace.id === activeWorkspaceId) ??
     workspaces[0] ??
@@ -4490,6 +4701,20 @@ export function TaskaApp() {
     () => tasks.filter((task) => !task.parentTaskId),
     [tasks],
   );
+  const activeTasks = useMemo(
+    () =>
+      tasks.filter((task) => !task.archivedAt && !task.deletedAt),
+    [tasks],
+  );
+  const activeTopLevelTasks = useMemo(
+    () => activeTasks.filter((task) => !task.parentTaskId),
+    [activeTasks],
+  );
+  const archivedTopLevelTasks = useMemo(
+    () =>
+      topLevelTasks.filter((task) => task.archivedAt || task.deletedAt),
+    [topLevelTasks],
+  );
   const parentTasks = useMemo(
     () => new Map(tasks.map((task) => [task.id, task])),
     [tasks],
@@ -4506,14 +4731,16 @@ export function TaskaApp() {
     ? timeEntries.filter((entry) => entry.taskId === selectedTask.id)
     : [];
   const demoAssigneeId = mode === "demo" ? "martina" : undefined;
-  const myTaskCount = tasks.filter((task) =>
+  const myTaskCount = activeTasks.filter((task) =>
     isTaskAssignedToCurrentUser(task, currentUserId, demoAssigneeId),
   ).length;
 
   const filteredTasks = useMemo(
     () => {
       const sourceTasks =
-        view === "my_tasks" || view === "gantt" ? tasks : topLevelTasks;
+        view === "my_tasks" || view === "gantt"
+          ? activeTasks
+          : activeTopLevelTasks;
       return sourceTasks.filter((task) => {
         const isMine =
           view !== "my_tasks" ||
@@ -4543,37 +4770,37 @@ export function TaskaApp() {
       projectId,
       query,
       settings.showCompleted,
-      tasks,
-      topLevelTasks,
+      activeTasks,
+      activeTopLevelTasks,
       view,
     ],
   );
 
-  const openCount = topLevelTasks.filter(
+  const openCount = activeTopLevelTasks.filter(
     (task) => task.status !== "resuelto",
   ).length;
-  const highPriorityCount = topLevelTasks.filter(
+  const highPriorityCount = activeTopLevelTasks.filter(
     (task) =>
       (task.priority === "urgente" || task.priority === "alta") &&
       task.status !== "resuelto",
   ).length;
-  const resolvedCount = topLevelTasks.filter(
+  const resolvedCount = activeTopLevelTasks.filter(
     (task) => task.status === "resuelto",
   ).length;
-  const waitingCount = topLevelTasks.filter(
+  const waitingCount = activeTopLevelTasks.filter(
     (task) => task.status === "esperando",
   ).length;
   const today = new Date();
   const weekLimit = new Date(today);
   weekLimit.setDate(today.getDate() + 7);
-  const dueThisWeek = topLevelTasks.filter((task) => {
+  const dueThisWeek = activeTopLevelTasks.filter((task) => {
     if (!task.dueDate || task.status === "resuelto") return false;
     const due = new Date(`${task.dueDate}T23:59:59`);
     return due >= today && due <= weekLimit;
   }).length;
-  const datedTasks = topLevelTasks.filter((task) => task.dueDate).length;
-  const datedPercent = topLevelTasks.length
-    ? Math.round((datedTasks / topLevelTasks.length) * 100)
+  const datedTasks = activeTopLevelTasks.filter((task) => task.dueDate).length;
+  const datedPercent = activeTopLevelTasks.length
+    ? Math.round((datedTasks / activeTopLevelTasks.length) * 100)
     : 0;
   const dateLabel = new Intl.DateTimeFormat("es-UY", {
     weekday: "long",
@@ -4589,12 +4816,31 @@ export function TaskaApp() {
   async function handleCreate(input: NewTaskInput) {
     try {
       const task = await createTask(input);
+      const template = findProcessTemplate(input.templateId);
+      if (template) {
+        await updateTask(task.id, { brief: template.brief });
+        for (const step of template.steps) {
+          await createTask({
+            ...input,
+            title: step,
+            description: "",
+            parentTaskId: task.id,
+            status: "nuevo",
+            tags: [],
+            recurrenceRule: "none",
+            recurrenceInterval: 1,
+            templateId: undefined,
+          });
+        }
+      }
       setShowNewTask(false);
       setSelectedTaskId(task.id);
       notify(
         input.parentTaskId
           ? "Subtarea creada correctamente"
-          : "Tarea creada correctamente",
+          : template
+            ? `Proceso creado con ${template.steps.length} pasos`
+            : "Tarea creada correctamente",
       );
     } catch {
       notify("No se pudo crear la tarea");
@@ -4652,7 +4898,9 @@ export function TaskaApp() {
         ? "Todas las tareas"
         : view === "board"
           ? "Tablero creativo"
-          : "Cronograma del espacio";
+          : view === "gantt"
+            ? "Cronograma del espacio"
+            : "Archivo de procesos";
 
   if (initializing) {
     return (
@@ -4804,7 +5052,7 @@ export function TaskaApp() {
                 {
                   label: "Tareas activas",
                   value: openCount,
-                  trend: `${topLevelTasks.length} tareas totales`,
+                  trend: `${activeTopLevelTasks.length} tareas activas`,
                   icon: Inbox,
                   color: "text-violet-600",
                   iconBg: "bg-violet-50",
@@ -4880,9 +5128,11 @@ export function TaskaApp() {
                     {viewTitle}
                   </h2>
                   <p className="mt-1 text-[10px] text-slate-400">
-                    {filteredTasks.length}{" "}
-                    {filteredTasks.length === 1 ? "tarea" : "tareas"} en esta
-                    vista
+                    {view === "archive"
+                      ? `${archivedTopLevelTasks.length} expedientes conservados`
+                      : `${filteredTasks.length} ${
+                          filteredTasks.length === 1 ? "tarea" : "tareas"
+                        } en esta vista`}
                   </p>
                 </div>
                 <div className="flex items-center rounded-lg border border-slate-200 bg-white p-1">
@@ -4931,6 +5181,18 @@ export function TaskaApp() {
                   >
                     <ChartGantt className="size-3" />
                     Gantt
+                  </button>
+                  <button
+                    onClick={() => setView("archive")}
+                    className={clsx(
+                      "focus-ring flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[10px] font-semibold transition sm:px-3",
+                      view === "archive"
+                        ? "bg-slate-100 text-slate-800"
+                        : "text-slate-400 hover:text-slate-600",
+                    )}
+                  >
+                    <Archive className="size-3" />
+                    Archivo
                   </button>
                 </div>
               </div>
@@ -5034,7 +5296,18 @@ export function TaskaApp() {
             </div>
 
             <div className="mt-4 animate-enter">
-              {filteredTasks.length === 0 ? (
+              {view === "archive" ? (
+                <ArchiveView
+                  tasks={archivedTopLevelTasks}
+                  query={query}
+                  onOpen={setSelectedTaskId}
+                  onRestore={(taskId) => {
+                    void restoreTask(taskId);
+                    notify("Expediente restaurado");
+                  }}
+                  onTrash={(taskId) => setTaskToDeleteId(taskId)}
+                />
+              ) : filteredTasks.length === 0 ? (
                 <EmptyState onCreate={() => openNewTask()} />
               ) : view === "board" ? (
                 <KanbanBoard
@@ -5084,6 +5357,7 @@ export function TaskaApp() {
           { id: "all_tasks" as const, label: "Tareas", icon: Inbox },
           { id: "board" as const, label: "Tablero", icon: LayoutDashboard },
           { id: "gantt" as const, label: "Gantt", icon: ChartGantt },
+          { id: "archive" as const, label: "Archivo", icon: Archive },
         ].map((item) => {
           const Icon = item.icon;
           return (
@@ -5091,7 +5365,7 @@ export function TaskaApp() {
               key={item.id}
               onClick={() => setView(item.id)}
               className={clsx(
-                "focus-ring flex min-w-20 flex-col items-center gap-1 rounded-lg py-2 text-[9px] font-semibold",
+                "focus-ring flex min-w-0 flex-1 flex-col items-center gap-1 rounded-lg py-2 text-[9px] font-semibold",
                 view === item.id ? "text-violet-600" : "text-slate-400",
               )}
             >
@@ -5102,7 +5376,31 @@ export function TaskaApp() {
         })}
       </nav>
 
-      {selectedTask && (
+      {selectedTask &&
+      (selectedTask.archivedAt || selectedTask.deletedAt ? (
+        <ArchivedTaskDrawer
+          task={selectedTask}
+          subtasks={selectedSubtasks}
+          timeEntries={selectedTimeEntries}
+          onClose={() => setSelectedTaskId(null)}
+          onRestore={() => {
+            void restoreTask(selectedTask.id);
+            setSelectedTaskId(null);
+            notify("Expediente restaurado");
+          }}
+          onTrash={() => setTaskToDeleteId(selectedTask.id)}
+          onAttachmentOpen={(attachmentId) => {
+            const attachment = selectedTask.attachments.find(
+              (item) => item.id === attachmentId,
+            );
+            if (!attachment) return;
+            void openAttachment(attachment).catch(() =>
+              notify("No se pudo descargar el adjunto"),
+            );
+          }}
+          notify={notify}
+        />
+      ) : (
         <TaskDrawer
           task={selectedTask}
           parentTask={selectedParentTask}
@@ -5119,6 +5417,7 @@ export function TaskaApp() {
           canAuditTime={canAuditTime}
           onClose={() => setSelectedTaskId(null)}
           onTaskSelect={setSelectedTaskId}
+          onTaskArchive={() => setTaskToArchiveId(selectedTask.id)}
           onTaskDelete={() => setTaskToDeleteId(selectedTask.id)}
           onTaskUpdate={(input) => {
             void updateTask(selectedTask.id, input);
@@ -5130,8 +5429,8 @@ export function TaskaApp() {
               notify("Tarea actualizada");
             }
           }}
-          onComment={(body) => {
-            void addComment(selectedTask.id, body);
+          onComment={(body, type, visibility) => {
+            void addComment(selectedTask.id, body, type, visibility);
             notify("Comentario agregado");
           }}
           onCommentDelete={(commentId) => {
@@ -5193,7 +5492,19 @@ export function TaskaApp() {
           }}
           onAttachmentDelete={(attachment) => {
             void deleteAttachment(selectedTask.id, attachment);
-            notify("Adjunto eliminado");
+            notify("Adjunto retirado del expediente");
+          }}
+          onAttachmentRestore={(attachment) => {
+            void restoreAttachment(selectedTask.id, attachment.id);
+            notify("Adjunto restaurado");
+          }}
+          onAttachmentStatus={(attachment, status) => {
+            void updateAttachmentStatus(
+              selectedTask.id,
+              attachment.id,
+              status,
+            );
+            notify(`Adjunto marcado como ${attachmentStatusLabels[status]}`);
           }}
           onAttachmentOpen={(attachment) => {
             void openAttachment(attachment).catch(() =>
@@ -5231,23 +5542,40 @@ export function TaskaApp() {
             void deleteTimeEntry(entryId);
             notify("Registro de tiempo eliminado");
           }}
+          notify={notify}
         />
-      )}
+      ))}
 
       {taskToDeleteId && (
         <ConfirmDialog
-          title="¿Eliminar esta tarea?"
-          description="También se eliminarán sus subtareas, comentarios y archivos adjuntos. Esta acción no se puede deshacer."
-          confirmLabel="Eliminar tarea"
+          title="¿Mover el expediente a la papelera?"
+          description="La tarea, sus subtareas y todo el historial quedarán conservados en la papelera. Un administrador puede restaurarlos."
+          confirmLabel="Mover a papelera"
           onCancel={() => setTaskToDeleteId(null)}
           onConfirm={() => {
             void deleteTask(taskToDeleteId);
             setTaskToDeleteId(null);
             setSelectedTaskId(null);
-            notify("Tarea eliminada");
+            setView("archive");
+            notify("Expediente movido a la papelera");
           }}
         />
       )}
+
+      {taskToArchiveId &&
+        tasks.find((task) => task.id === taskToArchiveId) && (
+          <ArchiveTaskModal
+            task={tasks.find((task) => task.id === taskToArchiveId)!}
+            onClose={() => setTaskToArchiveId(null)}
+            onConfirm={(input: ArchiveTaskInput) => {
+              void archiveTask(taskToArchiveId, input);
+              setTaskToArchiveId(null);
+              setSelectedTaskId(null);
+              setView("archive");
+              notify("Proceso cerrado y archivado");
+            }}
+          />
+        )}
 
       {showNewTask && (
         <NewTaskModal

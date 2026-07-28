@@ -26,8 +26,20 @@ espacio compartido.
 - Tareas recurrentes diarias, semanales, quincenales o mensuales. Al aprobar
   una ocurrencia, la próxima se crea automáticamente con sus subtareas,
   responsables, fechas y proyectos, sin alterar el historial anterior.
-- Edición completa y eliminación de tareas, subtareas y comentarios.
-- Comentarios, notificaciones y adjuntos privados de hasta 10 MB.
+- Edición completa de tareas y subtareas. Papelera recuperable para evitar
+  perder procesos, comentarios o entregables por error.
+- Expedientes de proceso de solo lectura con cierre documentado, aprendizajes,
+  enlace directo, exportación HTML e impresión/PDF.
+- Historial automático e inmutable de cambios, responsables, estados,
+  comentarios, archivos, timers, archivo y restauración.
+- Comentarios tipificados como decisión, aprobación, feedback de cliente,
+  pedido de cambio, entrega, nota interna o incidente, con visibilidad
+  diferenciada.
+- Comentarios, notificaciones y adjuntos privados de hasta 10 MB. Los adjuntos
+  conservan versiones y estados de aprobación (borrador, enviado, cambios,
+  aprobado y final).
+- Plantillas reutilizables para campañas, redes, calendarios mensuales,
+  branding y eventos, con brief y subtareas estándar.
 - Resumen por tarea de personas involucradas, intercambios, tiempo registrado
   y días transcurridos para auditar el esfuerzo operativo.
 - Mis tareas incluye también las subtareas asignadas, aun cuando otra persona
@@ -86,6 +98,7 @@ Los cambios de la demo se conservan en `localStorage` entre recargas.
    - `supabase/migrations/202607240005_task_start_dates.sql`
    - `supabase/migrations/202607240006_clients_multi_project_presence.sql`
    - `supabase/migrations/202607250007_task_classification_recurrence.sql`
+   - `supabase/migrations/202607280008_process_archive.sql`
 
 3. Habilitá Google en Authentication → Providers, copiá allí
    el Client ID y Client Secret de Google Cloud, y configurá en Google la
@@ -116,9 +129,12 @@ tres campañas y algunas tareas de referencia. Las políticas RLS garantizan que
 cada persona solo acceda a los equipos de los que forma parte.
 
 Las migraciones agregan las políticas RLS de equipos, invitaciones,
-notificaciones, seguimiento de tiempo y objetos del bucket privado
+notificaciones, seguimiento de tiempo, expedientes y objetos del bucket privado
 `task-attachments`. Los usuarios comunes sólo leen sus propios registros de
 tiempo; dueños y administradores pueden auditar y exportar el espacio completo.
+El archivo bloquea la edición del expediente en PostgreSQL, no solamente en la
+interfaz, y la eliminación definitiva queda reservada para administradores
+después de 30 días en la papelera.
 
 ### Supabase local (opcional)
 
@@ -183,9 +199,9 @@ proxy.ts                 renovación y protección de sesiones
 
 ## Probar contra Supabase real
 
-Usá un proyecto y una cuenta de prueba aislados. La suite crea un espacio,
-un proyecto y una tarea, verifica la lectura persistida y elimina el espacio al
-terminar:
+Usá un proyecto y una cuenta de prueba aislados. La suite tradicional crea un
+espacio, un proyecto y una tarea, verifica la lectura persistida y elimina el
+espacio al terminar:
 
 ```env
 SUPABASE_TEST_URL=https://tu-proyecto.supabase.co
@@ -200,3 +216,9 @@ pnpm test:supabase
 
 Sin estas cuatro variables, el test queda marcado como omitido; los demás tests
 se ejecutan normalmente.
+
+Si además definís `SUPABASE_SECRET_KEY`, la misma suite crea y elimina un
+usuario temporal para validar de extremo a extremo el historial, comentarios
+tipificados, versionado de adjuntos, cierre, protección de solo lectura,
+papelera y restauración. La clave se usa únicamente en Node y nunca se expone al
+navegador.

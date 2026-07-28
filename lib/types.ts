@@ -7,6 +7,30 @@ export type TaskRecurrence =
   | "biweekly"
   | "monthly";
 export type TeamRole = "owner" | "admin" | "agent" | "viewer";
+export type CommentType =
+  | "comment"
+  | "internal_note"
+  | "client_feedback"
+  | "decision"
+  | "approval"
+  | "change_request"
+  | "delivery"
+  | "incident";
+export type CommentVisibility = "team" | "client";
+export type AttachmentApprovalStatus =
+  | "draft"
+  | "sent"
+  | "changes_requested"
+  | "approved"
+  | "final";
+
+export type TaskBrief = {
+  objective?: string;
+  audience?: string;
+  keyMessage?: string;
+  deliverables?: string;
+  references?: string;
+};
 
 export type Person = {
   id: string;
@@ -53,6 +77,9 @@ export type TaskComment = {
   author: Person;
   body: string;
   createdAt: string;
+  type?: CommentType;
+  visibility?: CommentVisibility;
+  deletedAt?: string | null;
 };
 
 export type TaskAttachment = {
@@ -65,6 +92,19 @@ export type TaskAttachment = {
   dataUrl?: string;
   createdAt: string;
   uploader: Person;
+  versionGroupId?: string;
+  versionNumber?: number;
+  approvalStatus?: AttachmentApprovalStatus;
+  deletedAt?: string | null;
+};
+
+export type TaskEvent = {
+  id: string;
+  actor: Person | null;
+  type: string;
+  summary: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
 };
 
 export type Task = {
@@ -92,10 +132,18 @@ export type Task = {
   recurrenceGeneratedAt?: string | null;
   createdAt?: string;
   resolvedAt?: string | null;
+  brief?: TaskBrief;
+  closureSummary?: string | null;
+  lessonsLearned?: string | null;
+  archivedAt?: string | null;
+  archivedBy?: string | null;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
   updatedAt: string;
   tags: string[];
   comments: TaskComment[];
   attachments: TaskAttachment[];
+  events?: TaskEvent[];
 };
 
 export type WorkspaceMember = {
@@ -182,6 +230,7 @@ export type NewTaskInput = {
   tags: string[];
   recurrenceRule: TaskRecurrence;
   recurrenceInterval: number;
+  templateId?: string;
 };
 
 export type UpdateTaskInput = {
@@ -199,6 +248,12 @@ export type UpdateTaskInput = {
   tags?: string[];
   recurrenceRule?: TaskRecurrence;
   recurrenceInterval?: number;
+  brief?: TaskBrief;
+};
+
+export type ArchiveTaskInput = {
+  closureSummary: string;
+  lessonsLearned: string;
 };
 
 export type NewProjectInput = {

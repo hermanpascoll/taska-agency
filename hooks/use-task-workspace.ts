@@ -14,6 +14,7 @@ import {
 } from "@/lib/demo-data";
 import {
   addRemoteComment,
+  archiveRemoteTask,
   createRemoteClient,
   createRemoteInvitation,
   createRemoteManualTimeEntry,
@@ -24,7 +25,6 @@ import {
   deleteRemoteComment,
   deleteRemoteClient,
   deleteRemoteProject,
-  deleteRemoteTask,
   deleteRemoteTimeEntry,
   deleteRemoteWorkspace,
   downloadRemoteAttachment,
@@ -33,10 +33,14 @@ import {
   markRemoteNotificationRead,
   removeRemoteMember,
   revokeRemoteInvitation,
+  restoreRemoteAttachment,
+  restoreRemoteTask,
   startRemoteTimer,
   stopRemoteTimer,
   touchRemotePresence,
+  trashRemoteTask,
   updateRemoteClient,
+  updateRemoteAttachmentStatus,
   updateRemoteMemberHourlyRate,
   updateRemoteMemberRole,
   updateRemoteProfile,
@@ -49,8 +53,12 @@ import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { formatTaskDueLabel, nextTaskCode } from "@/lib/task-utils";
 import type {
   AppNotification,
+  ArchiveTaskInput,
+  AttachmentApprovalStatus,
   AppSettings,
   Client,
+  CommentType,
+  CommentVisibility,
   NewClientInput,
   NewManualTimeEntryInput,
   NewProjectInput,
@@ -59,6 +67,7 @@ import type {
   Project,
   Task,
   TaskAttachment,
+  TaskEvent,
   TaskRecurrence,
   TaskStatus,
   TeamInvitation,
@@ -81,6 +90,63 @@ const defaultSettings: AppSettings = {
 
 function localId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function localEvent(
+  actor: Person | null,
+  type: string,
+  summary: string,
+  metadata: Record<string, unknown> = {},
+): TaskEvent {
+  return {
+    id: localId("event"),
+    actor,
+    type,
+    summary,
+    metadata,
+    createdAt: "Ahora",
+  };
+}
+
+function taskUpdateSummary(input: UpdateTaskInput) {
+  if (input.status === "resuelto") return "Tarea marcada como aprobada";
+  if (input.status) return "Cambió el estado de la tarea";
+  if (input.assigneeId !== undefined) return "Cambió el responsable";
+  if (
+    input.startDate !== undefined ||
+    input.dueDate !== undefined ||
+    input.dueTime !== undefined
+  ) {
+    return "Actualizó la planificación";
+  }
+  if (input.brief !== undefined) return "Actualizó el brief";
+  if (input.projectIds !== undefined) return "Actualizó los proyectos";
+  if (
+    input.clientId !== undefined ||
+    input.clientCategory !== undefined
+  ) {
+    return "Actualizó la clasificación del cliente";
+  }
+  return "Actualizó la tarea";
+}
+
+function taskFamilyIds(tasks: Task[], taskId: string) {
+  const ids = new Set([taskId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    tasks.forEach((task) => {
+      if (
+        task.parentTaskId &&
+        ids.has(task.parentTaskId) &&
+        !ids.has(task.id)
+      ) {
+        ids.add(task.id);
+        changed = true;
+      }
+    });
+  }
+  return ids;
 }
 
 function shiftDate(value: string | null, days: number) {
@@ -260,6 +326,31 @@ export function useTaskWorkspace() {
                 recurrenceOriginId: task.recurrenceOriginId ?? null,
                 recurrenceGeneratedAt:
                   task.recurrenceGeneratedAt ?? null,
+                brief: task.brief ?? {},
+                closureSummary: task.closureSummary ?? null,
+                lessonsLearned: task.lessonsLearned ?? null,
+                archivedAt: task.archivedAt ?? null,
+                archivedBy: task.archivedBy ?? null,
+                deletedAt: task.deletedAt ?? null,
+                deletedBy: task.deletedBy ?? null,
+                comments: (task.comments ?? []).map((comment) => ({
+                  ...comment,
+                  type: comment.type ?? "comment",
+                  visibility: comment.visibility ?? "team",
+                  deletedAt: comment.deletedAt ?? null,
+                })),
+                attachments: (task.attachments ?? []).map(
+                  (attachment) => ({
+                    ...attachment,
+                    versionGroupId:
+                      attachment.versionGroupId ?? attachment.id,
+                    versionNumber: attachment.versionNumber ?? 1,
+                    approvalStatus:
+                      attachment.approvalStatus ?? "draft",
+                    deletedAt: attachment.deletedAt ?? null,
+                  }),
+                ),
+                events: task.events ?? [],
               })),
             );
           }
@@ -434,6 +525,8 @@ export function useTaskWorkspace() {
   const updateTask = useCallback(
     async (taskId: string, input: UpdateTaskInput) => {
       const sourceBeforeUpdate = allTasks.find((task) => task.id === taskId);
+      const actor =
+        allPeople.find((person) => person.id === currentUserId) ?? null;
       setAllTasks((current) => {
         const source = current.find((task) => task.id === taskId);
         const shouldGenerateRecurrence = Boolean(
@@ -508,6 +601,20 @@ export function useTaskWorkspace() {
               ? new Date().toISOString()
               : task.recurrenceGeneratedAt,
             updatedAt: "Ahora",
+            events:
+              mode === "demo"
+                ? [
+                    ...(task.events ?? []),
+                    localEvent(
+                      actor,
+                      input.status === "resuelto"
+                        ? "task_completed"
+                        : "task_updated",
+                      taskUpdateSummary(input),
+                      input as Record<string, unknown>,
+                    ),
+                  ]
+                : task.events,
           };
         });
 
@@ -547,6 +654,13 @@ export function useTaskWorkspace() {
           updatedAt: "Ahora",
           comments: [],
           attachments: [],
+          events: [
+            localEvent(
+              actor,
+              "task_created",
+              "Ocurrencia recurrente creada automáticamente",
+            ),
+          ],
         };
         const nextSubtasks = current
           .filter((task) => task.parentTaskId === source.id)
@@ -570,6 +684,13 @@ export function useTaskWorkspace() {
               updatedAt: "Ahora",
               comments: [],
               attachments: [],
+              events: [
+                localEvent(
+                  actor,
+                  "task_created",
+                  "Subtarea recurrente creada automáticamente",
+                ),
+              ],
             };
           });
         return [nextParent, ...nextSubtasks, ...updated];
@@ -592,7 +713,15 @@ export function useTaskWorkspace() {
         }
       }
     },
-    [allClients, allPeople, allProjects, allTasks, mode, refresh],
+    [
+      allClients,
+      allPeople,
+      allProjects,
+      allTasks,
+      currentUserId,
+      mode,
+      refresh,
+    ],
   );
 
   const updateStatus = useCallback(
@@ -600,43 +729,138 @@ export function useTaskWorkspace() {
     [updateTask],
   );
 
-  const deleteTask = useCallback(
-    async (taskId: string) => {
-      const descendantIds = new Set([taskId]);
-      let changed = true;
-      while (changed) {
-        changed = false;
-        allTasks.forEach((task) => {
-          if (
-            task.parentTaskId &&
-            descendantIds.has(task.parentTaskId) &&
-            !descendantIds.has(task.id)
-          ) {
-            descendantIds.add(task.id);
-            changed = true;
-          }
-        });
-      }
+  const archiveTask = useCallback(
+    async (taskId: string, input: ArchiveTaskInput) => {
+      const familyIds = taskFamilyIds(allTasks, taskId);
+      const actor =
+        allPeople.find((person) => person.id === currentUserId) ?? null;
+      const archivedAt = new Date().toISOString();
       setAllTasks((current) =>
-        current.filter((task) => !descendantIds.has(task.id)),
-      );
-      setAllTimeEntries((current) =>
-        current.filter((entry) => !descendantIds.has(entry.taskId)),
+        current.map((task) =>
+          familyIds.has(task.id)
+            ? {
+                ...task,
+                status: "resuelto",
+                resolvedAt: task.resolvedAt ?? archivedAt,
+                archivedAt,
+                archivedBy: currentUserId,
+                deletedAt: null,
+                deletedBy: null,
+                closureSummary:
+                  task.id === taskId
+                    ? input.closureSummary
+                    : task.closureSummary,
+                lessonsLearned:
+                  task.id === taskId
+                    ? input.lessonsLearned
+                    : task.lessonsLearned,
+                events: [
+                  ...(task.events ?? []),
+                  localEvent(
+                    actor,
+                    "task_archived",
+                    "Expediente archivado",
+                  ),
+                ],
+              }
+            : task,
+        ),
       );
       if (mode === "supabase") {
         try {
-          await deleteRemoteTask(taskId);
+          await archiveRemoteTask(taskId, input);
+          await refresh();
         } catch (error) {
           await refresh();
           throw error;
         }
       }
     },
-    [allTasks, mode, refresh],
+    [allPeople, allTasks, currentUserId, mode, refresh],
+  );
+
+  const deleteTask = useCallback(
+    async (taskId: string) => {
+      const familyIds = taskFamilyIds(allTasks, taskId);
+      const actor =
+        allPeople.find((person) => person.id === currentUserId) ?? null;
+      const deletedAt = new Date().toISOString();
+      setAllTasks((current) =>
+        current.map((task) =>
+          familyIds.has(task.id)
+            ? {
+                ...task,
+                archivedAt: task.archivedAt ?? deletedAt,
+                archivedBy: task.archivedBy ?? currentUserId,
+                deletedAt,
+                deletedBy: currentUserId,
+                events: [
+                  ...(task.events ?? []),
+                  localEvent(
+                    actor,
+                    "task_trashed",
+                    "Tarea enviada a la papelera",
+                  ),
+                ],
+              }
+            : task,
+        ),
+      );
+      if (mode === "supabase") {
+        try {
+          await trashRemoteTask(taskId);
+          await refresh();
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [allPeople, allTasks, currentUserId, mode, refresh],
+  );
+
+  const restoreTask = useCallback(
+    async (taskId: string) => {
+      const familyIds = taskFamilyIds(allTasks, taskId);
+      const actor =
+        allPeople.find((person) => person.id === currentUserId) ?? null;
+      setAllTasks((current) =>
+        current.map((task) =>
+          familyIds.has(task.id)
+            ? {
+                ...task,
+                archivedAt: null,
+                archivedBy: null,
+                deletedAt: null,
+                deletedBy: null,
+                events: [
+                  ...(task.events ?? []),
+                  localEvent(actor, "task_restored", "Expediente restaurado"),
+                ],
+              }
+            : task,
+        ),
+      );
+      if (mode === "supabase") {
+        try {
+          await restoreRemoteTask(taskId);
+          await refresh();
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [allPeople, allTasks, currentUserId, mode, refresh],
   );
 
   const addComment = useCallback(
-    async (taskId: string, body: string) => {
+    async (
+      taskId: string,
+      body: string,
+      type: CommentType,
+      visibility: CommentVisibility,
+    ) => {
       const author =
         allPeople.find((person) => person.id === currentUserId) ?? demoPeople[0];
       setAllTasks((current) =>
@@ -651,7 +875,27 @@ export function useTaskWorkspace() {
                     author,
                     body,
                     createdAt: "Ahora",
+                    type,
+                    visibility,
+                    deletedAt: null,
                   },
+                ],
+                events: [
+                  ...(task.events ?? []),
+                  localEvent(
+                    author,
+                    "comment_added",
+                    type === "decision"
+                      ? "Registró una decisión"
+                      : type === "approval"
+                        ? "Registró una aprobación"
+                        : type === "change_request"
+                          ? "Registró una solicitud de cambios"
+                          : type === "client_feedback"
+                            ? "Registró feedback del cliente"
+                            : "Agregó un comentario",
+                    { type, visibility },
+                  ),
                 ],
                 updatedAt: "Ahora",
               }
@@ -660,7 +904,7 @@ export function useTaskWorkspace() {
       );
       if (mode === "supabase") {
         try {
-          await addRemoteComment(taskId, body);
+          await addRemoteComment(taskId, body, type, visibility);
           await refresh();
         } catch (error) {
           await refresh();
@@ -678,9 +922,21 @@ export function useTaskWorkspace() {
           task.id === taskId
             ? {
                 ...task,
-                comments: task.comments.filter(
-                  (comment) => comment.id !== commentId,
+                comments: task.comments.map((comment) =>
+                  comment.id === commentId
+                    ? { ...comment, deletedAt: new Date().toISOString() }
+                    : comment,
                 ),
+                events: [
+                  ...(task.events ?? []),
+                  localEvent(
+                    allPeople.find(
+                      (person) => person.id === currentUserId,
+                    ) ?? null,
+                    "comment_removed",
+                    "Retiró un comentario del expediente visible",
+                  ),
+                ],
               }
             : task,
         ),
@@ -694,7 +950,7 @@ export function useTaskWorkspace() {
         }
       }
     },
-    [mode, refresh],
+    [allPeople, currentUserId, mode, refresh],
   );
 
   const createTask = useCallback(
@@ -741,10 +997,24 @@ export function useTaskWorkspace() {
         recurrenceGeneratedAt: null,
         createdAt: new Date().toISOString(),
         resolvedAt: null,
+        brief: {},
+        closureSummary: null,
+        lessonsLearned: null,
+        archivedAt: null,
+        archivedBy: null,
+        deletedAt: null,
+        deletedBy: null,
         updatedAt: "Ahora",
         tags: input.tags,
         comments: [],
         attachments: [],
+        events: [
+          localEvent(
+            allPeople.find((person) => person.id === currentUserId) ?? null,
+            "task_created",
+            "Tarea creada",
+          ),
+        ],
       };
       setAllTasks((current) => [task, ...current]);
       if (mode === "supabase") {
@@ -759,7 +1029,16 @@ export function useTaskWorkspace() {
       }
       return task;
     },
-    [allClients, allPeople, allProjects, allTasks, mode, projects, refresh],
+    [
+      allClients,
+      allPeople,
+      allProjects,
+      allTasks,
+      currentUserId,
+      mode,
+      projects,
+      refresh,
+    ],
   );
 
   const createProject = useCallback(
@@ -1260,11 +1539,43 @@ export function useTaskWorkspace() {
         dataUrl: await readFileAsDataUrl(file),
         createdAt: "Ahora",
         uploader,
+        versionGroupId:
+          task.attachments
+            .filter(
+              (item) => item.name.toLowerCase() === file.name.toLowerCase(),
+            )
+            .sort(
+              (a, b) =>
+                (b.versionNumber ?? 1) - (a.versionNumber ?? 1),
+            )[0]?.versionGroupId ?? localId("file"),
+        versionNumber:
+          Math.max(
+            0,
+            ...task.attachments
+              .filter(
+                (item) =>
+                  item.name.toLowerCase() === file.name.toLowerCase(),
+              )
+              .map((item) => item.versionNumber ?? 1),
+          ) + 1,
+        approvalStatus: "draft",
+        deletedAt: null,
       };
       setAllTasks((current) =>
         current.map((item) =>
           item.id === task.id
-            ? { ...item, attachments: [...item.attachments, attachment] }
+            ? {
+                ...item,
+                attachments: [...item.attachments, attachment],
+                events: [
+                  ...(item.events ?? []),
+                  localEvent(
+                    uploader,
+                    "attachment_uploaded",
+                    `Subió ${file.name} · v${attachment.versionNumber}`,
+                  ),
+                ],
+              }
             : item,
         ),
       );
@@ -1279,9 +1590,21 @@ export function useTaskWorkspace() {
           task.id === taskId
             ? {
                 ...task,
-                attachments: task.attachments.filter(
-                  (item) => item.id !== attachment.id,
+                attachments: task.attachments.map((item) =>
+                  item.id === attachment.id
+                    ? { ...item, deletedAt: new Date().toISOString() }
+                    : item,
                 ),
+                events: [
+                  ...(task.events ?? []),
+                  localEvent(
+                    allPeople.find(
+                      (person) => person.id === currentUserId,
+                    ) ?? null,
+                    "attachment_removed",
+                    `Envió ${attachment.name} a la papelera`,
+                  ),
+                ],
               }
             : task,
         ),
@@ -1289,6 +1612,68 @@ export function useTaskWorkspace() {
       if (mode === "supabase") {
         try {
           await deleteRemoteAttachment(attachment);
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [allPeople, currentUserId, mode, refresh],
+  );
+
+  const restoreAttachment = useCallback(
+    async (taskId: string, attachmentId: string) => {
+      setAllTasks((current) =>
+        current.map((task) =>
+          task.id === taskId
+            ? {
+                ...task,
+                attachments: task.attachments.map((attachment) =>
+                  attachment.id === attachmentId
+                    ? { ...attachment, deletedAt: null }
+                    : attachment,
+                ),
+              }
+            : task,
+        ),
+      );
+      if (mode === "supabase") {
+        try {
+          await restoreRemoteAttachment(attachmentId);
+          await refresh();
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [mode, refresh],
+  );
+
+  const updateAttachmentStatus = useCallback(
+    async (
+      taskId: string,
+      attachmentId: string,
+      status: AttachmentApprovalStatus,
+    ) => {
+      setAllTasks((current) =>
+        current.map((task) =>
+          task.id === taskId
+            ? {
+                ...task,
+                attachments: task.attachments.map((attachment) =>
+                  attachment.id === attachmentId
+                    ? { ...attachment, approvalStatus: status }
+                    : attachment,
+                ),
+              }
+            : task,
+        ),
+      );
+      if (mode === "supabase") {
+        try {
+          await updateRemoteAttachmentStatus(attachmentId, status);
+          await refresh();
         } catch (error) {
           await refresh();
           throw error;
@@ -1427,6 +1812,22 @@ export function useTaskWorkspace() {
             : item,
         ),
       ]);
+      setAllTasks((current) =>
+        current.map((item) =>
+          item.id === taskId
+            ? {
+                ...item,
+                events: [
+                  ...(item.events ?? []),
+                  localEvent(user, "timer_started", "Inició el cronómetro", {
+                    description: description.trim(),
+                    billable,
+                  }),
+                ],
+              }
+            : item,
+        ),
+      );
       if (mode === "supabase") {
         try {
           await startRemoteTimer(taskId, description, billable);
@@ -1452,6 +1853,9 @@ export function useTaskWorkspace() {
   const stopTimer = useCallback(
     async (entryId: string) => {
       const now = new Date();
+      const stoppedEntry = allTimeEntries.find(
+        (entry) => entry.id === entryId,
+      );
       setAllTimeEntries((current) =>
         current.map((entry) =>
           entry.id === entryId && !entry.endedAt
@@ -1468,6 +1872,25 @@ export function useTaskWorkspace() {
             : entry,
         ),
       );
+      if (stoppedEntry) {
+        setAllTasks((current) =>
+          current.map((task) =>
+            task.id === stoppedEntry.taskId
+              ? {
+                  ...task,
+                  events: [
+                    ...(task.events ?? []),
+                    localEvent(
+                      stoppedEntry.user,
+                      "timer_stopped",
+                      "Detuvo el cronómetro",
+                    ),
+                  ],
+                }
+              : task,
+          ),
+        );
+      }
       if (mode === "supabase") {
         try {
           await stopRemoteTimer(entryId);
@@ -1478,7 +1901,7 @@ export function useTaskWorkspace() {
         }
       }
     },
-    [mode, refresh],
+    [allTimeEntries, mode, refresh],
   );
 
   const createManualTimeEntry = useCallback(
@@ -1514,6 +1937,27 @@ export function useTaskWorkspace() {
         createdAt: "Ahora",
       };
       setAllTimeEntries((current) => [entry, ...current]);
+      setAllTasks((current) =>
+        current.map((item) =>
+          item.id === input.taskId
+            ? {
+                ...item,
+                events: [
+                  ...(item.events ?? []),
+                  localEvent(
+                    user,
+                    "time_added",
+                    "Registró tiempo manual",
+                    {
+                      durationSeconds: input.durationSeconds,
+                      billable: input.billable,
+                    },
+                  ),
+                ],
+              }
+            : item,
+        ),
+      );
       if (mode === "supabase") {
         try {
           await createRemoteManualTimeEntry(input);
@@ -1591,7 +2035,9 @@ export function useTaskWorkspace() {
     setActiveWorkspaceId,
     updateTask,
     updateStatus,
+    archiveTask,
     deleteTask,
+    restoreTask,
     addComment,
     deleteComment,
     createTask,
@@ -1611,6 +2057,8 @@ export function useTaskWorkspace() {
     revokeInvitation,
     uploadAttachment,
     deleteAttachment,
+    restoreAttachment,
+    updateAttachmentStatus,
     openAttachment,
     markNotificationRead,
     markAllNotificationsRead,

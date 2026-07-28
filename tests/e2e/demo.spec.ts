@@ -249,3 +249,72 @@ test("registra tiempo y exporta la auditoría con permisos", async ({ page }) =>
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toMatch(/^taska-tiempo-.*\.csv$/);
 });
+
+test("crea, documenta, archiva y restaura un expediente de proceso", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Nueva tarea" }).click();
+  await page
+    .getByLabel("Plantilla de proceso")
+    .selectOption("campaign");
+  await page
+    .getByLabel("Nombre de la tarea")
+    .fill("Campaña documentada E2E");
+  await page.getByRole("button", { name: "Crear tarea" }).click();
+
+  await expect(page).toHaveURL(/\?task=/);
+  await expect(page.getByText("0/5 completas")).toBeVisible();
+  await page
+    .getByLabel("Objetivo")
+    .fill("Conservar el antecedente completo de la campaña");
+  await page.getByLabel("Objetivo").press("Tab");
+
+  await page.getByLabel("Tipo de comentario").selectOption("decision");
+  await page
+    .getByPlaceholder("Sumá feedback o una actualización…")
+    .fill("Se aprobó la ruta visual número dos.");
+  await page.getByRole("button", { name: "Comentar" }).click();
+  await expect(
+    page.getByText("Se aprobó la ruta visual número dos."),
+  ).toBeVisible();
+
+  await page
+    .getByRole("button", { name: "Cerrar y archivar expediente" })
+    .click();
+  await page
+    .getByLabel("Conclusión del proceso")
+    .fill("Se entregaron originales aprobados y adaptaciones.");
+  await page
+    .getByLabel("Aprendizajes o decisiones reutilizables")
+    .fill("Presentar siempre dos rutas visuales.");
+  await page
+    .getByRole("button", { name: "Archivar expediente", exact: true })
+    .click();
+
+  await expect(
+    page.getByRole("heading", { name: "Archivo de procesos" }),
+  ).toBeVisible();
+  await expect(page.getByText("Campaña documentada E2E")).toBeVisible();
+  await page.getByRole("button", { name: "Abrir", exact: true }).click();
+  const archivedDrawer = page.getByTestId("archived-task-drawer");
+  await expect(
+    archivedDrawer.getByRole("button", { name: "Restaurar", exact: true }),
+  ).toBeVisible();
+  await expect(
+    archivedDrawer.getByText(
+      "Se entregaron originales aprobados y adaptaciones.",
+    ),
+  ).toBeVisible();
+  await expect(archivedDrawer.getByText("Historial inmutable")).toBeVisible();
+
+  await archivedDrawer
+    .getByRole("button", { name: "Restaurar", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Todas las tareas" }).click();
+  await expect(
+    page.getByRole("heading", {
+      name: "Campaña documentada E2E",
+      level: 3,
+    }),
+  ).toBeVisible();
+});

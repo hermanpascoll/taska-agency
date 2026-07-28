@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { createClient } from "@supabase/supabase-js";
-import { afterAll, describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const url = process.env.SUPABASE_TEST_URL;
 const anonKey = process.env.SUPABASE_TEST_ANON_KEY;
@@ -229,3 +230,210 @@ describe.skipIf(!configured)("Supabase real: autenticación y persistencia", () 
     expect(clearedPresence.error).toBeNull();
   });
 });
+
+const archiveUrl =
+  process.env.SUPABASE_TEST_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
+const archiveAnonKey =
+  process.env.SUPABASE_TEST_ANON_KEY ??
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const serviceKey = process.env.SUPABASE_SECRET_KEY;
+const archiveConfigured = Boolean(archiveUrl && archiveAnonKey && serviceKey);
+
+describe.skipIf(!archiveConfigured)(
+  "Supabase real: expediente, auditoría y recuperación",
+  () => {
+    const service = archiveConfigured
+      ? createClient(archiveUrl!, serviceKey!, {
+          auth: { autoRefreshToken: false, persistSession: false },
+        })
+      : null;
+    const session = archiveConfigured
+      ? createClient(archiveUrl!, archiveAnonKey!, {
+          auth: { autoRefreshToken: false, persistSession: false },
+        })
+      : null;
+    let userId: string | null = null;
+    let workspaceId: string | null = null;
+
+    beforeAll(async () => {
+      const email = `taska-archive-${randomUUID()}@example.com`;
+      const password = `Taska-${randomUUID()}-Test!`;
+      const createdUser = await service!.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: { full_name: "Auditoría automatizada" },
+      });
+      expect(createdUser.error).toBeNull();
+      userId = createdUser.data.user!.id;
+
+      const auth = await session!.auth.signInWithPassword({ email, password });
+      expect(auth.error).toBeNull();
+      const workspace = await session!.rpc("create_workspace", {
+        workspace_name: `Archivo integración ${Date.now()}`,
+      });
+      expect(workspace.error).toBeNull();
+      workspaceId = workspace.data as string;
+    });
+
+    afterAll(async () => {
+      if (workspaceId) {
+        await service!.from("teams").delete().eq("id", workspaceId);
+      }
+      await session?.auth.signOut();
+      if (userId) await service!.auth.admin.deleteUser(userId);
+    });
+
+    it("versiona, registra eventos, bloquea el archivo y restaura", async () => {
+      const project = await session!
+        .from("projects")
+        .insert({
+          team_id: workspaceId,
+          name: "Proceso auditable",
+          slug: `proceso-${randomUUID()}`,
+          color: "#0A84FF",
+        })
+        .select("id")
+        .single();
+      expect(project.error).toBeNull();
+
+      const task = await session!
+        .from("tasks")
+        .insert({
+          team_id: workspaceId,
+          project_id: project.data!.id,
+          title: "Expediente de prueba",
+          description: "Antecedente conservado por la suite.",
+          status: "en_progreso",
+          priority: "alta",
+          brief: {
+            objective: "Validar el archivo de procesos",
+            deliverables: "Historial y versiones",
+          },
+        })
+        .select("id")
+        .single();
+      expect(task.error).toBeNull();
+
+      const comment = await session!.from("comments").insert({
+        task_id: task.data!.id,
+        author_id: userId,
+        body: "Se aprueba conservar esta decisión.",
+        comment_type: "decision",
+        visibility: "team",
+      });
+      expect(comment.error).toBeNull();
+
+      const firstFile = await session!
+        .from("task_attachments")
+        .insert({
+          task_id: task.data!.id,
+          uploaded_by: userId,
+          name: "entregable.pdf",
+          storage_path: `${workspaceId}/${task.data!.id}/${randomUUID()}.pdf`,
+          size_bytes: 100,
+          mime_type: "application/pdf",
+        })
+        .select("version_group_id, version_number")
+        .single();
+      expect(firstFile.error).toBeNull();
+      expect(firstFile.data?.version_number).toBe(1);
+
+      const secondFile = await session!
+        .from("task_attachments")
+        .insert({
+          task_id: task.data!.id,
+          uploaded_by: userId,
+          name: "entregable.pdf",
+          storage_path: `${workspaceId}/${task.data!.id}/${randomUUID()}.pdf`,
+          size_bytes: 120,
+          mime_type: "application/pdf",
+          approval_status: "approved",
+        })
+        .select("version_group_id, version_number, approval_status")
+        .single();
+      expect(secondFile.error).toBeNull();
+      expect(secondFile.data).toMatchObject({
+        version_group_id: firstFile.data!.version_group_id,
+        version_number: 2,
+        approval_status: "approved",
+      });
+
+      const timer = await session!.rpc("start_task_timer", {
+        candidate_task_id: task.data!.id,
+        candidate_description: "Validación de cierre",
+        candidate_billable: true,
+      });
+      expect(timer.error).toBeNull();
+
+      const archived = await session!.rpc("archive_task_record", {
+        candidate_task_id: task.data!.id,
+        candidate_closure_summary: "Expediente validado correctamente.",
+        candidate_lessons_learned: "Mantener el cierre obligatorio.",
+      });
+      expect(archived.error).toBeNull();
+
+      const persisted = await session!
+        .from("tasks")
+        .select(
+          "archived_at, closure_summary, lessons_learned, status, task_events(event_type)",
+        )
+        .eq("id", task.data!.id)
+        .single();
+      expect(persisted.error).toBeNull();
+      expect(persisted.data).toMatchObject({
+        closure_summary: "Expediente validado correctamente.",
+        lessons_learned: "Mantener el cierre obligatorio.",
+        status: "resuelto",
+      });
+      expect(persisted.data?.archived_at).toBeTruthy();
+      expect(
+        (persisted.data?.task_events as Array<{ event_type: string }>).some(
+          (event) => event.event_type === "task_archived",
+        ),
+      ).toBe(true);
+
+      const stoppedTimer = await session!
+        .from("time_entries")
+        .select("ended_at")
+        .eq("id", timer.data)
+        .single();
+      expect(stoppedTimer.error).toBeNull();
+      expect(stoppedTimer.data?.ended_at).toBeTruthy();
+
+      const forbiddenEdit = await session!
+        .from("tasks")
+        .update({ title: "No debe modificarse" })
+        .eq("id", task.data!.id);
+      expect(forbiddenEdit.error?.message).toContain("read-only");
+
+      const restored = await session!.rpc("restore_task_record", {
+        candidate_task_id: task.data!.id,
+      });
+      expect(restored.error).toBeNull();
+      const editableAgain = await session!
+        .from("tasks")
+        .update({ title: "Expediente restaurado" })
+        .eq("id", task.data!.id);
+      expect(editableAgain.error).toBeNull();
+
+      const trashed = await session!.rpc("trash_task_record", {
+        candidate_task_id: task.data!.id,
+      });
+      expect(trashed.error).toBeNull();
+      const trashState = await session!
+        .from("tasks")
+        .select("archived_at, deleted_at")
+        .eq("id", task.data!.id)
+        .single();
+      expect(trashState.error).toBeNull();
+      expect(trashState.data?.archived_at).toBeTruthy();
+      expect(trashState.data?.deleted_at).toBeTruthy();
+
+      const finalRestore = await session!.rpc("restore_task_record", {
+        candidate_task_id: task.data!.id,
+      });
+      expect(finalRestore.error).toBeNull();
+    });
+  },
+);

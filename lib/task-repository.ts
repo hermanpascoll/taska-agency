@@ -2,7 +2,11 @@ import { createClient } from "@/lib/supabase/client";
 import { formatTaskDueLabel, safeStorageName } from "@/lib/task-utils";
 import type {
   AppNotification,
+  ArchiveTaskInput,
+  AttachmentApprovalStatus,
   Client,
+  CommentType,
+  CommentVisibility,
   NewClientInput,
   NewManualTimeEntryInput,
   NewProjectInput,
@@ -12,6 +16,7 @@ import type {
   Task,
   TaskAttachment,
   TaskComment,
+  TaskEvent,
   TaskPriority,
   TaskRecurrence,
   TaskStatus,
@@ -59,6 +64,9 @@ type RemoteComment = {
   id: string;
   body: string;
   created_at: string;
+  comment_type: CommentType;
+  visibility: CommentVisibility;
+  deleted_at: string | null;
   author: RemotePerson | RemotePerson[] | null;
 };
 
@@ -70,7 +78,20 @@ type RemoteAttachment = {
   mime_type: string;
   storage_path: string;
   created_at: string;
+  version_group_id: string;
+  version_number: number;
+  approval_status: AttachmentApprovalStatus;
+  deleted_at: string | null;
   uploader: RemotePerson | RemotePerson[] | null;
+};
+
+type RemoteTaskEvent = {
+  id: string;
+  event_type: string;
+  summary: string;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  actor: RemotePerson | RemotePerson[] | null;
 };
 
 type RemoteTask = {
@@ -93,6 +114,13 @@ type RemoteTask = {
   recurrence_generated_at: string | null;
   created_at: string;
   resolved_at: string | null;
+  brief: Record<string, string> | null;
+  closure_summary: string | null;
+  lessons_learned: string | null;
+  archived_at: string | null;
+  archived_by: string | null;
+  deleted_at: string | null;
+  deleted_by: string | null;
   updated_at: string;
   tags: string[] | null;
   parent_task_id: string | null;
@@ -106,6 +134,7 @@ type RemoteTask = {
   assignee: RemotePerson | RemotePerson[] | null;
   comments: RemoteComment[] | null;
   attachments: RemoteAttachment[] | null;
+  events: RemoteTaskEvent[] | null;
 };
 
 type RemoteMembership = {
@@ -261,6 +290,10 @@ function mapAttachment(
     mimeType: attachment.mime_type,
     storagePath: attachment.storage_path,
     createdAt: relativeTime(attachment.created_at),
+    versionGroupId: attachment.version_group_id,
+    versionNumber: Number(attachment.version_number),
+    approvalStatus: attachment.approval_status,
+    deletedAt: attachment.deleted_at,
     uploader:
       personFromRemote(one(attachment.uploader), index) ?? fallbackPerson(),
   };
@@ -294,8 +327,19 @@ function mapTask(row: RemoteTask, index: number): Task {
     id: comment.id,
     body: comment.body,
     createdAt: relativeTime(comment.created_at),
+    type: comment.comment_type,
+    visibility: comment.visibility,
+    deletedAt: comment.deleted_at,
     author:
       personFromRemote(one(comment.author), i) ?? fallbackPerson(),
+  }));
+  const events: TaskEvent[] = (row.events ?? []).map((event, i) => ({
+    id: event.id,
+    type: event.event_type,
+    summary: event.summary,
+    metadata: event.metadata ?? {},
+    createdAt: event.created_at,
+    actor: personFromRemote(one(event.actor), i),
   }));
 
   return {
@@ -323,10 +367,18 @@ function mapTask(row: RemoteTask, index: number): Task {
     recurrenceGeneratedAt: row.recurrence_generated_at,
     createdAt: row.created_at,
     resolvedAt: row.resolved_at,
+    brief: row.brief ?? {},
+    closureSummary: row.closure_summary,
+    lessonsLearned: row.lessons_learned,
+    archivedAt: row.archived_at,
+    archivedBy: row.archived_by,
+    deletedAt: row.deleted_at,
+    deletedBy: row.deleted_by,
     updatedAt: relativeTime(row.updated_at),
     tags: row.tags ?? [],
     comments,
     attachments: (row.attachments ?? []).map(mapAttachment),
+    events,
   };
 }
 
@@ -400,7 +452,7 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     supabase
       .from("tasks")
       .select(
-        "id, task_number, title, description, status, priority, start_date, due_date, due_time, client_name, client_email, client_id, client_category, recurrence_rule, recurrence_interval, recurrence_origin_id, recurrence_generated_at, created_at, resolved_at, updated_at, tags, parent_task_id, projects!tasks_project_id_fkey(id, name, color, team_id, description, archived, client_id, client_category, client:clients(id, team_id, name, email, notes, categories, archived)), client:clients!tasks_client_id_fkey(id, team_id, name, email, notes, categories, archived), task_projects(project:projects(id, name, color, team_id, description, archived, client_id, client_category, client:clients(id, team_id, name, email, notes, categories, archived))), assignee:profiles!tasks_assignee_id_fkey(id, full_name, email, role), comments(id, body, created_at, author:profiles!comments_author_id_fkey(id, full_name, email, role)), attachments:task_attachments(id, task_id, name, size_bytes, mime_type, storage_path, created_at, uploader:profiles!task_attachments_uploaded_by_fkey(id, full_name, email, role))",
+        "id, task_number, title, description, brief, closure_summary, lessons_learned, archived_at, archived_by, deleted_at, deleted_by, status, priority, start_date, due_date, due_time, client_name, client_email, client_id, client_category, recurrence_rule, recurrence_interval, recurrence_origin_id, recurrence_generated_at, created_at, resolved_at, updated_at, tags, parent_task_id, projects!tasks_project_id_fkey(id, name, color, team_id, description, archived, client_id, client_category, client:clients(id, team_id, name, email, notes, categories, archived)), client:clients!tasks_client_id_fkey(id, team_id, name, email, notes, categories, archived), task_projects(project:projects(id, name, color, team_id, description, archived, client_id, client_category, client:clients(id, team_id, name, email, notes, categories, archived))), assignee:profiles!tasks_assignee_id_fkey(id, full_name, email, role), comments(id, body, comment_type, visibility, deleted_at, created_at, author:profiles!comments_author_id_fkey(id, full_name, email, role)), attachments:task_attachments(id, task_id, name, size_bytes, mime_type, storage_path, version_group_id, version_number, approval_status, deleted_at, created_at, uploader:profiles!task_attachments_uploaded_by_fkey(id, full_name, email, role)), events:task_events(id, event_type, summary, metadata, created_at, actor:profiles!task_events_actor_id_fkey(id, full_name, email, role))",
       )
       .order("updated_at", { ascending: false }),
     supabase
@@ -579,6 +631,7 @@ export async function createRemoteTask(input: NewTaskInput) {
       client_id: input.clientId || null,
       client_category: input.clientCategory || null,
       tags: input.tags,
+      brief: {},
       recurrence_rule: input.recurrenceRule,
       recurrence_interval: input.recurrenceInterval,
       status: input.status ?? "nuevo",
@@ -638,7 +691,10 @@ export async function updateRemoteTask(id: string, input: UpdateTaskInput) {
     );
     if (relationResult.error) throw relationResult.error;
   }
-  const payload: Record<string, string | string[] | number | null> = {};
+  const payload: Record<
+    string,
+    string | string[] | number | Record<string, unknown> | null
+  > = {};
   if (input.title !== undefined) payload.title = input.title;
   if (input.description !== undefined) payload.description = input.description;
   if (input.status !== undefined) payload.status = input.status;
@@ -658,15 +714,41 @@ export async function updateRemoteTask(id: string, input: UpdateTaskInput) {
   if (input.recurrenceInterval !== undefined) {
     payload.recurrence_interval = input.recurrenceInterval;
   }
+  if (input.brief !== undefined) payload.brief = input.brief;
   if (!Object.keys(payload).length) return;
   const { error } = await supabase.from("tasks").update(payload).eq("id", id);
   if (error) throw error;
 }
 
-export async function deleteRemoteTask(id: string) {
+export async function archiveRemoteTask(
+  id: string,
+  input: ArchiveTaskInput,
+) {
   const supabase = createClient();
   if (!supabase) return;
-  const { error } = await supabase.from("tasks").delete().eq("id", id);
+  const { error } = await supabase.rpc("archive_task_record", {
+    candidate_task_id: id,
+    candidate_closure_summary: input.closureSummary,
+    candidate_lessons_learned: input.lessonsLearned,
+  });
+  if (error) throw error;
+}
+
+export async function trashRemoteTask(id: string) {
+  const supabase = createClient();
+  if (!supabase) return;
+  const { error } = await supabase.rpc("trash_task_record", {
+    candidate_task_id: id,
+  });
+  if (error) throw error;
+}
+
+export async function restoreRemoteTask(id: string) {
+  const supabase = createClient();
+  if (!supabase) return;
+  const { error } = await supabase.rpc("restore_task_record", {
+    candidate_task_id: id,
+  });
   if (error) throw error;
 }
 
@@ -930,7 +1012,12 @@ export async function acceptRemoteInvitation(token: string) {
   return data as string;
 }
 
-export async function addRemoteComment(taskId: string, body: string) {
+export async function addRemoteComment(
+  taskId: string,
+  body: string,
+  type: CommentType,
+  visibility: CommentVisibility,
+) {
   const supabase = createClient();
   if (!supabase) return;
   const { data } = await supabase.auth.getUser();
@@ -939,6 +1026,8 @@ export async function addRemoteComment(taskId: string, body: string) {
     task_id: taskId,
     author_id: data.user.id,
     body,
+    comment_type: type,
+    visibility,
   });
   if (error) throw error;
 }
@@ -946,7 +1035,15 @@ export async function addRemoteComment(taskId: string, body: string) {
 export async function deleteRemoteComment(id: string) {
   const supabase = createClient();
   if (!supabase) return;
-  const { error } = await supabase.from("comments").delete().eq("id", id);
+  const { data } = await supabase.auth.getUser();
+  if (!data.user) throw new Error("No hay una sesión activa.");
+  const { error } = await supabase
+    .from("comments")
+    .update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: data.user.id,
+    })
+    .eq("id", id);
   if (error) throw error;
 }
 
@@ -971,7 +1068,9 @@ export async function uploadRemoteAttachment(task: Task, file: File) {
       size_bytes: file.size,
       mime_type: file.type || "application/octet-stream",
     })
-    .select("id, task_id, name, size_bytes, mime_type, storage_path, created_at")
+    .select(
+      "id, task_id, name, size_bytes, mime_type, storage_path, version_group_id, version_number, approval_status, deleted_at, created_at",
+    )
     .single();
   if (error) {
     await supabase.storage.from("task-attachments").remove([path]);
@@ -983,16 +1082,38 @@ export async function uploadRemoteAttachment(task: Task, file: File) {
 export async function deleteRemoteAttachment(attachment: TaskAttachment) {
   const supabase = createClient();
   if (!supabase) return;
-  if (attachment.storagePath) {
-    const storageResult = await supabase.storage
-      .from("task-attachments")
-      .remove([attachment.storagePath]);
-    if (storageResult.error) throw storageResult.error;
-  }
+  const { data } = await supabase.auth.getUser();
+  if (!data.user) throw new Error("No hay una sesión activa.");
   const { error } = await supabase
     .from("task_attachments")
-    .delete()
+    .update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: data.user.id,
+    })
     .eq("id", attachment.id);
+  if (error) throw error;
+}
+
+export async function restoreRemoteAttachment(id: string) {
+  const supabase = createClient();
+  if (!supabase) return;
+  const { error } = await supabase
+    .from("task_attachments")
+    .update({ deleted_at: null, deleted_by: null })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+export async function updateRemoteAttachmentStatus(
+  id: string,
+  status: AttachmentApprovalStatus,
+) {
+  const supabase = createClient();
+  if (!supabase) return;
+  const { error } = await supabase
+    .from("task_attachments")
+    .update({ approval_status: status })
+    .eq("id", id);
   if (error) throw error;
 }
 

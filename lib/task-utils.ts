@@ -68,6 +68,9 @@ export function matchesTaskFilters(
   },
 ) {
   const normalized = query.trim().toLowerCase();
+  const briefText = Object.values(task.brief ?? {})
+    .join(" ")
+    .toLowerCase();
   const matchesQuery =
     !normalized ||
     task.title.toLowerCase().includes(normalized) ||
@@ -75,7 +78,21 @@ export function matchesTaskFilters(
     task.client.toLowerCase().includes(normalized) ||
     task.clientCategory?.toLowerCase().includes(normalized) ||
     task.project.name.toLowerCase().includes(normalized) ||
-    task.tags.some((tag) => tag.toLowerCase().includes(normalized));
+    task.tags.some((tag) => tag.toLowerCase().includes(normalized)) ||
+    briefText.includes(normalized) ||
+    task.closureSummary?.toLowerCase().includes(normalized) ||
+    task.lessonsLearned?.toLowerCase().includes(normalized) ||
+    task.comments.some(
+      (comment) =>
+        !comment.deletedAt &&
+        comment.body.toLowerCase().includes(normalized),
+    ) ||
+    (task.events ?? []).some((event) =>
+      event.summary.toLowerCase().includes(normalized),
+    ) ||
+    task.attachments.some((attachment) =>
+      attachment.name.toLowerCase().includes(normalized),
+    );
   const matchesPriority =
     priority === "todas" || task.priority === priority;
   const matchesProject =
