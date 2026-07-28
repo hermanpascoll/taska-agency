@@ -1539,9 +1539,33 @@ export function useTaskWorkspace() {
       const uploader =
         allPeople.find((person) => person.id === currentUserId) ?? demoPeople[0];
       if (mode === "supabase") {
-        await uploadRemoteAttachment(task, file);
-        await refresh();
-        return;
+        const remote = await uploadRemoteAttachment(task, file);
+        if (!remote) throw new Error("No se pudo guardar el adjunto.");
+        const attachment: TaskAttachment = {
+          id: remote.id,
+          taskId: remote.task_id,
+          name: remote.name,
+          size: remote.size_bytes,
+          mimeType: remote.mime_type,
+          storagePath: remote.storage_path,
+          createdAt: "Ahora",
+          uploader,
+          versionGroupId: remote.version_group_id,
+          versionNumber: remote.version_number,
+          approvalStatus: remote.approval_status,
+          deletedAt: remote.deleted_at,
+        };
+        setAllTasks((current) =>
+          current.map((item) =>
+            item.id === task.id
+              ? {
+                  ...item,
+                  attachments: [...item.attachments, attachment],
+                }
+              : item,
+          ),
+        );
+        return attachment;
       }
       const attachment: TaskAttachment = {
         id: localId("attachment"),
@@ -1593,8 +1617,9 @@ export function useTaskWorkspace() {
             : item,
         ),
       );
+      return attachment;
     },
-    [allPeople, currentUserId, mode, refresh],
+    [allPeople, currentUserId, mode],
   );
 
   const deleteAttachment = useCallback(

@@ -101,9 +101,9 @@ test("muestra el proyecto como espacio de trabajo con detalle flotante", async (
   await expect(page.getByTestId("project-task-list")).toBeVisible();
 
   await page
-    .getByRole("button", {
-      name: /AG-142 Lanzamiento Aura Adaptar campaña/,
-    })
+    .getByRole("article")
+    .filter({ hasText: "Adaptar campaña de lanzamiento a stories" })
+    .getByText("Diego", { exact: true })
     .click();
 
   await expect(page.getByTestId("task-detail")).toBeVisible();
@@ -159,6 +159,37 @@ test("embebe una imagen en la descripción al crear la tarea", async ({
   await expect(
     page.getByText("Tarea creada correctamente · 1 archivo embebido"),
   ).toBeVisible();
+
+  const descriptionDocument = page.getByTestId(
+    "task-description-document",
+  );
+  const descriptionField = descriptionDocument.getByLabel(
+    "Descripción de la tarea",
+  );
+  await descriptionField.fill("Texto antesTexto después");
+  await descriptionField.press("Home");
+  for (let index = 0; index < 11; index += 1) {
+    await descriptionField.press("ArrowRight");
+  }
+  await descriptionDocument
+    .getByLabel("Seleccionar archivos para la tarea")
+    .setInputFiles({
+      name: "referencia-intermedia.png",
+      mimeType: "image/png",
+      buffer: pixelPng,
+    });
+
+  await expect(
+    descriptionDocument.getByRole("img", {
+      name: "Adjunto embebido referencia-intermedia.png",
+    }),
+  ).toBeVisible();
+  await expect(
+    descriptionDocument.getByLabel("Descripción de la tarea").nth(0),
+  ).toHaveValue("Texto antes");
+  await expect(
+    descriptionDocument.getByLabel("Descripción de la tarea").nth(1),
+  ).toHaveValue("Texto después");
 });
 
 test("adjunta varios archivos desde la descripción de la tarea", async ({
@@ -185,7 +216,7 @@ test("adjunta varios archivos desde la descripción de la tarea", async ({
   ]);
 
   const descriptionAttachments = page.getByTestId(
-    "description-attachments",
+    "task-description-document",
   );
   await expect(
     descriptionAttachments.getByText("brief-invierno.txt"),
@@ -193,7 +224,6 @@ test("adjunta varios archivos desde la descripción de la tarea", async ({
   await expect(
     descriptionAttachments.getByText("referencias-visuales.txt"),
   ).toBeVisible();
-  await expect(page.getByText("2 archivos adjuntados")).toBeVisible();
 });
 
 test("mueve una tarjeta con drag-and-drop real", async ({ page }) => {
@@ -376,6 +406,10 @@ test("crea clientes y vincula una tarea a varios proyectos", async ({
   await expect(page.getByLabel("Título de la tarea")).toHaveValue(
     "Tarea multiproyecto E2E",
   );
+  await page
+    .locator("summary")
+    .filter({ hasText: "Detalles" })
+    .click();
   await expect(
     page.getByLabel("Cliente de la tarea").locator("option:checked"),
   ).toHaveText("Cliente E2E");
@@ -389,6 +423,10 @@ test("crea clientes y vincula una tarea a varios proyectos", async ({
   await expect(page.getByLabel("Etiquetas de la tarea")).toHaveValue(
     "Diseño, Aprobación",
   );
+  await page
+    .locator("summary")
+    .filter({ hasText: "Tiempo, proceso e historial" })
+    .click();
   await expect(
     page.getByRole("heading", { name: "Resumen de actividad" }),
   ).toBeVisible();
@@ -406,6 +444,10 @@ test("registra tiempo y exporta la auditoría con permisos", async ({ page }) =>
     .getByRole("button", {
       name: /AG-142 Lanzamiento Aura Adaptar campaña/,
     })
+    .click();
+  await page
+    .locator("summary")
+    .filter({ hasText: "Tiempo, proceso e historial" })
     .click();
   await page
     .getByPlaceholder("¿En qué estás trabajando?")
@@ -444,6 +486,10 @@ test("resume y controla varios timers activos desde el encabezado", async ({
     })
     .click();
   await page
+    .locator("summary")
+    .filter({ hasText: "Tiempo, proceso e historial" })
+    .click();
+  await page
     .getByPlaceholder("¿En qué estás trabajando?")
     .fill("Dirección creativa");
   await page.getByRole("button", { name: "Iniciar timer" }).click();
@@ -453,6 +499,10 @@ test("resume y controla varios timers activos desde el encabezado", async ({
     .getByRole("button", {
       name: /AG-140 Marca Sur Entregar propuesta/,
     })
+    .click();
+  await page
+    .locator("summary")
+    .filter({ hasText: "Tiempo, proceso e historial" })
     .click();
   await page
     .getByPlaceholder("¿En qué estás trabajando?")
@@ -502,6 +552,10 @@ test("crea, documenta, archiva y restaura un expediente de proceso", async ({
 
   await expect(page).toHaveURL(/\?task=/);
   await expect(page.getByText("0/5 completas")).toBeVisible();
+  await page
+    .locator("summary")
+    .filter({ hasText: "Tiempo, proceso e historial" })
+    .click();
   await page
     .getByLabel("Objetivo")
     .fill("Conservar el antecedente completo de la campaña");

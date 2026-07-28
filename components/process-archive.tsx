@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
 import { clsx } from "clsx";
+import { taskDescriptionPlainText } from "@/lib/task-description";
 import { elapsedSeconds, formatBytes, formatDuration } from "@/lib/task-utils";
 import type {
   ArchiveTaskInput,
@@ -170,7 +171,9 @@ th{width:180px;color:#667085}li{margin:8px 0}p{margin:4px 0;white-space:pre-wrap
     formatDuration(tracked),
   )}</td></tr>
 ${brief}</table>
-<h2>Descripción</h2><p>${escapeHtml(task.description || "—")}</p>
+<h2>Descripción</h2><p>${escapeHtml(
+    taskDescriptionPlainText(task.description) || "—",
+  )}</p>
 <h2>Cierre</h2><div class="closure"><strong>Conclusión</strong><p>${escapeHtml(
     task.closureSummary || "Sin cierre documentado",
   )}</p><strong>Aprendizajes</strong><p>${escapeHtml(
@@ -825,7 +828,7 @@ export function ArchivedTaskDrawer({
           </h2>
           <TaskLastEdited task={task} />
           <p className="mt-2 text-[12px] leading-6 text-slate-500">
-            {task.description || "Sin descripción"}
+            {taskDescriptionPlainText(task.description) || "Sin descripción"}
           </p>
 
           <div className="mt-5 flex flex-wrap gap-2">

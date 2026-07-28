@@ -139,6 +139,14 @@ html.dark .mac-titlebar {
     inset 0 -1px 0 rgb(10 132 255 / 12%);
 }
 
+.task-row-interactive:hover {
+  background-color: #e9eaed;
+}
+
+.task-row-selected .task-row-interactive:hover {
+  background-color: rgb(10 132 255 / 10%);
+}
+
 html.dark .task-row-selected {
   background:
     linear-gradient(90deg, rgb(10 132 255 / 24%), rgb(10 132 255 / 10%)),
@@ -147,6 +155,14 @@ html.dark .task-row-selected {
     inset 3px 0 0 #64b5ff,
     inset 0 1px 0 rgb(100 181 255 / 20%),
     inset 0 -1px 0 rgb(100 181 255 / 20%);
+}
+
+html.dark .task-row-interactive:hover {
+  background-color: #2d2d30;
+}
+
+html.dark .task-row-selected .task-row-interactive:hover {
+  background-color: rgb(100 181 255 / 13%);
 }
 
 html.dark .finder-sidebar,

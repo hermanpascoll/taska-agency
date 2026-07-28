@@ -75,6 +75,12 @@ import {
 } from "@/components/process-archive";
 import { useTaskWorkspace } from "@/hooks/use-task-workspace";
 import {
+  appendDescriptionAttachments,
+  parseTaskDescription,
+  serializeTaskDescription,
+  type TaskDescriptionBlock,
+} from "@/lib/task-description";
+import {
   findProcessTemplate,
   processTemplates,
 } from "@/lib/process-templates";
@@ -432,6 +438,228 @@ function EmbeddedTaskAttachment({
         </span>
       </figcaption>
     </figure>
+  );
+}
+
+function TaskDescriptionEditor({
+  task,
+  onUpdate,
+  onUpload,
+  onOpen,
+}: {
+  task: Task;
+  onUpdate: (description: string) => void;
+  onUpload: (files: File[]) => Promise<TaskAttachment[]>;
+  onOpen: (attachment: TaskAttachment) => void;
+}) {
+  const initialBlocks = parseTaskDescription(task.description, task.attachments);
+  const [blocks, setBlocks] = useState<TaskDescriptionBlock[]>(initialBlocks);
+  const [uploading, setUploading] = useState(false);
+  const blocksRef = useRef(initialBlocks);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const selection = useRef({ blockIndex: 0, offset: task.description.length });
+  const savedDescription = useRef(task.description);
+  const activeAttachmentIds = task.attachments
+    .filter((attachment) => !attachment.deletedAt)
+    .map((attachment) => attachment.id)
+    .join("|");
+
+  useEffect(() => {
+    if (savedDescription.current === task.description) return;
+    const next = parseTaskDescription(task.description, task.attachments);
+    savedDescription.current = task.description;
+    blocksRef.current = next;
+    setBlocks(next);
+  }, [task.attachments, task.description, task.id]);
+
+  useEffect(() => {
+    const referenced = new Set(
+      blocksRef.current.flatMap((block) =>
+        block.type === "attachment" ? [block.attachmentId] : [],
+      ),
+    );
+    const missing = task.attachments
+      .filter(
+        (attachment) =>
+          !attachment.deletedAt && !referenced.has(attachment.id),
+      )
+      .map<TaskDescriptionBlock>((attachment) => ({
+        type: "attachment",
+        attachmentId: attachment.id,
+      }));
+    if (!missing.length) return;
+    const next = [...blocksRef.current, ...missing];
+    blocksRef.current = next;
+    setBlocks(next);
+  }, [activeAttachmentIds, task.attachments]);
+
+  function setLocalBlocks(next: TaskDescriptionBlock[]) {
+    blocksRef.current = next;
+    setBlocks(next);
+  }
+
+  function persist(next: TaskDescriptionBlock[]) {
+    const description = serializeTaskDescription(next);
+    savedDescription.current = description;
+    setLocalBlocks(next);
+    if (description !== task.description) onUpdate(description);
+  }
+
+  function updateText(index: number, text: string) {
+    setLocalBlocks(
+      blocksRef.current.map((block, blockIndex) =>
+        blockIndex === index && block.type === "text"
+          ? { ...block, text }
+          : block,
+      ),
+    );
+  }
+
+  async function insertFiles(files: File[]) {
+    if (!files.length || uploading) return;
+    setUploading(true);
+    try {
+      const uploaded = await onUpload(files);
+      if (!uploaded.length) return;
+      const uploadedIds = new Set(uploaded.map((attachment) => attachment.id));
+      const current = blocksRef.current.filter(
+        (block) =>
+          block.type !== "attachment" ||
+          !uploadedIds.has(block.attachmentId),
+      );
+      const requestedIndex = Math.min(
+        selection.current.blockIndex,
+        Math.max(0, current.length - 1),
+      );
+      const target = current[requestedIndex];
+      const attachmentBlocks = uploaded.map<TaskDescriptionBlock>(
+        (attachment) => ({
+          type: "attachment",
+          attachmentId: attachment.id,
+        }),
+      );
+
+      if (target?.type === "text") {
+        const offset = Math.min(selection.current.offset, target.text.length);
+        const before = target.text.slice(0, offset);
+        const after = target.text.slice(offset);
+        persist([
+          ...current.slice(0, requestedIndex),
+          ...(before ? [{ type: "text" as const, text: before }] : []),
+          ...attachmentBlocks,
+          { type: "text", text: after },
+          ...current.slice(requestedIndex + 1),
+        ]);
+      } else {
+        persist([...current, ...attachmentBlocks, { type: "text", text: "" }]);
+      }
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div
+      className="task-document mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition focus-within:border-[#0a84ff]/40 focus-within:ring-2 focus-within:ring-[#0a84ff]/10"
+      data-testid="task-description-document"
+    >
+      <div className="space-y-4 px-4 py-4 sm:px-6 sm:py-5">
+        {blocks.map((block, index) => {
+          if (block.type === "text") {
+            return (
+              <textarea
+                key={`${task.id}-text-${index}`}
+                value={block.text}
+                rows={Math.min(
+                  24,
+                  Math.max(5, block.text.split("\n").length + 2),
+                )}
+                onChange={(event) => updateText(index, event.target.value)}
+                onSelect={(event) => {
+                  selection.current = {
+                    blockIndex: index,
+                    offset: event.currentTarget.selectionStart,
+                  };
+                }}
+                onFocus={(event) => {
+                  selection.current = {
+                    blockIndex: index,
+                    offset: event.currentTarget.selectionStart,
+                  };
+                }}
+                onBlur={() => persist(blocksRef.current)}
+                placeholder="Escribí el brief, contexto, objetivos y referencias de esta tarea…"
+                className="block min-h-28 w-full resize-y border-0 bg-transparent text-[13px] leading-6 text-slate-700 outline-none placeholder:text-slate-400"
+                aria-label="Descripción de la tarea"
+              />
+            );
+          }
+
+          const attachment = task.attachments.find(
+            (item) =>
+              item.id === block.attachmentId && !item.deletedAt,
+          );
+          if (!attachment) return null;
+          return (
+            <div
+              key={`${task.id}-attachment-${block.attachmentId}`}
+              className="group/embedded relative"
+              data-testid="embedded-description-block"
+            >
+              <EmbeddedTaskAttachment
+                attachment={attachment}
+                onOpen={() => onOpen(attachment)}
+              />
+              <button
+                type="button"
+                onClick={() =>
+                  persist(
+                    blocksRef.current.filter(
+                      (_, blockIndex) => blockIndex !== index,
+                    ),
+                  )
+                }
+                className="focus-ring absolute right-2 top-2 grid size-7 place-items-center rounded-full bg-slate-950/70 text-white opacity-0 shadow-lg backdrop-blur transition hover:bg-rose-600 group-hover/embedded:opacity-100 focus:opacity-100"
+                aria-label={`Quitar ${attachment.name} de la descripción`}
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex items-center gap-2 border-t border-slate-100 bg-slate-50/70 px-3 py-2">
+        <button
+          type="button"
+          disabled={uploading}
+          onClick={() => fileInput.current?.click()}
+          className="focus-ring flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[9px] font-semibold text-[#0879ea] hover:bg-[#0a84ff]/10 disabled:opacity-50"
+          aria-label="Insertar imagen o archivo en la descripción"
+        >
+          {uploading ? (
+            <LoaderCircle className="size-3.5 animate-spin" />
+          ) : (
+            <ImagePlus className="size-3.5" />
+          )}
+          {uploading ? "Insertando…" : "Insertar imagen o archivo"}
+        </button>
+        <span className="ml-auto hidden text-[8px] text-slate-400 sm:inline">
+          Se inserta donde dejaste el cursor
+        </span>
+      </div>
+      <input
+        ref={fileInput}
+        type="file"
+        multiple
+        aria-label="Seleccionar archivos para la tarea"
+        className="sr-only"
+        onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
+          void insertFiles(files);
+          event.target.value = "";
+        }}
+      />
+    </div>
   );
 }
 
@@ -1038,8 +1266,14 @@ function TaskList({
           }
         >
           <div
+            onClick={(event) => {
+              const interactiveTarget = (
+                event.target as HTMLElement
+              ).closest("button, a, input, select, textarea, label");
+              if (!interactiveTarget) onSelect(task);
+            }}
             className={clsx(
-              "hidden grid-cols-[minmax(300px,1.7fr)_minmax(130px,.7fr)_108px_122px_54px] items-center px-5 transition hover:bg-[#f2f7ff] md:grid",
+              "task-row-interactive hidden cursor-pointer grid-cols-[minmax(300px,1.7fr)_minmax(130px,.7fr)_108px_122px_54px] items-center px-5 transition md:grid",
               compact || projectMode ? "py-2" : "py-3.5",
             )}
           >
@@ -1882,7 +2116,7 @@ function TaskDrawer({
   onCommentDelete: (commentId: string) => void;
   onSubtaskCreate: (title: string, assigneeId: string) => void;
   onSubtaskUpdate: (taskId: string, input: UpdateTaskInput) => void;
-  onAttachmentUpload: (files: File[]) => void;
+  onAttachmentUpload: (files: File[]) => Promise<TaskAttachment[]>;
   onAttachmentDelete: (attachment: TaskAttachment) => void;
   onAttachmentRestore: (attachment: TaskAttachment) => void;
   onAttachmentStatus: (
@@ -2060,9 +2294,16 @@ function TaskDrawer({
           </h2>
           <TaskLastEdited task={task} />
 
-          <details open>
+          <details className="group mt-5">
+            <summary className="focus-ring flex cursor-pointer list-none items-center gap-2 rounded-lg py-2 text-[12px] font-semibold text-slate-700 hover:text-[#0879ea]">
+              <ChevronDown className="size-4 transition group-open:rotate-180" />
+              Detalles
+              <span className="ml-2 hidden truncate text-[10px] font-normal text-slate-400 sm:inline">
+                {task.assignee?.name ?? "Sin responsable"} · {task.dueLabel}
+              </span>
+            </summary>
             <div
-              className="mt-7 grid grid-cols-[112px_1fr] gap-y-4 text-[12px] lg:grid-cols-[132px_1fr]"
+              className="mt-3 grid grid-cols-[112px_1fr] gap-y-4 rounded-2xl border border-slate-100 bg-slate-50/50 p-4 text-[12px] sm:p-5 lg:grid-cols-[132px_1fr]"
             >
             <span className="flex items-center gap-2 text-slate-400">
               <Circle className="size-3.5" />
@@ -2329,71 +2570,15 @@ function TaskDrawer({
           <div className="my-7 h-px bg-slate-100" />
 
           <section>
-            <h3 className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
+            <h3 className="text-[15px] font-bold tracking-[-0.01em] text-slate-800">
               Descripción
             </h3>
-            <div
-              className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition focus-within:border-[#0a84ff]/40 focus-within:ring-2 focus-within:ring-[#0a84ff]/10"
-              data-testid="task-description-document"
-            >
-              <textarea
-                key={`${task.id}-description`}
-                defaultValue={task.description}
-                onBlur={(event) => {
-                  const description = event.target.value.trim();
-                  if (description !== task.description) {
-                    onTaskUpdate({ description });
-                  }
-                }}
-                placeholder="Escribí el brief, contexto, objetivos y referencias de esta tarea…"
-                className="min-h-40 w-full resize-y border-0 bg-transparent px-4 py-4 text-[13px] leading-6 text-slate-700 outline-none placeholder:text-slate-400"
-                aria-label="Descripción de la tarea"
-              />
-              {task.attachments.some(
-                (attachment) => !attachment.deletedAt,
-              ) && (
-                <div
-                  className="space-y-5 px-4 pb-4"
-                  data-testid="description-attachments"
-                >
-                  {task.attachments
-                    .filter((attachment) => !attachment.deletedAt)
-                    .map((attachment) => (
-                      <EmbeddedTaskAttachment
-                        key={attachment.id}
-                        attachment={attachment}
-                        onOpen={() => onAttachmentOpen(attachment)}
-                      />
-                    ))}
-                </div>
-              )}
-              <div className="flex items-center gap-2 border-t border-slate-100 bg-slate-50/70 px-3 py-2">
-                <button
-                  type="button"
-                  onClick={() => attachmentInput.current?.click()}
-                  className="focus-ring flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[9px] font-semibold text-[#0879ea] hover:bg-[#0a84ff]/10"
-                  aria-label="Insertar imagen o archivo en la descripción"
-                >
-                  <ImagePlus className="size-3.5" />
-                  Insertar imagen o archivo
-                </button>
-                <span className="ml-auto hidden text-[8px] text-slate-400 sm:inline">
-                  Se guarda al salir del campo
-                </span>
-              </div>
-              <input
-                ref={attachmentInput}
-                type="file"
-                multiple
-                aria-label="Seleccionar archivos para la tarea"
-                className="sr-only"
-                onChange={(event) => {
-                  const files = Array.from(event.target.files ?? []);
-                  if (files.length) onAttachmentUpload(files);
-                  event.target.value = "";
-                }}
-              />
-            </div>
+            <TaskDescriptionEditor
+              task={task}
+              onUpdate={(description) => onTaskUpdate({ description })}
+              onUpload={onAttachmentUpload}
+              onOpen={onAttachmentOpen}
+            />
             <label className="mt-4 block">
               <span className="mb-2 flex items-center gap-2 text-[10px] font-semibold text-slate-500">
                 <Tags className="size-3.5" />
@@ -2425,27 +2610,37 @@ function TaskDrawer({
             </label>
           </section>
 
-          <ProcessBriefAndHistory
-            task={task}
-            subtasks={subtasks}
-            timeEntries={timeEntries}
-            onUpdate={onTaskUpdate}
-            notify={notify}
-          />
+          <details className="group/audit mt-8 rounded-2xl border border-slate-200 bg-slate-50/50">
+            <summary className="focus-ring flex cursor-pointer list-none items-center gap-3 px-4 py-3.5 text-[12px] font-semibold text-slate-700 hover:text-[#0879ea]">
+              <Activity className="size-4 text-violet-500" />
+              Tiempo, proceso e historial
+              <span className="hidden text-[10px] font-normal text-slate-400 sm:inline">
+                {formatDuration(trackedSeconds)} · {task.events?.length ?? 0} movimientos
+              </span>
+              <ChevronDown className="ml-auto size-4 transition group-open/audit:rotate-180" />
+            </summary>
+            <div className="border-t border-slate-100 px-4 pb-4">
+              <ProcessBriefAndHistory
+                task={task}
+                subtasks={subtasks}
+                timeEntries={timeEntries}
+                onUpdate={onTaskUpdate}
+                notify={notify}
+              />
 
-          <TaskTimerSection
-            task={task}
-            entries={timeEntries}
-            activeEntry={activeTimeEntry}
-            currency={currency}
-            canTrack={canTrackTime}
-            canAudit={canAuditTime}
-            currentUserId={currentUserId}
-            onStart={onTimerStart}
-            onStop={onTimerStop}
-            onManualCreate={onManualTimeCreate}
-            onDelete={onTimeEntryDelete}
-          />
+              <TaskTimerSection
+                task={task}
+                entries={timeEntries}
+                activeEntry={activeTimeEntry}
+                currency={currency}
+                canTrack={canTrackTime}
+                canAudit={canAuditTime}
+                currentUserId={currentUserId}
+                onStart={onTimerStart}
+                onStop={onTimerStop}
+                onManualCreate={onManualTimeCreate}
+                onDelete={onTimeEntryDelete}
+              />
 
           <section className="mt-8 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
             <div className="flex items-start justify-between gap-3">
@@ -2516,6 +2711,8 @@ function TaskDrawer({
               )}
             <ActivityHistory task={task} subtasks={subtasks} />
           </section>
+            </div>
+          </details>
 
           <section className="mt-8">
             <div className="flex items-center justify-between">
@@ -2531,6 +2728,18 @@ function TaskDrawer({
                 Adjuntar
               </button>
             </div>
+            <input
+              ref={attachmentInput}
+              type="file"
+              multiple
+              aria-label="Seleccionar adjuntos de la tarea"
+              className="sr-only"
+              onChange={(event) => {
+                const files = Array.from(event.target.files ?? []);
+                if (files.length) void onAttachmentUpload(files);
+                event.target.value = "";
+              }}
+            />
             <div className="mt-3 space-y-2">
               {task.attachments.map((attachment) => (
                 <div
@@ -3030,9 +3239,12 @@ function NewTaskModal({
               />
               {pendingFiles.length > 0 && (
                 <div
-                  className="space-y-3 border-t border-slate-100 bg-slate-50/70 p-3"
+                  className="space-y-4 px-4 pb-4"
                   data-testid="new-task-description-attachments"
                 >
+                  <p className="text-[9px] font-semibold text-slate-400">
+                    Insertado dentro de la descripción
+                  </p>
                   {pendingFiles.map((file, index) => (
                     <PendingDescriptionAttachment
                       key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
@@ -5600,12 +5812,22 @@ export function TaskaApp() {
         }
       }
       let failedUploads = 0;
+      const uploadedAttachmentIds: string[] = [];
       for (const file of files) {
         try {
-          await uploadAttachment(task, file);
+          const attachment = await uploadAttachment(task, file);
+          uploadedAttachmentIds.push(attachment.id);
         } catch {
           failedUploads += 1;
         }
+      }
+      if (uploadedAttachmentIds.length > 0) {
+        await updateTask(task.id, {
+          description: appendDescriptionAttachments(
+            input.description,
+            uploadedAttachmentIds,
+          ),
+        });
       }
       setShowNewTask(false);
       setSelectedTaskId(task.id);
@@ -6347,25 +6569,26 @@ export function TaskaApp() {
             void updateTask(taskId, input);
             notify("Subtarea actualizada");
           }}
-          onAttachmentUpload={(files) => {
-            void (async () => {
-              try {
-                for (const file of files) {
-                  await uploadAttachment(selectedTask, file);
-                }
-                notify(
-                  files.length === 1
-                    ? "Archivo adjuntado"
-                    : `${files.length} archivos adjuntados`,
-                );
-              } catch (error: unknown) {
-                notify(
-                  error instanceof Error
-                    ? error.message
-                    : "No se pudieron adjuntar los archivos",
-                );
+          onAttachmentUpload={async (files) => {
+            const uploaded: TaskAttachment[] = [];
+            try {
+              for (const file of files) {
+                uploaded.push(await uploadAttachment(selectedTask, file));
               }
-            })();
+              notify(
+                files.length === 1
+                  ? "Archivo insertado"
+                  : `${files.length} archivos insertados`,
+              );
+              return uploaded;
+            } catch (error: unknown) {
+              notify(
+                error instanceof Error
+                  ? error.message
+                  : "No se pudieron adjuntar los archivos",
+              );
+              return uploaded;
+            }
           }}
           onAttachmentDelete={(attachment) => {
             void deleteAttachment(selectedTask.id, attachment);
