@@ -13,6 +13,8 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Circle,
   Clock3,
   Columns3,
@@ -100,6 +102,7 @@ import {
   TaskLastEdited,
 } from "@/components/process-archive";
 import { useTaskWorkspace } from "@/hooks/use-task-workspace";
+import { useStrategicWork, type GoalStatus } from "@/hooks/use-strategic-work";
 import {
   appendDescriptionAttachments,
   parseTaskDescription,
@@ -1712,56 +1715,129 @@ function InboxView({
   );
 }
 
-function PortfoliosView({ projects, tasks }: { projects: Project[]; tasks: Task[] }) {
+function PortfoliosView({
+  workspaceId,
+  projects,
+  tasks,
+  people,
+}: {
+  workspaceId: string;
+  projects: Project[];
+  tasks: Task[];
+  people: Person[];
+}) {
+  const strategic = useStrategicWork(workspaceId);
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [ownerId, setOwnerId] = useState("");
+  const [projectIds, setProjectIds] = useState<string[]>([]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (name.trim().length < 2 || !projectIds.length) return;
+    await strategic.createPortfolio({
+      name: name.trim(),
+      description: description.trim(),
+      color: "#a970ff",
+      ownerId: ownerId || null,
+      projectIds,
+    });
+    setName("");
+    setDescription("");
+    setOwnerId("");
+    setProjectIds([]);
+    setCreating(false);
+  }
+
   return (
     <section className="asana-page animate-enter">
       <div className="asana-page-heading">
-        <div><h1>Portafolios</h1><p>Seguimiento ejecutivo de proyectos, riesgo y avance.</p></div>
-        <button className="asana-primary-button"><Plus className="size-4" />Nuevo portafolio</button>
+        <div><h1>Portafolios</h1><p>Seguimiento ejecutivo de grupos de proyectos, riesgo y avance.</p></div>
+        <button onClick={() => setCreating(true)} className="asana-primary-button"><Plus className="size-4" />Nuevo portafolio</button>
       </div>
-      <div className="asana-table-shell">
-        <div className="asana-table-row asana-table-head">
-          <span>Proyecto</span><span>Estado</span><span>Avance</span><span>Vencimiento</span><span>Responsable</span>
+      {strategic.portfolios.length ? (
+        <div className="space-y-4">
+          {strategic.portfolios.map((portfolio) => {
+            const portfolioProjects = projects.filter((project) => portfolio.projectIds.includes(project.id));
+            const portfolioTasks = tasks.filter((task) => task.projects.some((project) => portfolio.projectIds.includes(project.id)));
+            const completed = portfolioTasks.filter((task) => task.status === "resuelto").length;
+            const progress = portfolioTasks.length ? Math.round((completed / portfolioTasks.length) * 100) : 0;
+            const owner = people.find((person) => person.id === portfolio.ownerId);
+            return (
+              <article key={portfolio.id} className="asana-table-shell overflow-hidden">
+                <header className="flex items-center gap-3 border-b border-slate-200 px-5 py-4">
+                  <span className="size-3 rounded" style={{ backgroundColor: portfolio.color }} />
+                  <div className="min-w-0 flex-1">
+                    <h2 className="truncate text-[13px] font-bold text-slate-800">{portfolio.name}</h2>
+                    <p className="mt-0.5 text-[9px] text-slate-400">{portfolio.description || `${portfolioProjects.length} proyectos`}</p>
+                  </div>
+                  {owner && <Avatar person={owner} size="sm" />}
+                  <button onClick={() => void strategic.deletePortfolio(portfolio.id)} className="focus-ring rounded-md p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600" aria-label={`Eliminar ${portfolio.name}`}><Trash2 className="size-4" /></button>
+                </header>
+                <div className="asana-table-row asana-table-head"><span>Proyecto</span><span>Estado</span><span>Avance</span><span>Tareas</span><span>Responsable</span></div>
+                {portfolioProjects.map((project) => {
+                  const projectTasks = portfolioTasks.filter((task) => task.projects.some((item) => item.id === project.id));
+                  const projectDone = projectTasks.filter((task) => task.status === "resuelto").length;
+                  const projectProgress = projectTasks.length ? Math.round((projectDone / projectTasks.length) * 100) : 0;
+                  return <div key={project.id} className="asana-table-row"><span className="asana-project-cell"><i style={{background: project.color}} />{project.name}</span><span><b className="asana-status-pill is-track">En curso</b></span><span><span className="asana-progress"><i style={{width: `${projectProgress}%`}} /></span>{projectProgress}%</span><span>{projectTasks.length}</span><span>Equipo</span></div>;
+                })}
+                <footer className="flex items-center gap-3 bg-slate-50 px-5 py-3 text-[9px] text-slate-500"><span>Avance total</span><span className="asana-progress flex-1"><i style={{width: `${progress}%`}} /></span><strong>{progress}%</strong></footer>
+              </article>
+            );
+          })}
         </div>
-        {projects.filter((project) => !project.archived).map((project) => {
-          const projectTasks = tasks.filter((task) => task.projects.some((item) => item.id === project.id));
-          const complete = projectTasks.filter((task) => task.status === "resuelto").length;
-          const progress = projectTasks.length ? Math.round((complete / projectTasks.length) * 100) : 0;
-          return (
-            <div key={project.id} className="asana-table-row">
-              <span className="asana-project-cell"><i style={{background: project.color}} />{project.name}</span>
-              <span><b className="asana-status-pill is-track">En curso</b></span>
-              <span><span className="asana-progress"><i style={{width: `${progress}%`}} /></span>{progress}%</span>
-              <span>—</span><span>Equipo</span>
-            </div>
-          );
-        })}
-      </div>
+      ) : (
+        <div className="asana-empty-panel asana-table-shell"><Briefcase className="size-9" /><strong>Organizá varios proyectos en un portafolio</strong><span>Compará avance, carga y riesgo sin abrir cada proyecto.</span><button onClick={() => setCreating(true)} className="asana-primary-button"><Plus className="size-4" />Crear portafolio</button></div>
+      )}
+      {creating && (
+        <div className="fixed inset-0 z-[90] grid place-items-center bg-slate-950/45 p-4" role="dialog" aria-modal="true" aria-label="Nuevo portafolio">
+          <form onSubmit={(event) => void submit(event)} className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+            <div className="flex items-center"><div><h2 className="text-[16px] font-bold text-slate-900">Nuevo portafolio</h2><p className="mt-1 text-[10px] text-slate-400">Agrupá los proyectos que querés supervisar.</p></div><button type="button" onClick={() => setCreating(false)} className="ml-auto rounded-md p-2 text-slate-400 hover:bg-slate-100" aria-label="Cerrar"><X className="size-4" /></button></div>
+            <label className="mt-5 block text-[10px] font-semibold text-slate-600">Nombre<input value={name} onChange={(event) => setName(event.target.value)} autoFocus className="mt-2 h-10 w-full rounded-lg border border-slate-200 px-3 text-[11px]" placeholder="Ej. Campañas Q3" /></label>
+            <label className="mt-4 block text-[10px] font-semibold text-slate-600">Descripción<textarea value={description} onChange={(event) => setDescription(event.target.value)} className="mt-2 min-h-20 w-full rounded-lg border border-slate-200 p-3 text-[11px]" /></label>
+            <label className="mt-4 block text-[10px] font-semibold text-slate-600">Responsable<select value={ownerId} onChange={(event) => setOwnerId(event.target.value)} className="mt-2 h-10 w-full rounded-lg border border-slate-200 px-3 text-[11px]"><option value="">Sin responsable</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
+            <fieldset className="mt-4"><legend className="text-[10px] font-semibold text-slate-600">Proyectos</legend><div className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2">{projects.filter((project) => !project.archived).map((project) => <label key={project.id} className="flex items-center gap-2 rounded-md px-2 py-2 text-[10px] text-slate-600 hover:bg-slate-50"><input type="checkbox" checked={projectIds.includes(project.id)} onChange={() => setProjectIds((current) => current.includes(project.id) ? current.filter((id) => id !== project.id) : [...current, project.id])} />{project.name}</label>)}</div></fieldset>
+            <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={() => setCreating(false)} className="asana-secondary-button">Cancelar</button><button disabled={name.trim().length < 2 || !projectIds.length} className="asana-primary-button">Crear portafolio</button></div>
+          </form>
+        </div>
+      )}
     </section>
   );
 }
 
-function GoalsView({ tasks }: { tasks: Task[] }) {
-  const completed = tasks.filter((task) => task.status === "resuelto").length;
-  const progress = tasks.length ? Math.round((completed / tasks.length) * 100) : 0;
-  return (
-    <section className="asana-page animate-enter">
-      <div className="asana-page-heading">
-        <div><h1>Objetivos</h1><p>Conectá el trabajo diario con los resultados del negocio.</p></div>
-        <button className="asana-primary-button"><Plus className="size-4" />Nuevo objetivo</button>
-      </div>
-      <div className="asana-goal-card">
-        <div className="asana-goal-icon"><Target className="size-5" /></div>
-        <div className="min-w-0 flex-1">
-          <span className="asana-section-label">Objetivo del espacio</span>
-          <h2>Entregar el trabajo planificado en fecha</h2>
-          <p>{completed} de {tasks.length} tareas completadas</p>
-          <div className="asana-goal-progress"><i style={{width: `${progress}%`}} /></div>
-        </div>
-        <strong className="asana-goal-percent">{progress}%</strong>
-      </div>
-    </section>
-  );
+function GoalsView({ workspaceId, projects, people }: { workspaceId: string; projects: Project[]; people: Person[] }) {
+  const strategic = useStrategicWork(workspaceId);
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [ownerId, setOwnerId] = useState("");
+  const [projectIds, setProjectIds] = useState<string[]>([]);
+  const statusLabels: Record<GoalStatus, string> = { on_track: "En curso", at_risk: "En riesgo", off_track: "Fuera de curso", complete: "Completo" };
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (name.trim().length < 2) return;
+    await strategic.createGoal({ name: name.trim(), description: description.trim(), status: "on_track", progress: 0, dueDate: dueDate || null, ownerId: ownerId || null, projectIds });
+    setName(""); setDescription(""); setDueDate(""); setOwnerId(""); setProjectIds([]); setCreating(false);
+  }
+
+  return <section className="asana-page animate-enter">
+    <div className="asana-page-heading"><div><h1>Objetivos</h1><p>Conectá el trabajo diario con resultados medibles.</p></div><button onClick={() => setCreating(true)} className="asana-primary-button"><Plus className="size-4" />Nuevo objetivo</button></div>
+    <div className="space-y-3">
+      {strategic.goals.map((goal) => {
+        const owner = people.find((person) => person.id === goal.ownerId);
+        return <article key={goal.id} className="asana-goal-card">
+          <div className="asana-goal-icon"><Target className="size-5" /></div>
+          <div className="min-w-0 flex-1"><span className="asana-section-label">{statusLabels[goal.status]}{goal.dueDate ? ` · ${new Intl.DateTimeFormat("es-UY", { dateStyle: "medium" }).format(new Date(`${goal.dueDate}T12:00:00`))}` : ""}</span><h2>{goal.name}</h2><p>{goal.description || `${goal.projectIds.length} proyectos vinculados`}</p><div className="asana-goal-progress"><i style={{width: `${goal.progress}%`}} /></div><label className="mt-3 flex items-center gap-3 text-[9px] text-slate-400">Avance<input type="range" min="0" max="100" value={goal.progress} onChange={(event) => void strategic.updateGoalProgress(goal.id, Number(event.target.value))} className="w-40" /></label></div>
+          {owner && <Avatar person={owner} size="sm" />}<strong className="asana-goal-percent">{goal.progress}%</strong><button onClick={() => void strategic.deleteGoal(goal.id)} className="rounded-md p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600" aria-label={`Eliminar ${goal.name}`}><Trash2 className="size-4" /></button>
+        </article>;
+      })}
+      {!strategic.goals.length && <div className="asana-empty-panel asana-table-shell"><Target className="size-9" /><strong>Definí el primer objetivo del espacio</strong><span>Asigná responsable, fecha y proyectos relacionados.</span><button onClick={() => setCreating(true)} className="asana-primary-button"><Plus className="size-4" />Crear objetivo</button></div>}
+    </div>
+    {creating && <div className="fixed inset-0 z-[90] grid place-items-center bg-slate-950/45 p-4" role="dialog" aria-modal="true" aria-label="Nuevo objetivo"><form onSubmit={(event) => void submit(event)} className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"><div className="flex items-center"><div><h2 className="text-[16px] font-bold text-slate-900">Nuevo objetivo</h2><p className="mt-1 text-[10px] text-slate-400">Definí un resultado medible.</p></div><button type="button" onClick={() => setCreating(false)} className="ml-auto rounded-md p-2 text-slate-400 hover:bg-slate-100" aria-label="Cerrar"><X className="size-4" /></button></div><label className="mt-5 block text-[10px] font-semibold text-slate-600">Nombre<input value={name} onChange={(event) => setName(event.target.value)} autoFocus className="mt-2 h-10 w-full rounded-lg border border-slate-200 px-3 text-[11px]" /></label><label className="mt-4 block text-[10px] font-semibold text-slate-600">Descripción<textarea value={description} onChange={(event) => setDescription(event.target.value)} className="mt-2 min-h-20 w-full rounded-lg border border-slate-200 p-3 text-[11px]" /></label><div className="mt-4 grid gap-3 sm:grid-cols-2"><label className="text-[10px] font-semibold text-slate-600">Fecha objetivo<input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} className="mt-2 h-10 w-full rounded-lg border border-slate-200 px-3 text-[11px]" /></label><label className="text-[10px] font-semibold text-slate-600">Responsable<select value={ownerId} onChange={(event) => setOwnerId(event.target.value)} className="mt-2 h-10 w-full rounded-lg border border-slate-200 px-3 text-[11px]"><option value="">Sin responsable</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label></div><fieldset className="mt-4"><legend className="text-[10px] font-semibold text-slate-600">Proyectos vinculados</legend><div className="mt-2 max-h-36 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2">{projects.filter((project) => !project.archived).map((project) => <label key={project.id} className="flex items-center gap-2 rounded-md px-2 py-2 text-[10px] text-slate-600 hover:bg-slate-50"><input type="checkbox" checked={projectIds.includes(project.id)} onChange={() => setProjectIds((current) => current.includes(project.id) ? current.filter((id) => id !== project.id) : [...current, project.id])} />{project.name}</label>)}</div></fieldset><div className="mt-6 flex justify-end gap-2"><button type="button" onClick={() => setCreating(false)} className="asana-secondary-button">Cancelar</button><button disabled={name.trim().length < 2} className="asana-primary-button">Crear objetivo</button></div></form></div>}
+  </section>;
 }
 
 function ReportingView({ tasks, projects, people }: { tasks: Task[]; projects: Project[]; people: Person[] }) {
@@ -2543,7 +2619,7 @@ function ProjectWorkspaceView({
       </header>
 
       <div className="py-4">
-        {tab === "overview" || tab === "dashboard" ? (
+        {tab === "overview" ? (
           <div className="px-5 sm:px-7">
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               {metrics.map((metric) => {
@@ -2583,6 +2659,10 @@ function ProjectWorkspaceView({
               onComplete={onComplete}
             />
           </div>
+        ) : tab === "dashboard" ? (
+          <div className="px-5 sm:px-7">
+            <ProjectDashboard tasks={tasks} onSelect={onSelect} />
+          </div>
         ) : tab === "board" || tab === "workflow" ? (
           <div className="px-5 sm:px-7">
             <KanbanBoard
@@ -2592,7 +2672,11 @@ function ProjectWorkspaceView({
               onMove={onMove}
             />
           </div>
-        ) : tab === "timeline" || tab === "calendar" ? (
+        ) : tab === "calendar" ? (
+          <div className="px-5 sm:px-7">
+            <ProjectCalendar tasks={tasks} onSelect={onSelect} />
+          </div>
+        ) : tab === "timeline" ? (
           <div className="px-5 sm:px-7">
             <ProjectSchedule tasks={tasks} onSelect={onSelect} />
           </div>
@@ -2686,6 +2770,304 @@ function ProjectFilesView({ tasks, onSelect }: { tasks: Task[]; onSelect: (task:
         {!files.length && <div className="asana-empty-panel col-span-full"><Files className="size-8" /><strong>Sin archivos</strong><span>Los adjuntos de las tareas aparecerán acá.</span></div>}
       </div>
     </section>
+  );
+}
+
+function ProjectDashboard({
+  tasks,
+  onSelect,
+}: {
+  tasks: Task[];
+  onSelect: (task: Task) => void;
+}) {
+  const statusRows = (Object.keys(statusMeta) as TaskStatus[]).map((status) => ({
+    status,
+    label: statusMeta[status].label,
+    count: tasks.filter((task) => task.status === status).length,
+  }));
+  const activeTasks = tasks.filter((task) => task.status !== "resuelto");
+  const overdueTasks = activeTasks.filter(
+    (task) => task.dueDate && new Date(`${task.dueDate}T23:59:59`) < new Date(),
+  );
+  const assignees = Array.from(
+    activeTasks.reduce((result, task) => {
+      const key = task.assignee?.id ?? "unassigned";
+      const current = result.get(key) ?? {
+        person: task.assignee,
+        count: 0,
+        urgent: 0,
+      };
+      current.count += 1;
+      if (task.priority === "urgente" || task.priority === "alta") {
+        current.urgent += 1;
+      }
+      result.set(key, current);
+      return result;
+    }, new Map<string, { person: Person | null; count: number; urgent: number }>()),
+  ).sort((a, b) => b[1].count - a[1].count);
+  const maxLoad = Math.max(1, ...assignees.map(([, item]) => item.count));
+  const upcoming = [...activeTasks]
+    .filter((task) => task.dueDate)
+    .sort((a, b) => (a.dueDate ?? "").localeCompare(b.dueDate ?? ""))
+    .slice(0, 5);
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[1.2fr_.8fr]" data-testid="project-dashboard">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-[12px] font-bold text-slate-800">Tareas por estado</h2>
+          <p className="mt-1 text-[9px] text-slate-400">Distribución del trabajo del proyecto.</p>
+          <div className="mt-5 flex h-3 overflow-hidden rounded-full bg-slate-100">
+            {statusRows.map((row) => (
+              <span
+                key={row.status}
+                style={{
+                  width: `${tasks.length ? (row.count / tasks.length) * 100 : 0}%`,
+                  backgroundColor:
+                    row.status === "resuelto"
+                      ? "#2e9b78"
+                      : row.status === "en_progreso"
+                        ? "#4573d2"
+                        : row.status === "esperando"
+                          ? "#f6c344"
+                          : "#a970ff",
+                }}
+              />
+            ))}
+          </div>
+          <div className="mt-5 space-y-3">
+            {statusRows.map((row) => (
+              <div key={row.status} className="flex items-center text-[10px]">
+                <span className={clsx("mr-2 size-2 rounded-full", statusMeta[row.status].dot)} />
+                <span className="text-slate-500">{row.label}</span>
+                <strong className="ml-auto text-slate-800">{row.count}</strong>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-[12px] font-bold text-slate-800">Carga del equipo</h2>
+          <p className="mt-1 text-[9px] text-slate-400">Tareas abiertas por responsable.</p>
+          <div className="mt-5 space-y-4">
+            {assignees.map(([key, item]) => (
+              <div key={key}>
+                <div className="mb-1.5 flex items-center gap-2">
+                  <Avatar person={item.person} size="sm" />
+                  <span className="min-w-0 flex-1 truncate text-[10px] font-semibold text-slate-600">
+                    {item.person?.name ?? "Sin responsable"}
+                  </span>
+                  <span className="text-[9px] text-slate-400">{item.count}</span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    className={clsx(
+                      "h-full rounded-full",
+                      item.urgent > 1 ? "bg-rose-500" : "bg-violet-500",
+                    )}
+                    style={{ width: `${(item.count / maxLoad) * 100}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+            {!assignees.length && <p className="text-[10px] text-slate-400">No hay trabajo activo.</p>}
+          </div>
+        </article>
+
+        <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:col-span-2">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-[12px] font-bold text-slate-800">Próximas entregas</h2>
+              <p className="mt-1 text-[9px] text-slate-400">Fechas que requieren atención.</p>
+            </div>
+            {overdueTasks.length > 0 && (
+              <span className="rounded-full bg-rose-50 px-2.5 py-1 text-[9px] font-bold text-rose-600">
+                {overdueTasks.length} vencidas
+              </span>
+            )}
+          </div>
+          <div className="mt-4 divide-y divide-slate-100">
+            {upcoming.map((task) => (
+              <button
+                key={task.id}
+                type="button"
+                onClick={() => onSelect(task)}
+                className="flex w-full items-center gap-3 py-3 text-left hover:bg-slate-50"
+              >
+                <span className={clsx("size-2 rounded-full", statusMeta[task.status].dot)} />
+                <span className="min-w-0 flex-1 truncate text-[10px] font-semibold text-slate-700">
+                  {task.title}
+                </span>
+                <PriorityBadge priority={task.priority} />
+                <span className="text-[9px] text-slate-400">{task.dueLabel}</span>
+              </button>
+            ))}
+            {!upcoming.length && <p className="py-5 text-[10px] text-slate-400">No hay entregas programadas.</p>}
+          </div>
+        </article>
+      </div>
+
+      <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-[12px] font-bold text-slate-800">Salud del proyecto</h2>
+        <p className="mt-1 text-[9px] text-slate-400">Indicadores calculados en tiempo real.</p>
+        <div className="mt-6 grid grid-cols-2 gap-3">
+          {[
+            { label: "Abiertas", value: activeTasks.length, tone: "text-blue-600 bg-blue-50" },
+            { label: "Vencidas", value: overdueTasks.length, tone: "text-rose-600 bg-rose-50" },
+            { label: "Sin fecha", value: activeTasks.filter((task) => !task.dueDate).length, tone: "text-amber-600 bg-amber-50" },
+            { label: "Completadas", value: tasks.length - activeTasks.length, tone: "text-emerald-600 bg-emerald-50" },
+          ].map((metric) => (
+            <div key={metric.label} className={clsx("rounded-xl p-4", metric.tone)}>
+              <strong className="block text-[24px] tracking-tight">{metric.value}</strong>
+              <span className="mt-1 block text-[9px] font-semibold opacity-75">{metric.label}</span>
+            </div>
+          ))}
+        </div>
+        <div className="mt-6 rounded-xl bg-slate-50 p-4">
+          <div className="flex items-center justify-between text-[10px]">
+            <span className="font-semibold text-slate-500">Avance general</span>
+            <strong className="text-slate-800">
+              {tasks.length ? Math.round(((tasks.length - activeTasks.length) / tasks.length) * 100) : 0}%
+            </strong>
+          </div>
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
+            <div
+              className="h-full rounded-full bg-emerald-500"
+              style={{
+                width: `${tasks.length ? ((tasks.length - activeTasks.length) / tasks.length) * 100 : 0}%`,
+              }}
+            />
+          </div>
+        </div>
+      </article>
+    </div>
+  );
+}
+
+function ProjectCalendar({
+  tasks,
+  onSelect,
+}: {
+  tasks: Task[];
+  onSelect: (task: Task) => void;
+}) {
+  const [cursor, setCursor] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const firstWeekday = (cursor.getDay() + 6) % 7;
+  const gridStart = new Date(cursor.getFullYear(), cursor.getMonth(), 1 - firstWeekday);
+  const days = Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(gridStart);
+    date.setDate(gridStart.getDate() + index);
+    return date;
+  });
+  const tasksByDate = tasks.reduce((result, task) => {
+    if (!task.dueDate) return result;
+    result[task.dueDate] = [...(result[task.dueDate] ?? []), task];
+    return result;
+  }, {} as Record<string, Task[]>);
+  const unscheduled = tasks.filter((task) => !task.dueDate && task.status !== "resuelto");
+  const monthLabel = new Intl.DateTimeFormat("es-UY", {
+    month: "long",
+    year: "numeric",
+  }).format(cursor);
+  const dateKey = (date: Date) =>
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+
+  function moveMonth(offset: number) {
+    setCursor((current) => new Date(current.getFullYear(), current.getMonth() + offset, 1));
+  }
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" data-testid="project-calendar">
+      <header className="flex flex-wrap items-center gap-3 border-b border-slate-200 px-4 py-3">
+        <div>
+          <h2 className="capitalize text-[13px] font-bold text-slate-800">{monthLabel}</h2>
+          <p className="mt-0.5 text-[9px] text-slate-400">Entregas del proyecto por día.</p>
+        </div>
+        <div className="ml-auto flex items-center gap-1">
+          <button type="button" onClick={() => moveMonth(-1)} className="focus-ring rounded-md p-2 text-slate-500 hover:bg-slate-100" aria-label="Mes anterior">
+            <ChevronLeft className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const now = new Date();
+              setCursor(new Date(now.getFullYear(), now.getMonth(), 1));
+            }}
+            className="focus-ring rounded-md px-3 py-2 text-[9px] font-semibold text-slate-600 hover:bg-slate-100"
+          >
+            Hoy
+          </button>
+          <button type="button" onClick={() => moveMonth(1)} className="focus-ring rounded-md p-2 text-slate-500 hover:bg-slate-100" aria-label="Mes siguiente">
+            <ChevronRight className="size-4" />
+          </button>
+        </div>
+      </header>
+      <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50">
+        {["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((day) => (
+          <span key={day} className="px-2 py-2 text-center text-[8px] font-bold uppercase tracking-[0.08em] text-slate-400">{day}</span>
+        ))}
+      </div>
+      <div className="grid grid-cols-7">
+        {days.map((day) => {
+          const key = dateKey(day);
+          const dayTasks = tasksByDate[key] ?? [];
+          const inMonth = day.getMonth() === cursor.getMonth();
+          return (
+            <div
+              key={key}
+              className={clsx(
+                "min-h-[104px] border-b border-r border-slate-100 p-1.5 sm:min-h-[126px] sm:p-2",
+                !inMonth && "bg-slate-50/60",
+              )}
+            >
+              <span className={clsx(
+                "grid size-6 place-items-center rounded-full text-[9px] font-semibold",
+                key === todayKey ? "bg-violet-600 text-white" : inMonth ? "text-slate-600" : "text-slate-300",
+              )}>
+                {day.getDate()}
+              </span>
+              <div className="mt-1 space-y-1">
+                {dayTasks.slice(0, 3).map((task) => (
+                  <button
+                    key={task.id}
+                    type="button"
+                    onClick={() => onSelect(task)}
+                    className={clsx(
+                      "focus-ring block w-full truncate rounded px-1.5 py-1 text-left text-[8px] font-semibold",
+                      task.status === "resuelto"
+                        ? "bg-emerald-50 text-emerald-700 line-through"
+                        : task.priority === "urgente"
+                          ? "bg-rose-50 text-rose-700"
+                          : "bg-violet-50 text-violet-700",
+                    )}
+                    title={task.title}
+                  >
+                    {task.title}
+                  </button>
+                ))}
+                {dayTasks.length > 3 && <span className="block px-1 text-[8px] text-slate-400">+{dayTasks.length - 3} más</span>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {unscheduled.length > 0 && (
+        <footer className="border-t border-slate-200 bg-slate-50/70 px-4 py-3">
+          <span className="text-[9px] font-bold uppercase tracking-[0.08em] text-slate-400">Sin fecha · {unscheduled.length}</span>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {unscheduled.slice(0, 6).map((task) => (
+              <button key={task.id} type="button" onClick={() => onSelect(task)} className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[9px] font-semibold text-slate-600 hover:border-violet-300 hover:text-violet-600">
+                {task.title}
+              </button>
+            ))}
+          </div>
+        </footer>
+      )}
+    </div>
   );
 }
 
@@ -8154,9 +8536,9 @@ export function TaskaApp() {
               onReadAll={() => void markAllNotificationsRead()}
             />
           ) : view === "portfolios" ? (
-            <PortfoliosView projects={projects} tasks={activeTopLevelTasks} />
+            <PortfoliosView workspaceId={activeWorkspaceId} projects={projects} tasks={activeTopLevelTasks} people={people} />
           ) : view === "goals" ? (
-            <GoalsView tasks={activeTopLevelTasks} />
+            <GoalsView workspaceId={activeWorkspaceId} projects={projects} people={people} />
           ) : view === "reporting" ? (
             <ReportingView tasks={activeTopLevelTasks} projects={projects} people={people} />
           ) : (

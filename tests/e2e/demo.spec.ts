@@ -131,6 +131,54 @@ test("muestra el proyecto como espacio de trabajo con detalle flotante", async (
   await expect(page.getByTestId("task-description-document")).toBeVisible();
 });
 
+test("navega el calendario mensual y muestra indicadores del proyecto", async ({
+  page,
+}) => {
+  await page
+    .getByRole("button", { name: "Lanzamiento Aura", exact: true })
+    .click();
+
+  await page.getByRole("button", { name: "Calendario", exact: true }).click();
+  const calendar = page.getByTestId("project-calendar");
+  await expect(calendar).toBeVisible();
+  await expect(calendar.getByRole("button", { name: "Mes anterior" })).toBeVisible();
+  await expect(calendar.getByRole("button", { name: "Mes siguiente" })).toBeVisible();
+  await calendar.getByRole("button", { name: "Mes siguiente" }).click();
+  await expect(calendar.getByRole("button", { name: "Hoy", exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Panel", exact: true }).click();
+  const dashboard = page.getByTestId("project-dashboard");
+  await expect(dashboard).toContainText("Tareas por estado");
+  await expect(dashboard).toContainText("Carga del equipo");
+  await expect(dashboard).toContainText("Salud del proyecto");
+});
+
+test("crea y conserva portafolios y objetivos estratégicos", async ({ page }) => {
+  await page.getByRole("button", { name: "Portafolios", exact: true }).click();
+  await page.getByRole("button", { name: "Nuevo portafolio", exact: true }).click();
+  const portfolioDialog = page.getByRole("dialog", { name: "Nuevo portafolio" });
+  await portfolioDialog.getByLabel("Nombre").fill("Campañas prioritarias E2E");
+  await portfolioDialog.getByLabel("Descripción").fill("Seguimiento de entregas clave");
+  await portfolioDialog.getByLabel("Lanzamiento Aura").check();
+  await portfolioDialog.getByRole("button", { name: "Crear portafolio" }).click();
+  await expect(page.getByRole("heading", { name: "Campañas prioritarias E2E" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Objetivos", exact: true }).click();
+  await page.getByRole("button", { name: "Nuevo objetivo", exact: true }).click();
+  const goalDialog = page.getByRole("dialog", { name: "Nuevo objetivo" });
+  await goalDialog.getByLabel("Nombre").fill("Entregar campañas en fecha E2E");
+  await goalDialog.getByLabel("Descripción").fill("Reducir los desvíos del trimestre");
+  await goalDialog.getByLabel("Lanzamiento Aura").check();
+  await goalDialog.getByRole("button", { name: "Crear objetivo" }).click();
+  await expect(page.getByRole("heading", { name: "Entregar campañas en fecha E2E" })).toBeVisible();
+
+  await page.reload();
+  await page.getByRole("button", { name: "Portafolios", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Campañas prioritarias E2E" })).toBeVisible();
+  await page.getByRole("button", { name: "Objetivos", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Entregar campañas en fecha E2E" })).toBeVisible();
+});
+
 test("ofrece un detalle de tarea con flujo tipo Asana y timer integrado", async ({
   page,
 }) => {
