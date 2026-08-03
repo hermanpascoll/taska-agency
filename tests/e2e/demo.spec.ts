@@ -115,7 +115,9 @@ test("muestra el proyecto como espacio de trabajo con detalle flotante", async (
   ).toBeVisible();
   await expect(
     workspace.getByRole("navigation", { name: "Vistas del proyecto" }),
-  ).toContainText("ResumenListaTableroCronogramaGantt");
+  ).toContainText(
+    "ResumenListaTableroCalendarioCronogramaGanttPanelFlujo de trabajoMensajesArchivos",
+  );
   await expect(page.getByTestId("project-task-list")).toBeVisible();
 
   await page

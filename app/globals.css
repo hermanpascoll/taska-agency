@@ -304,6 +304,125 @@ html.dark .task-document code:not(pre code) {
   color: #c4b5fd;
 }
 
+/* Rebuild shell: Asana-equivalent information density without copying branding. */
+.asana-page {
+  margin: 0 auto;
+  width: min(100%, 1280px);
+  padding: 8px 0 48px;
+}
+
+.asana-page-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 72px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 24px;
+}
+
+.asana-page-heading h1 {
+  color: var(--ink);
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+}
+
+.asana-page-heading p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.asana-primary-button,
+.asana-secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  border-radius: 8px;
+  padding: 0 14px;
+  font-size: 11px;
+  font-weight: 650;
+  transition: 140ms ease;
+}
+
+.asana-primary-button {
+  background: #f06a6a;
+  color: white;
+}
+
+.asana-primary-button:hover { background: #df5b5b; }
+.asana-secondary-button { border: 1px solid var(--line); color: var(--ink-soft); }
+.asana-secondary-button:hover { background: var(--surface-muted); }
+.asana-secondary-button:disabled { opacity: .4; }
+
+.asana-inbox-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 480px) minmax(320px, 1fr);
+  min-height: 600px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.asana-inbox-list { border-right: 1px solid var(--line); }
+.asana-section-label { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.asana-inbox-list > .asana-section-label { display: block; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.asana-inbox-item { display: flex; width: 100%; gap: 12px; padding: 15px 18px; border-bottom: 1px solid var(--line); color: var(--ink-soft); }
+.asana-inbox-item:hover { background: var(--surface-muted); }
+.asana-inbox-item strong, .asana-inbox-item span, .asana-inbox-item small { display: block; }
+.asana-inbox-item strong { color: var(--ink); font-size: 12px; }
+.asana-inbox-item span { margin-top: 4px; font-size: 11px; line-height: 1.45; }
+.asana-inbox-item small { margin-top: 7px; color: var(--muted); font-size: 9px; }
+.asana-inbox-dot { width: 7px; height: 7px; margin-top: 5px; border-radius: 999px; background: transparent; }
+.asana-inbox-item.is-unread .asana-inbox-dot { background: #4573d2; }
+.asana-inbox-item.is-unread { background: rgb(69 115 210 / 5%); }
+.asana-inbox-preview, .asana-empty-panel { display: grid; place-content: center; justify-items: center; gap: 8px; padding: 32px; color: var(--muted); text-align: center; }
+.asana-inbox-preview strong, .asana-empty-panel strong { color: var(--ink); font-size: 13px; }
+.asana-inbox-preview span, .asana-empty-panel span { max-width: 300px; font-size: 11px; line-height: 1.5; }
+
+.asana-table-shell { overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.asana-table-row { display: grid; grid-template-columns: minmax(220px, 1.5fr) 130px 180px 130px 130px; min-height: 52px; align-items: center; border-bottom: 1px solid var(--line); color: var(--ink-soft); font-size: 11px; }
+.asana-table-row:last-child { border-bottom: 0; }
+.asana-table-row > span { min-width: 0; padding: 0 14px; }
+.asana-table-head { min-height: 40px; background: var(--surface-muted); color: var(--muted); font-size: 9px; font-weight: 700; text-transform: uppercase; }
+.asana-project-cell { display: flex; align-items: center; gap: 9px; color: var(--ink); font-weight: 650; }
+.asana-project-cell i { width: 13px; height: 13px; border-radius: 3px; }
+.asana-status-pill { border-radius: 999px; padding: 4px 8px; font-size: 9px; }
+.asana-status-pill.is-track { background: rgb(46 155 120 / 12%); color: #228566; }
+.asana-progress { display: inline-block; width: 80px; height: 5px; overflow: hidden; margin-right: 8px; border-radius: 99px; background: var(--surface-muted); }
+.asana-progress i { display: block; height: 100%; border-radius: inherit; background: #2e9b78; }
+
+.asana-goal-card { display: flex; align-items: flex-start; gap: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); padding: 22px; }
+.asana-goal-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 10px; background: rgb(169 112 255 / 12%); color: #8d55d8; }
+.asana-goal-card h2 { margin-top: 7px; color: var(--ink); font-size: 16px; font-weight: 650; }
+.asana-goal-card p { margin-top: 4px; color: var(--muted); font-size: 11px; }
+.asana-goal-progress { height: 7px; overflow: hidden; margin-top: 16px; border-radius: 99px; background: var(--surface-muted); }
+.asana-goal-progress i { display: block; height: 100%; border-radius: inherit; background: #a970ff; }
+.asana-goal-percent { color: var(--ink); font-size: 18px; }
+
+.asana-report-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.asana-report-card { position: relative; min-height: 190px; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); padding: 20px; }
+.asana-report-card span { color: var(--ink-soft); font-size: 11px; font-weight: 650; }
+.asana-report-card strong { display: block; margin-top: 22px; color: var(--ink); font-size: 34px; }
+.asana-chart-bar { position: absolute; right: 20px; bottom: 20px; left: 20px; height: 38px; border-radius: 7px 7px 2px 2px; opacity: .72; }
+
+@media (max-width: 860px) {
+  .asana-inbox-layout { grid-template-columns: 1fr; }
+  .asana-inbox-preview { display: none; }
+  .asana-inbox-list { border-right: 0; }
+  .asana-table-shell { overflow-x: auto; }
+  .asana-table-row { min-width: 860px; }
+}
+
+@media (max-width: 640px) {
+  .asana-page-heading { align-items: flex-start; flex-direction: column; padding-bottom: 16px; }
+  .asana-report-grid { grid-template-columns: 1fr; }
+}
+
 html.dark .task-row-selected {
   background:
     linear-gradient(90deg, rgb(10 132 255 / 24%), rgb(10 132 255 / 10%)),

@@ -23,16 +23,18 @@ import {
   FileDown,
   FileSpreadsheet,
   FileText,
+  Files,
   FolderKanban,
+  Gauge,
   GitBranch,
   GripVertical,
   Hourglass,
   Highlighter,
+  Home,
   ImagePlus,
   Inbox,
   IndentIncrease,
   Italic,
-  LayoutDashboard,
   Link2,
   List,
   ListChecks,
@@ -43,6 +45,7 @@ import {
   LogOut,
   Maximize2,
   Menu,
+  MessagesSquare,
   MessageSquare,
   Minimize2,
   MoreHorizontal,
@@ -52,6 +55,7 @@ import {
   Play,
   Plus,
   Printer,
+  Briefcase,
   Quote,
   Redo2,
   Repeat2,
@@ -63,6 +67,7 @@ import {
   Strikethrough,
   Tags,
   TimerReset,
+  Target,
   ThumbsUp,
   Trash2,
   Underline,
@@ -71,6 +76,7 @@ import {
   UserRound,
   UsersRound,
   Users,
+  Workflow,
   X,
   Zap,
 } from "lucide-react";
@@ -149,14 +155,42 @@ import type {
   WorkspaceMember,
 } from "@/lib/types";
 
-type View = "my_tasks" | "all_tasks" | "board" | "gantt" | "archive";
+type View =
+  | "home"
+  | "my_tasks"
+  | "inbox"
+  | "reporting"
+  | "portfolios"
+  | "goals"
+  | "all_tasks"
+  | "board"
+  | "gantt"
+  | "archive";
 type TaskScope = "mine" | "all";
 type ProjectTab =
   | "overview"
   | "list"
   | "board"
+  | "calendar"
   | "timeline"
-  | "gantt";
+  | "gantt"
+  | "dashboard"
+  | "messages"
+  | "files"
+  | "workflow";
+
+const projectTabLabels: Record<ProjectTab, string> = {
+  overview: "Resumen",
+  list: "Lista",
+  board: "Tablero",
+  calendar: "Calendario",
+  timeline: "Cronograma",
+  gantt: "Gantt",
+  dashboard: "Panel",
+  workflow: "Flujo de trabajo",
+  messages: "Mensajes",
+  files: "Archivos",
+};
 
 const recurrenceLabels: Record<TaskRecurrence, string> = {
   none: "No se repite",
@@ -1617,6 +1651,134 @@ function ActiveTimersMenu({
   );
 }
 
+function InboxView({
+  notifications,
+  onOpenTask,
+  onRead,
+  onReadAll,
+}: {
+  notifications: AppNotification[];
+  onOpenTask: (taskId: string) => void;
+  onRead: (notificationId: string) => void;
+  onReadAll: () => void;
+}) {
+  const unread = notifications.filter((item) => !item.readAt).length;
+  return (
+    <section className="asana-page animate-enter">
+      <div className="asana-page-heading">
+        <div>
+          <h1>Bandeja de entrada</h1>
+          <p>Actualizaciones del trabajo que seguís.</p>
+        </div>
+        <button onClick={onReadAll} disabled={!unread} className="asana-secondary-button">
+          Marcar todo como leído
+        </button>
+      </div>
+      <div className="asana-inbox-layout">
+        <div className="asana-inbox-list">
+          <div className="asana-section-label">Actividad · {unread} sin leer</div>
+          {notifications.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => {
+                onRead(item.id);
+                if (item.taskId) onOpenTask(item.taskId);
+              }}
+              className={clsx("asana-inbox-item", !item.readAt && "is-unread")}
+            >
+              <span className="asana-inbox-dot" />
+              <span className="min-w-0 flex-1 text-left">
+                <strong>{item.title}</strong>
+                <span>{item.body}</span>
+                <small>{item.createdAt}</small>
+              </span>
+            </button>
+          ))}
+          {!notifications.length && (
+            <div className="asana-empty-panel">
+              <Inbox className="size-8" />
+              <strong>Estás al día</strong>
+              <span>Las nuevas asignaciones y conversaciones aparecerán acá.</span>
+            </div>
+          )}
+        </div>
+        <aside className="asana-inbox-preview">
+          <Inbox className="size-9" />
+          <strong>Seleccioná una actualización</strong>
+          <span>Podés responder o abrir la tarea sin perder tu lugar.</span>
+        </aside>
+      </div>
+    </section>
+  );
+}
+
+function PortfoliosView({ projects, tasks }: { projects: Project[]; tasks: Task[] }) {
+  return (
+    <section className="asana-page animate-enter">
+      <div className="asana-page-heading">
+        <div><h1>Portafolios</h1><p>Seguimiento ejecutivo de proyectos, riesgo y avance.</p></div>
+        <button className="asana-primary-button"><Plus className="size-4" />Nuevo portafolio</button>
+      </div>
+      <div className="asana-table-shell">
+        <div className="asana-table-row asana-table-head">
+          <span>Proyecto</span><span>Estado</span><span>Avance</span><span>Vencimiento</span><span>Responsable</span>
+        </div>
+        {projects.filter((project) => !project.archived).map((project) => {
+          const projectTasks = tasks.filter((task) => task.projects.some((item) => item.id === project.id));
+          const complete = projectTasks.filter((task) => task.status === "resuelto").length;
+          const progress = projectTasks.length ? Math.round((complete / projectTasks.length) * 100) : 0;
+          return (
+            <div key={project.id} className="asana-table-row">
+              <span className="asana-project-cell"><i style={{background: project.color}} />{project.name}</span>
+              <span><b className="asana-status-pill is-track">En curso</b></span>
+              <span><span className="asana-progress"><i style={{width: `${progress}%`}} /></span>{progress}%</span>
+              <span>—</span><span>Equipo</span>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function GoalsView({ tasks }: { tasks: Task[] }) {
+  const completed = tasks.filter((task) => task.status === "resuelto").length;
+  const progress = tasks.length ? Math.round((completed / tasks.length) * 100) : 0;
+  return (
+    <section className="asana-page animate-enter">
+      <div className="asana-page-heading">
+        <div><h1>Objetivos</h1><p>Conectá el trabajo diario con los resultados del negocio.</p></div>
+        <button className="asana-primary-button"><Plus className="size-4" />Nuevo objetivo</button>
+      </div>
+      <div className="asana-goal-card">
+        <div className="asana-goal-icon"><Target className="size-5" /></div>
+        <div className="min-w-0 flex-1">
+          <span className="asana-section-label">Objetivo del espacio</span>
+          <h2>Entregar el trabajo planificado en fecha</h2>
+          <p>{completed} de {tasks.length} tareas completadas</p>
+          <div className="asana-goal-progress"><i style={{width: `${progress}%`}} /></div>
+        </div>
+        <strong className="asana-goal-percent">{progress}%</strong>
+      </div>
+    </section>
+  );
+}
+
+function ReportingView({ tasks, projects, people }: { tasks: Task[]; projects: Project[]; people: Person[] }) {
+  const active = tasks.filter((task) => task.status !== "resuelto").length;
+  const overdue = tasks.filter((task) => task.status !== "resuelto" && task.dueDate && new Date(`${task.dueDate}T23:59:59`) < new Date()).length;
+  return (
+    <section className="asana-page animate-enter">
+      <div className="asana-page-heading"><div><h1>Informes</h1><p>Estado del trabajo en tiempo real.</p></div><button className="asana-primary-button"><Plus className="size-4" />Nuevo panel</button></div>
+      <div className="asana-report-grid">
+        {[{label:"Trabajo activo",value:active,color:"#4573d2"},{label:"Proyectos",value:projects.length,color:"#a970ff"},{label:"Vencidas",value:overdue,color:"#e8384f"},{label:"Personas",value:people.length,color:"#2e9b78"}].map((metric) => (
+          <article key={metric.label} className="asana-report-card"><span>{metric.label}</span><strong>{metric.value}</strong><div className="asana-chart-bar" style={{background: metric.color}} /></article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function Sidebar({
   view,
   onViewChange,
@@ -1670,11 +1832,15 @@ function Sidebar({
     workspaces.find((workspace) => workspace.id === activeWorkspaceId) ??
     workspaces[0];
   const nav = [
+    { id: "home" as const, label: "Inicio", icon: Home },
     { id: "my_tasks" as const, label: "Mis tareas", icon: CheckCircle2 },
-    { id: "all_tasks" as const, label: "Todas las tareas", icon: Inbox },
-    { id: "board" as const, label: "Tablero", icon: Columns3 },
-    { id: "gantt" as const, label: "Gantt", icon: ChartGantt },
-    { id: "archive" as const, label: "Archivo de procesos", icon: Archive },
+    { id: "all_tasks" as const, label: "Todas las tareas", icon: ListTodo },
+    { id: "inbox" as const, label: "Bandeja de entrada", icon: Inbox },
+  ];
+  const insights = [
+    { id: "reporting" as const, label: "Informes", icon: Gauge },
+    { id: "portfolios" as const, label: "Portafolios", icon: Briefcase },
+    { id: "goals" as const, label: "Objetivos", icon: Target },
   ];
 
   function select(nextView: View) {
@@ -1783,9 +1949,6 @@ function Sidebar({
         </div>
 
         <nav aria-label="Navegación principal" className="space-y-1">
-          <p className="mb-2 px-3 text-[9px] font-bold uppercase tracking-[0.16em] text-slate-400">
-            Espacio de trabajo
-          </p>
           {nav.map((item) => {
             const Icon = item.icon;
             const active = view === item.id;
@@ -1815,6 +1978,38 @@ function Sidebar({
               </button>
             );
           })}
+          <p className="mb-2 mt-5 px-3 text-[9px] font-bold uppercase tracking-[0.16em] text-slate-400">
+            Información estratégica
+          </p>
+          {insights.map((item) => {
+            const Icon = item.icon;
+            const active = view === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => select(item.id)}
+                className={clsx(
+                  "focus-ring flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition",
+                  active
+                    ? "bg-[#f06a6a]/12 text-[#cf4b4b]"
+                    : "text-slate-600 hover:bg-black/[0.045] hover:text-slate-900",
+                )}
+              >
+                <Icon className="size-[17px]" />
+                {item.label}
+              </button>
+            );
+          })}
+          <button
+            onClick={() => select("archive")}
+            className={clsx(
+              "focus-ring mt-1 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition",
+              view === "archive" ? "bg-[#f06a6a]/12 text-[#cf4b4b]" : "text-slate-600 hover:bg-black/[0.045]",
+            )}
+          >
+            <Archive className="size-[17px]" />
+            Archivo de procesos
+          </button>
           {canViewTimeReports && (
             <button
               onClick={() => {
@@ -2252,8 +2447,13 @@ function ProjectWorkspaceView({
       { id: "overview", label: "Resumen" },
       { id: "list", label: "Lista", icon: ListTodo },
       { id: "board", label: "Tablero", icon: Columns3 },
+      { id: "calendar", label: "Calendario", icon: CalendarDays },
       { id: "timeline", label: "Cronograma", icon: CalendarDays },
       { id: "gantt", label: "Gantt", icon: ChartGantt },
+      { id: "dashboard", label: "Panel", icon: Gauge },
+      { id: "workflow", label: "Flujo de trabajo", icon: Workflow },
+      { id: "messages", label: "Mensajes", icon: MessagesSquare },
+      { id: "files", label: "Archivos", icon: Files },
     ];
 
   const metrics = [
@@ -2343,7 +2543,7 @@ function ProjectWorkspaceView({
       </header>
 
       <div className="py-4">
-        {tab === "overview" ? (
+        {tab === "overview" || tab === "dashboard" ? (
           <div className="px-5 sm:px-7">
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               {metrics.map((metric) => {
@@ -2383,7 +2583,7 @@ function ProjectWorkspaceView({
               onComplete={onComplete}
             />
           </div>
-        ) : tab === "board" ? (
+        ) : tab === "board" || tab === "workflow" ? (
           <div className="px-5 sm:px-7">
             <KanbanBoard
               tasks={tasks}
@@ -2392,7 +2592,7 @@ function ProjectWorkspaceView({
               onMove={onMove}
             />
           </div>
-        ) : tab === "timeline" ? (
+        ) : tab === "timeline" || tab === "calendar" ? (
           <div className="px-5 sm:px-7">
             <ProjectSchedule tasks={tasks} onSelect={onSelect} />
           </div>
@@ -2403,6 +2603,14 @@ function ProjectWorkspaceView({
               onSelect={onSelect}
               onUpdateDates={onUpdateDates}
             />
+          </div>
+        ) : tab === "messages" ? (
+          <div className="px-5 sm:px-7">
+            <ProjectMessagesView tasks={tasks} onSelect={onSelect} />
+          </div>
+        ) : tab === "files" ? (
+          <div className="px-5 sm:px-7">
+            <ProjectFilesView tasks={tasks} onSelect={onSelect} />
           </div>
         ) : (
           <>
@@ -2438,6 +2646,44 @@ function ProjectWorkspaceView({
             </button>
           </>
         )}
+      </div>
+    </section>
+  );
+}
+
+function ProjectMessagesView({ tasks, onSelect }: { tasks: Task[]; onSelect: (task: Task) => void }) {
+  const messages = tasks.flatMap((task) => task.comments.map((comment) => ({ task, comment }))).slice().reverse();
+  return (
+    <section className="asana-table-shell">
+      <header className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+        <div><h2 className="text-[14px] font-semibold text-slate-800">Mensajes del proyecto</h2><p className="mt-1 text-[10px] text-slate-400">Conversaciones y decisiones de todas las tareas.</p></div>
+      </header>
+      <div className="divide-y divide-slate-100">
+        {messages.map(({ task, comment }) => (
+          <button key={comment.id} onClick={() => onSelect(task)} className="flex w-full gap-3 px-5 py-4 text-left hover:bg-slate-50">
+            <Avatar person={comment.author} size="sm" />
+            <span className="min-w-0 flex-1"><strong className="block text-[11px] text-slate-800">{comment.author.name} · {task.title}</strong><span className="mt-1 block line-clamp-2 text-[10px] leading-5 text-slate-500">{comment.body}</span><small className="mt-1 block text-[8px] text-slate-400">{comment.createdAt}</small></span>
+          </button>
+        ))}
+        {!messages.length && <div className="asana-empty-panel"><MessagesSquare className="size-8" /><strong>Sin mensajes todavía</strong><span>Los comentarios de las tareas se reúnen en esta vista.</span></div>}
+      </div>
+    </section>
+  );
+}
+
+function ProjectFilesView({ tasks, onSelect }: { tasks: Task[]; onSelect: (task: Task) => void }) {
+  const files = tasks.flatMap((task) => task.attachments.filter((attachment) => !attachment.deletedAt).map((attachment) => ({ task, attachment })));
+  return (
+    <section className="asana-table-shell">
+      <header className="border-b border-slate-200 px-5 py-4"><h2 className="text-[14px] font-semibold text-slate-800">Archivos</h2><p className="mt-1 text-[10px] text-slate-400">Todos los recursos compartidos en el proyecto.</p></header>
+      <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
+        {files.map(({ task, attachment }) => (
+          <button key={attachment.id} onClick={() => onSelect(task)} className="flex min-w-0 items-center gap-3 rounded-lg border border-slate-200 p-3 text-left hover:border-slate-300 hover:bg-slate-50">
+            <span className="grid size-10 place-items-center rounded-lg bg-slate-100 text-slate-500"><FileText className="size-4" /></span>
+            <span className="min-w-0"><strong className="block truncate text-[10px] text-slate-800">{attachment.name}</strong><small className="mt-1 block truncate text-[8px] text-slate-400">{task.title} · {formatBytes(attachment.size)}</small></span>
+          </button>
+        ))}
+        {!files.length && <div className="asana-empty-panel col-span-full"><Files className="size-8" /><strong>Sin archivos</strong><span>Los adjuntos de las tareas aparecerán acá.</span></div>}
       </div>
     </section>
   );
@@ -7322,7 +7568,7 @@ export function TaskaApp() {
     deleteTimeEntry,
     resetDemo,
   } = useTaskWorkspace();
-  const [view, setView] = useState<View>("my_tasks");
+  const [view, setView] = useState<View>("home");
   const [taskScope, setTaskScope] = useState<TaskScope>("mine");
   const [projectTab, setProjectTab] = useState<ProjectTab>("list");
   const [query, setQuery] = useState("");
@@ -7661,7 +7907,9 @@ export function TaskaApp() {
   }
 
   const viewTitle =
-    view === "my_tasks" || view === "all_tasks"
+    view === "home"
+      ? "Mis tareas"
+      : view === "my_tasks" || view === "all_tasks"
       ? taskScope === "mine"
         ? "Mis tareas"
         : "Todas las tareas"
@@ -7673,7 +7921,15 @@ export function TaskaApp() {
             ? taskScope === "mine"
               ? "Mi planificación"
               : "Gantt del espacio"
-            : "Archivo de procesos";
+            : view === "inbox"
+              ? "Bandeja de entrada"
+              : view === "reporting"
+                ? "Informes"
+                : view === "portfolios"
+                  ? "Portafolios"
+                  : view === "goals"
+                    ? "Objetivos"
+                    : "Archivo de procesos";
 
   if (initializing) {
     return (
@@ -7697,6 +7953,7 @@ export function TaskaApp() {
       <Sidebar
         view={view}
         onViewChange={(nextView) => {
+          if (nextView === "home") setTaskScope("mine");
           if (nextView === "my_tasks") setTaskScope("mine");
           if (nextView === "all_tasks") setTaskScope("all");
           setView(nextView);
@@ -7756,15 +8013,7 @@ export function TaskaApp() {
               </span>
               <span className="text-[10px] text-slate-300">/</span>
               <span className="text-[10px] text-slate-400">
-                {projectTab === "overview"
-                  ? "Resumen"
-                  : projectTab === "board"
-                    ? "Tablero"
-                    : projectTab === "timeline"
-                      ? "Cronograma"
-                      : projectTab === "gantt"
-                        ? "Gantt"
-                        : "Lista"}
+                {projectTabLabels[projectTab]}
               </span>
             </div>
           ) : (
@@ -7897,9 +8146,22 @@ export function TaskaApp() {
                 notify("Fechas reprogramadas");
               }}
             />
+          ) : view === "inbox" ? (
+            <InboxView
+              notifications={notifications}
+              onOpenTask={setSelectedTaskId}
+              onRead={(notificationId) => void markNotificationRead(notificationId)}
+              onReadAll={() => void markAllNotificationsRead()}
+            />
+          ) : view === "portfolios" ? (
+            <PortfoliosView projects={projects} tasks={activeTopLevelTasks} />
+          ) : view === "goals" ? (
+            <GoalsView tasks={activeTopLevelTasks} />
+          ) : view === "reporting" ? (
+            <ReportingView tasks={activeTopLevelTasks} projects={projects} people={people} />
           ) : (
             <>
-              {view !== "archive" && (
+              {view === "home" && (
               <section className="animate-enter">
             <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
               <div>
@@ -8271,19 +8533,19 @@ export function TaskaApp() {
         className="fixed inset-x-0 bottom-0 z-30 flex h-[66px] items-center justify-around border-t border-slate-200 bg-white/95 px-3 backdrop-blur lg:hidden"
       >
         {[
-          { id: "my_tasks" as const, label: "Mis tareas", icon: ListTodo },
-          { id: "all_tasks" as const, label: "Tareas", icon: Inbox },
-          { id: "board" as const, label: "Tablero", icon: LayoutDashboard },
-          { id: "gantt" as const, label: "Gantt", icon: ChartGantt },
-          { id: "archive" as const, label: "Archivo", icon: Archive },
+          { id: "home" as const, label: "Inicio", icon: Home },
+          { id: "all_tasks" as const, label: "Tareas", icon: ListTodo },
+          { id: "inbox" as const, label: "Bandeja", icon: Inbox },
+          { id: "portfolios" as const, label: "Portafolios", icon: Briefcase },
+          { id: "goals" as const, label: "Objetivos", icon: Target },
         ].map((item) => {
           const Icon = item.icon;
           return (
             <button
               key={item.id}
               onClick={() => {
-                if (item.id === "my_tasks") setTaskScope("mine");
                 if (item.id === "all_tasks") setTaskScope("all");
+                if (item.id === "home") setTaskScope("mine");
                 setView(item.id);
               }}
               className={clsx(
