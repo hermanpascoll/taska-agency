@@ -1092,11 +1092,17 @@ export function ArchiveTaskModal({
       <form
         onSubmit={submit}
         className="animate-enter relative w-full max-w-[520px] rounded-2xl bg-white p-6 shadow-2xl sm:p-7"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="archive-task-title"
       >
         <span className="grid size-11 place-items-center rounded-xl bg-emerald-50 text-emerald-600">
           <Archive className="size-5" />
         </span>
-        <h2 className="mt-4 text-xl font-bold tracking-[-0.02em] text-slate-900">
+        <h2
+          id="archive-task-title"
+          className="mt-4 text-xl font-bold tracking-[-0.02em] text-slate-900"
+        >
           Cerrar y archivar {task.code}
         </h2>
         <p className="mt-2 text-[11px] leading-5 text-slate-500">

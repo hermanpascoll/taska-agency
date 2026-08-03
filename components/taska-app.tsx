@@ -28,12 +28,15 @@ import {
   ImagePlus,
   Inbox,
   LayoutDashboard,
+  Link2,
   ListFilter,
   ListTodo,
   LoaderCircle,
   LogOut,
+  Maximize2,
   Menu,
   MessageSquare,
+  Minimize2,
   MoreHorizontal,
   Moon,
   Paperclip,
@@ -49,6 +52,7 @@ import {
   Sparkles,
   Tags,
   TimerReset,
+  ThumbsUp,
   Trash2,
   UserPlus,
   UserRound,
@@ -2541,6 +2545,13 @@ function TaskDrawer({
   const [commentVisibility, setCommentVisibility] =
     useState<CommentVisibility>("team");
   const [commentComposerOpen, setCommentComposerOpen] = useState(false);
+  const [activityTab, setActivityTab] = useState<"comments" | "all">(
+    "comments",
+  );
+  const [activityNewestFirst, setActivityNewestFirst] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isLiked, setIsLiked] = useState(false);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const [subtaskTitle, setSubtaskTitle] = useState("");
   const [subtaskAssigneeId, setSubtaskAssigneeId] = useState(
     task.assignee?.id ?? currentPerson?.id ?? "",
@@ -2562,6 +2573,12 @@ function TaskDrawer({
       ...timeEntries.map((entry) => entry.user.id),
     ].filter((id): id is string => Boolean(id)),
   );
+  const collaborators = people
+    .filter((person) => involvedPeople.has(person.id))
+    .slice(0, 4);
+  const visibleComments = activityNewestFirst
+    ? [...task.comments].reverse()
+    : task.comments;
   const activityStartedAt =
     task.createdAt ??
     (task.startDate ? `${task.startDate}T12:00:00` : null);
@@ -2637,25 +2654,39 @@ function TaskDrawer({
     setSubtaskTitle("");
   }
 
+  async function copyTaskLink() {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      notify("Enlace de la tarea copiado");
+    } catch {
+      notify("No se pudo copiar el enlace de la tarea");
+    }
+  }
+
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center p-0 sm:p-5 lg:p-8"
+      className="fixed inset-0 z-[70] flex items-center justify-center p-0 sm:p-3 lg:p-5"
       data-testid="task-detail"
     >
       <button
-        className="absolute inset-0 bg-slate-950/45 backdrop-blur-[3px]"
+        className="absolute inset-0 bg-slate-950/55 backdrop-blur-[2px]"
         onClick={onClose}
         aria-label="Cerrar detalle"
       />
       <aside
         ref={dialogRef}
         tabIndex={-1}
-        className="animate-task-modal relative flex h-full w-full max-w-[1120px] flex-col overflow-hidden border-slate-200 bg-white shadow-[0_30px_90px_rgba(15,23,42,0.3)] sm:h-[calc(100vh-2.5rem)] sm:max-h-[920px] sm:rounded-2xl sm:border lg:h-[calc(100vh-4rem)]"
+        className={clsx(
+          "task-detail-shell animate-task-modal relative flex h-full w-full flex-col overflow-hidden border-slate-200 bg-white shadow-[0_32px_100px_rgba(15,23,42,0.38)] transition-[max-width,height,border-radius] duration-200 sm:border",
+          isFullscreen
+            ? "max-w-none sm:h-[calc(100vh-1.5rem)] sm:rounded-xl"
+            : "max-w-[1380px] sm:h-[calc(100vh-2rem)] sm:max-h-[980px] sm:rounded-xl lg:h-[calc(100vh-2.5rem)]",
+        )}
         role="dialog"
         aria-modal="true"
         aria-label={`Detalle de ${task.title}`}
       >
-        <header className="flex h-16 shrink-0 items-center border-b border-slate-100 px-5 sm:px-7">
+        <header className="task-detail-toolbar relative flex min-h-16 shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 sm:gap-3 sm:px-5">
           <button
             onClick={() =>
               onTaskUpdate({
@@ -2664,16 +2695,65 @@ function TaskDrawer({
               })
             }
             className={clsx(
-              "focus-ring flex items-center gap-2 rounded-lg border px-3 py-2 text-[11px] font-semibold transition",
+              "focus-ring flex shrink-0 items-center gap-2 rounded-lg border px-2.5 py-2 text-[11px] font-semibold transition sm:px-3",
               task.status === "resuelto"
-                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                : "border-slate-200 text-slate-600 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700",
+                ? "border-emerald-500 bg-emerald-500 text-white"
+                : "border-slate-300 text-slate-600 hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-700",
             )}
           >
             <CheckCircle2 className="size-4" />
-            {task.status === "resuelto" ? "Completada" : "Completar tarea"}
+            <span className="hidden sm:inline">
+              {task.status === "resuelto" ? "Completada" : "Completar tarea"}
+            </span>
           </button>
-          <div className="ml-auto flex items-center gap-1">
+
+          <input
+            key={`${task.id}-toolbar-title`}
+            defaultValue={task.title}
+            onBlur={(event) => {
+              const title = event.target.value.trim();
+              if (title.length >= 2 && title !== task.title) {
+                onTaskUpdate({ title });
+              }
+            }}
+            className="focus-ring min-w-0 flex-1 truncate rounded-md border border-transparent bg-transparent px-2 py-1.5 text-[15px] font-semibold text-slate-900 hover:border-slate-200 focus:border-violet-300 sm:text-[17px]"
+            aria-label="Título de la tarea"
+          />
+
+          <div
+            className="hidden shrink-0 items-center -space-x-2 md:flex"
+            aria-label="Colaboradores de la tarea"
+          >
+            {collaborators.map((person) => (
+              <span
+                key={person.id}
+                className="rounded-full border-2 border-white"
+                title={person.name}
+              >
+                <Avatar person={person} size="sm" />
+              </span>
+            ))}
+            {involvedPeople.size > collaborators.length && (
+              <span className="grid size-7 place-items-center rounded-full border-2 border-white bg-slate-100 text-[9px] font-semibold text-slate-500">
+                +{involvedPeople.size - collaborators.length}
+              </span>
+            )}
+            <button
+              type="button"
+              className="focus-ring ml-1 grid size-7 place-items-center rounded-full border border-slate-300 bg-white text-slate-500 hover:bg-slate-50"
+              aria-label="Agregar colaborador"
+              title="Agregar colaborador"
+              onClick={() =>
+                notify(
+                  "Los colaboradores se agregan asignando responsables o comentando en la tarea",
+                )
+              }
+            >
+              <Plus className="size-3.5" />
+            </button>
+          </div>
+
+          <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
             {canTrackTime && (
               <button
                 type="button"
@@ -2683,10 +2763,10 @@ function TaskDrawer({
                     : onTimerStart("", true)
                 }
                 className={clsx(
-                  "focus-ring flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[10px] font-semibold",
+                  "focus-ring flex items-center gap-1.5 rounded-lg border px-2.5 py-2 text-[10px] font-semibold tabular-nums",
                   activeTimeEntry
-                    ? "bg-rose-50 text-rose-600 hover:bg-rose-100"
-                    : "text-[#0879ea] hover:bg-[#0a84ff]/10",
+                    ? "border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100"
+                    : "border-[#0a84ff]/20 bg-[#0a84ff]/8 text-[#0879ea] hover:bg-[#0a84ff]/14",
                 )}
                 aria-label={
                   activeTimeEntry
@@ -2700,27 +2780,100 @@ function TaskDrawer({
                   <Play className="size-4 fill-current" />
                 )}
                 <span className="hidden sm:inline">
-                  {activeTimeEntry ? "Detener timer" : "Iniciar timer"}
+                  {activeTimeEntry
+                    ? formatDuration(elapsedSeconds(activeTimeEntry))
+                    : "Iniciar timer"}
                 </span>
               </button>
             )}
-            {!task.parentTaskId && (
-              <button
-                onClick={onTaskArchive}
-                className="focus-ring flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[10px] font-semibold text-slate-500 hover:bg-emerald-50 hover:text-emerald-700"
-                aria-label="Cerrar y archivar expediente"
-              >
-                <Archive className="size-4" />
-                <span className="hidden sm:inline">Archivar</span>
-              </button>
-            )}
+
             <button
-              onClick={onTaskDelete}
-              className="focus-ring rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-              aria-label="Eliminar tarea"
+              type="button"
+              onClick={() => void copyTaskLink()}
+              className="focus-ring hidden items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-[10px] font-semibold text-slate-600 hover:bg-slate-50 sm:flex"
+              aria-label="Compartir tarea"
             >
-              <Trash2 className="size-[18px]" />
+              <UserPlus className="size-4" />
+              Compartir
             </button>
+            <button
+              type="button"
+              onClick={() => setIsLiked((value) => !value)}
+              className={clsx(
+                "focus-ring rounded-lg p-2",
+                isLiked
+                  ? "bg-rose-50 text-rose-500"
+                  : "text-slate-400 hover:bg-slate-100 hover:text-slate-700",
+              )}
+              aria-label={isLiked ? "Quitar Me gusta" : "Me gusta"}
+              aria-pressed={isLiked}
+              title="Me gusta"
+            >
+              <ThumbsUp
+                className={clsx("size-[18px]", isLiked && "fill-current")}
+              />
+            </button>
+            <button
+              type="button"
+              onClick={() => void copyTaskLink()}
+              className="focus-ring rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              aria-label="Copiar enlace de la tarea"
+              title="Copiar enlace"
+            >
+              <Link2 className="size-[18px]" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsFullscreen((value) => !value)}
+              className="focus-ring hidden rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 sm:block"
+              aria-label={
+                isFullscreen
+                  ? "Salir de pantalla completa"
+                  : "Abrir en pantalla completa"
+              }
+              title={
+                isFullscreen ? "Salir de pantalla completa" : "Pantalla completa"
+              }
+            >
+              {isFullscreen ? (
+                <Minimize2 className="size-[18px]" />
+              ) : (
+                <Maximize2 className="size-[18px]" />
+              )}
+            </button>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setMoreMenuOpen((value) => !value)}
+                className="focus-ring rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Más acciones de la tarea"
+                aria-expanded={moreMenuOpen}
+              >
+                <MoreHorizontal className="size-[18px]" />
+              </button>
+              {moreMenuOpen && (
+                <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">
+                  {!task.parentTaskId && (
+                    <button
+                      type="button"
+                      onClick={onTaskArchive}
+                      className="focus-ring flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[10px] font-semibold text-slate-600 hover:bg-slate-50"
+                    >
+                      <Archive className="size-4" />
+                      Archivar expediente
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={onTaskDelete}
+                    className="focus-ring flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[10px] font-semibold text-rose-600 hover:bg-rose-50"
+                  >
+                    <Trash2 className="size-4" />
+                    Eliminar tarea
+                  </button>
+                </div>
+              )}
+            </div>
             <button
               onClick={onClose}
               className="focus-ring rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
@@ -2731,7 +2884,7 @@ function TaskDrawer({
           </div>
         </header>
 
-        <div className="soft-scrollbar flex-1 overflow-y-auto px-5 py-6 sm:px-8">
+        <div className="soft-scrollbar task-detail-content flex flex-1 flex-col overflow-y-auto px-5 py-6 sm:px-9 lg:px-12">
           <div className="flex items-center gap-2">
             {parentTask && (
               <>
@@ -2761,23 +2914,9 @@ function TaskDrawer({
               )}
             </span>
           </div>
-          <h2 className="mt-3">
-            <input
-              key={task.id}
-              defaultValue={task.title}
-              onBlur={(event) => {
-                const title = event.target.value.trim();
-                if (title.length >= 2 && title !== task.title) {
-                  onTaskUpdate({ title });
-                }
-              }}
-              className="focus-ring w-full rounded-lg border border-transparent bg-transparent px-1 py-1 text-[23px] font-bold leading-tight tracking-[-0.025em] text-slate-900 hover:border-slate-200 focus:border-violet-200 sm:text-[27px]"
-              aria-label="Título de la tarea"
-            />
-          </h2>
           <TaskLastEdited task={task} />
 
-          <details className="group mt-5">
+          <details className="group mt-5 border-b border-slate-200 pb-6" open>
             <summary className="focus-ring flex cursor-pointer list-none items-center gap-2 rounded-lg py-2 text-[12px] font-semibold text-slate-700 hover:text-[#0879ea]">
               <ChevronDown className="size-4 transition group-open:rotate-180" />
               Detalles
@@ -2797,9 +2936,7 @@ function TaskDrawer({
                 </span>
               </span>
             </summary>
-            <div
-              className="mt-3 grid grid-cols-[112px_1fr] gap-y-4 rounded-2xl border border-slate-100 bg-slate-50/50 p-4 text-[12px] sm:p-5 lg:grid-cols-[132px_1fr]"
-            >
+            <div className="mt-3 grid grid-cols-[116px_1fr] gap-y-3 text-[12px] sm:grid-cols-[150px_1fr] lg:grid-cols-[170px_1fr]">
             <span className="flex items-center gap-2 text-slate-400">
               <Circle className="size-3.5" />
               Estado
@@ -3062,9 +3199,9 @@ function TaskDrawer({
             </div>
           </details>
 
-          <div className="my-7 h-px bg-slate-100" />
+          <div className="h-5" />
 
-          <section>
+          <section className="task-detail-description">
             <h3 className="text-[15px] font-bold tracking-[-0.01em] text-slate-800">
               Descripción
             </h3>
@@ -3096,7 +3233,7 @@ function TaskDrawer({
                   }
                 }}
                 placeholder="Diseño, Cartelería, Cambio de cliente"
-                className="focus-ring w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-[12px] text-slate-700 placeholder:text-slate-400"
+                className="focus-ring w-full rounded-lg border border-transparent bg-transparent px-2 py-2 text-[12px] text-slate-700 placeholder:text-slate-400 hover:border-slate-200 focus:border-violet-300"
                 aria-label="Etiquetas de la tarea"
               />
               <span className="mt-1.5 block text-[9px] text-slate-400">
@@ -3105,8 +3242,9 @@ function TaskDrawer({
             </label>
           </section>
 
-          <details className="group/audit mt-8 rounded-2xl border border-slate-200 bg-slate-50/50">
-            <summary className="focus-ring flex cursor-pointer list-none items-center gap-3 px-4 py-3.5 text-[12px] font-semibold text-slate-700 hover:text-[#0879ea]">
+          <div className="task-detail-timer mt-8">
+          <details className="task-detail-timer-panel group/audit overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <summary className="focus-ring flex cursor-pointer list-none items-center gap-3 px-4 py-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 hover:text-[#0879ea]">
               <Activity className="size-4 text-violet-500" />
               Tiempo, proceso e historial
               <span className="hidden text-[10px] font-normal text-slate-400 sm:inline">
@@ -3204,16 +3342,19 @@ function TaskDrawer({
                   y responsables. Este historial no se modifica.
                 </p>
               )}
-            <ActivityHistory task={task} subtasks={subtasks} />
           </section>
             </div>
           </details>
+          </div>
 
-          <section className="mt-8">
+          <section className="task-detail-attachments mt-8">
             <div className="flex items-center justify-between">
-              <h3 className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
-                <Paperclip className="size-3.5" />
+              <h3 className="flex items-center gap-2 text-[15px] font-bold text-slate-800">
+                <Paperclip className="size-4 text-slate-400" />
                 Adjuntos
+                <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold text-slate-500">
+                  {task.attachments.filter((item) => !item.deletedAt).length}
+                </span>
               </h3>
               <button
                 onClick={() => attachmentInput.current?.click()}
@@ -3235,15 +3376,24 @@ function TaskDrawer({
                 event.target.value = "";
               }}
             />
-            <div className="mt-3 space-y-2">
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
               {task.attachments.map((attachment) => (
                 <div
                   key={attachment.id}
                   className={clsx(
-                    "group flex flex-wrap items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3",
+                    "group flex min-w-0 flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/50 p-3 hover:border-slate-300",
                     attachment.deletedAt && "opacity-55",
                   )}
                 >
+                  {!attachment.deletedAt &&
+                    isImageFile(attachment.mimeType) && (
+                      <div className="w-full overflow-hidden rounded-lg border border-slate-200 bg-white">
+                        <EmbeddedTaskAttachment
+                          attachment={attachment}
+                          onOpen={() => onAttachmentOpen(attachment)}
+                        />
+                      </div>
+                    )}
                   <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-white text-[#0a84ff] shadow-sm">
                     <FileText className="size-4" />
                   </span>
@@ -3321,22 +3471,36 @@ function TaskDrawer({
             </div>
           </section>
 
-          <section className="mt-8">
+          <section className="task-detail-subtasks mt-8">
             <div className="flex items-center justify-between">
-              <h3 className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
-                <GitBranch className="size-3.5" />
+              <h3 className="flex items-center gap-2 text-[15px] font-bold text-slate-800">
+                <GitBranch className="size-4 text-slate-400" />
                 Subtareas
+                <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold text-slate-500">
+                  {subtasks.filter((item) => item.status === "resuelto").length}/
+                  {subtasks.length}
+                </span>
               </h3>
-              <span className="text-[10px] text-slate-400">
-                {subtasks.filter((item) => item.status === "resuelto").length}/
-                {subtasks.length} completas
-              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  document
+                    .querySelector<HTMLInputElement>(
+                      'input[aria-label="Nombre de la subtarea"]',
+                    )
+                    ?.focus()
+                }
+                className="focus-ring grid size-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Agregar subtarea"
+              >
+                <Plus className="size-4" />
+              </button>
             </div>
-            <div className="mt-3 space-y-2">
+            <div className="mt-3 divide-y divide-slate-200 border-y border-slate-200">
               {subtasks.map((subtask) => (
                 <div
                   key={subtask.id}
-                  className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3"
+                  className="flex items-center gap-3 px-2 py-3 transition hover:bg-slate-50"
                 >
                   <button
                     onClick={() =>
@@ -3375,10 +3539,12 @@ function TaskDrawer({
                       {subtask.title}
                     </p>
                     <p className="mt-0.5 text-[9px] text-slate-400">
-                      {subtask.assignee?.name ?? "Sin asignar"} ·{" "}
-                      {subtask.dueLabel}
+                      {subtask.code}
                     </p>
                   </button>
+                  <span className="ml-auto text-[9px] text-slate-400">
+                    {subtask.dueLabel}
+                  </span>
                   <Avatar person={subtask.assignee} size="sm" />
                 </div>
               ))}
@@ -3390,13 +3556,13 @@ function TaskDrawer({
             </div>
             <form
               onSubmit={submitSubtask}
-              className="mt-3 grid gap-2 rounded-xl border border-slate-200 p-2 sm:grid-cols-[1fr_150px_auto]"
+              className="mt-2 grid gap-2 sm:grid-cols-[1fr_170px_auto]"
             >
               <input
                 value={subtaskTitle}
                 onChange={(event) => setSubtaskTitle(event.target.value)}
                 placeholder="Nueva subtarea…"
-                className="focus-ring min-w-0 rounded-lg border-0 bg-slate-50 px-3 py-2 text-[11px] text-slate-700"
+                className="focus-ring min-w-0 rounded-lg border border-transparent bg-transparent px-3 py-2 text-[11px] text-slate-700 hover:border-slate-200 focus:border-violet-300"
                 aria-label="Nombre de la subtarea"
               />
               <select
@@ -3421,83 +3587,136 @@ function TaskDrawer({
             </form>
           </section>
 
-          <section className="mt-8">
-            <div className="flex items-center justify-between">
-              <h3 className="text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
-                Actividad
-              </h3>
-              <span className="text-[10px] text-slate-400">
-                {task.comments.filter((item) => !item.deletedAt).length}{" "}
-                comentarios
-              </span>
+          <section className="task-detail-activity mt-10 border-t border-slate-200 pt-2">
+            <div className="flex items-center border-b border-slate-200">
+              <div className="flex items-center gap-7" role="tablist" aria-label="Actividad de la tarea">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activityTab === "comments"}
+                  onClick={() => setActivityTab("comments")}
+                  className={clsx(
+                    "focus-ring -mb-px border-b-2 px-0.5 py-3 text-[12px] font-semibold",
+                    activityTab === "comments"
+                      ? "border-slate-700 text-slate-800"
+                      : "border-transparent text-slate-400 hover:text-slate-700",
+                  )}
+                >
+                  Comentarios
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activityTab === "all"}
+                  onClick={() => setActivityTab("all")}
+                  className={clsx(
+                    "focus-ring -mb-px border-b-2 px-0.5 py-3 text-[12px] font-semibold",
+                    activityTab === "all"
+                      ? "border-slate-700 text-slate-800"
+                      : "border-transparent text-slate-400 hover:text-slate-700",
+                  )}
+                >
+                  Toda la actividad
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActivityNewestFirst((value) => !value)}
+                className="focus-ring ml-auto rounded-lg px-2.5 py-2 text-[10px] font-semibold text-slate-400 hover:bg-slate-50 hover:text-slate-700"
+                aria-label={
+                  activityNewestFirst
+                    ? "Ordenar actividad: más antiguas primero"
+                    : "Ordenar actividad: más recientes primero"
+                }
+              >
+                {activityNewestFirst ? "Más recientes" : "Más antiguas"}
+              </button>
             </div>
-            <div className="mt-4 space-y-5">
-              {task.comments.map((item) => (
-                <div key={item.id} className="flex gap-3">
-                  <Avatar person={item.author} size="sm" />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center">
-                      <p className="text-[11px]">
-                        <span className="font-bold text-slate-700">
-                          {item.author.name}
+
+            {activityTab === "all" ? (
+              <div className="py-4" role="tabpanel">
+                <ActivityHistory task={task} subtasks={subtasks} />
+              </div>
+            ) : (
+              <div className="space-y-6 py-6" role="tabpanel">
+                {visibleComments.map((item) => (
+                  <div key={item.id} className="group/comment flex gap-3">
+                    <Avatar person={item.author} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                        <p className="min-w-0 text-[11px]">
+                          <span className="font-bold text-slate-800">
+                            {item.author.name}
+                          </span>
+                          <span className="ml-2 text-[9px] text-slate-400">
+                            {item.createdAt}
+                          </span>
+                        </p>
+                        <span className="rounded-full bg-[#0a84ff]/10 px-2 py-0.5 text-[8px] font-bold text-[#0879ea]">
+                          {commentTypeLabels[item.type ?? "comment"]}
                         </span>
-                        <span className="ml-2 text-[9px] text-slate-400">
-                          {item.createdAt}
-                        </span>
+                        {item.visibility === "client" && (
+                          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[8px] font-bold text-amber-700">
+                            Visible cliente
+                          </span>
+                        )}
+                        {!item.deletedAt && (
+                          <button
+                            onClick={() => onCommentDelete(item.id)}
+                            className="focus-ring ml-auto rounded-md p-1 text-slate-300 opacity-0 hover:bg-rose-50 hover:text-rose-600 group-hover/comment:opacity-100 focus:opacity-100"
+                            aria-label="Retirar comentario"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        )}
+                      </div>
+                      <p
+                        className={clsx(
+                          "mt-1.5 whitespace-pre-wrap text-[12px] leading-6 text-slate-700",
+                          item.deletedAt && "italic text-slate-400",
+                        )}
+                      >
+                        {item.deletedAt
+                          ? "Comentario retirado. Su registro se conserva en el historial."
+                          : item.body}
                       </p>
-                      <span className="ml-2 rounded-full bg-[#0a84ff]/10 px-2 py-0.5 text-[8px] font-bold text-[#0879ea]">
-                        {commentTypeLabels[item.type ?? "comment"]}
-                      </span>
-                      {item.visibility === "client" && (
-                        <span className="ml-1 rounded-full bg-amber-50 px-2 py-0.5 text-[8px] font-bold text-amber-700">
-                          Visible cliente
-                        </span>
-                      )}
-                      {!item.deletedAt && (
-                        <button
-                          onClick={() => onCommentDelete(item.id)}
-                          className="focus-ring ml-auto rounded-md p-1 text-slate-300 hover:bg-rose-50 hover:text-rose-600"
-                          aria-label="Retirar comentario"
-                        >
-                          <Trash2 className="size-3.5" />
-                        </button>
-                      )}
                     </div>
-                    <p
-                      className={clsx(
-                        "mt-1.5 rounded-xl rounded-tl-sm bg-slate-50 p-3 text-[12px] leading-5 text-slate-600",
-                        item.deletedAt && "italic text-slate-400",
-                      )}
-                    >
-                      {item.deletedAt
-                        ? "Comentario retirado. Su registro se conserva en el historial."
-                        : item.body}
-                    </p>
                   </div>
-                </div>
-              ))}
-              {task.comments.length === 0 && (
-                <p className="rounded-xl border border-dashed border-slate-200 p-5 text-center text-[11px] text-slate-400">
-                  Todavía no hay comentarios. Sumá el primero para dejar
-                  contexto al equipo.
-                </p>
-              )}
-            </div>
+                ))}
+                {task.comments.length === 0 && (
+                  <p className="rounded-xl border border-dashed border-slate-200 p-6 text-center text-[11px] text-slate-400">
+                    Todavía no hay comentarios. Sumá el primero para dejar
+                    contexto al equipo.
+                  </p>
+                )}
+              </div>
+            )}
           </section>
         </div>
 
         <form
           onSubmit={submitComment}
-          className="shrink-0 border-t border-slate-100 bg-white px-4 py-3 sm:px-7"
+          className="task-detail-comment-composer shrink-0 border-t border-slate-200 bg-white px-4 py-3 sm:px-8"
         >
           <div className="flex items-center gap-3">
             <Avatar person={currentPerson} size="sm" />
-            <div className="flex-1 rounded-xl border border-slate-200 bg-white px-2.5 py-2 shadow-sm focus-within:border-violet-300 focus-within:ring-4 focus-within:ring-violet-100">
+            <div className="flex-1 rounded-lg border border-slate-300 bg-white px-2.5 py-2 shadow-sm focus-within:border-violet-400 focus-within:ring-2 focus-within:ring-violet-100">
               <textarea
                 value={comment}
                 onChange={(event) => setComment(event.target.value)}
                 onFocus={() => setCommentComposerOpen(true)}
-                placeholder="Sumá feedback o una actualización…"
+                onKeyDown={(event) => {
+                  if (
+                    event.key === "Enter" &&
+                    (event.metaKey || event.ctrlKey) &&
+                    comment.trim()
+                  ) {
+                    event.preventDefault();
+                    event.currentTarget.form?.requestSubmit();
+                  }
+                }}
+                placeholder="Agregar un comentario"
+                aria-label="Agregar un comentario"
                 rows={commentComposerOpen ? 2 : 1}
                 className="block min-h-6 w-full resize-none border-0 bg-transparent px-1 py-1 text-[12px] leading-5 text-slate-700 outline-none placeholder:text-slate-400"
               />
@@ -3520,6 +3739,15 @@ function TaskDrawer({
                       ),
                     )}
                   </select>
+                  <button
+                    type="button"
+                    onClick={() => attachmentInput.current?.click()}
+                    className="focus-ring rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                    aria-label="Adjuntar archivo desde el comentario"
+                    title="Adjuntar archivo"
+                  >
+                    <Paperclip className="size-4" />
+                  </button>
                   <select
                     value={commentVisibility}
                     onChange={(event) =>

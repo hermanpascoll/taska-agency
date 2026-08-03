@@ -129,6 +129,48 @@ test("muestra el proyecto como espacio de trabajo con detalle flotante", async (
   await expect(page.getByTestId("task-description-document")).toBeVisible();
 });
 
+test("ofrece un detalle de tarea con flujo tipo Asana y timer integrado", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Todas las tareas" }).click();
+  await page
+    .getByRole("button", {
+      name: /AG-142 Lanzamiento Aura Adaptar campaña/,
+    })
+    .click();
+
+  const detail = page.getByTestId("task-detail");
+  await expect(detail.getByLabel("Título de la tarea")).toBeVisible();
+  await expect(
+    detail.getByRole("button", { name: "Compartir tarea" }),
+  ).toBeVisible();
+  await expect(
+    detail.getByRole("button", { name: "Me gusta" }),
+  ).toBeVisible();
+  await expect(
+    detail.getByRole("button", { name: "Copiar enlace de la tarea" }),
+  ).toBeVisible();
+  await expect(
+    detail.getByRole("button", { name: "Iniciar timer de esta tarea" }),
+  ).toBeVisible();
+  await expect(
+    detail.getByRole("heading", { name: /Subtareas/ }),
+  ).toBeVisible();
+  await expect(
+    detail.getByRole("heading", { name: /Adjuntos/ }),
+  ).toBeVisible();
+
+  await detail
+    .getByRole("button", { name: "Abrir en pantalla completa" })
+    .click();
+  await expect(
+    detail.getByRole("button", { name: "Salir de pantalla completa" }),
+  ).toBeVisible();
+
+  await detail.getByRole("tab", { name: "Toda la actividad" }).click();
+  await expect(detail.getByTestId("process-activity-history")).toBeVisible();
+});
+
 test("embebe una imagen en la descripción al crear la tarea", async ({
   page,
 }) => {
@@ -162,11 +204,6 @@ test("embebe una imagen en la descripción al crear la tarea", async ({
   await expect(page.getByLabel("Título de la tarea")).toHaveValue(
     "Revisar visual embebido",
   );
-  await expect(
-    page.getByRole("img", {
-      name: "Adjunto embebido referencia-asana.png",
-    }),
-  ).toBeVisible();
   await expect(
     page
       .getByTestId("task-description-document")
@@ -424,10 +461,6 @@ test("crea clientes y vincula una tarea a varios proyectos", async ({
   await expect(page.getByLabel("Título de la tarea")).toHaveValue(
     "Tarea multiproyecto E2E",
   );
-  await page
-    .locator("summary")
-    .filter({ hasText: "Detalles" })
-    .click();
   await expect(
     page.getByLabel("Cliente de la tarea").locator("option:checked"),
   ).toHaveText("Cliente E2E");
@@ -579,7 +612,7 @@ test("crea, documenta, archiva y restaura un expediente de proceso", async ({
   await page.getByRole("button", { name: "Crear tarea" }).click();
 
   await expect(page).toHaveURL(/\?task=/);
-  await expect(page.getByText("0/5 completas")).toBeVisible();
+  await expect(page.getByText("0/5", { exact: true })).toBeVisible();
   await page
     .locator("summary")
     .filter({ hasText: "Tiempo, proceso e historial" })
@@ -594,17 +627,22 @@ test("crea, documenta, archiva y restaura un expediente de proceso", async ({
 
   await page.getByPlaceholder("Nueva subtarea…").fill("Control legal E2E");
   await page.getByRole("button", { name: "Agregar", exact: true }).click();
-  await expect(page.getByText("0/6 completas")).toBeVisible();
+  await expect(page.getByText("0/6", { exact: true })).toBeVisible();
 
   await page
-    .getByPlaceholder("Sumá feedback o una actualización…")
+    .getByPlaceholder("Agregar un comentario")
     .fill("Se aprobó la ruta visual número dos.");
   await page.getByLabel("Tipo de comentario").selectOption("decision");
-  await page.getByRole("button", { name: "Comentar" }).click();
+  await page
+    .getByRole("button", { name: "Comentar", exact: true })
+    .click();
   await expect(
     page.getByText("Se aprobó la ruta visual número dos."),
   ).toBeVisible();
 
+  await page
+    .getByRole("tab", { name: "Toda la actividad" })
+    .click();
   const activityHistory = page.getByTestId("process-activity-history");
   await expect(activityHistory.getByText("Historial del proceso")).toBeVisible();
   await activityHistory
@@ -622,7 +660,10 @@ test("crea, documenta, archiva y restaura un expediente de proceso", async ({
   ).toBeVisible();
 
   await page
-    .getByRole("button", { name: "Cerrar y archivar expediente" })
+    .getByRole("button", { name: "Más acciones de la tarea" })
+    .click();
+  await page
+    .getByRole("button", { name: "Archivar expediente" })
     .click();
   await page
     .getByLabel("Conclusión del proceso")
@@ -631,6 +672,7 @@ test("crea, documenta, archiva y restaura un expediente de proceso", async ({
     .getByLabel("Aprendizajes o decisiones reutilizables")
     .fill("Presentar siempre dos rutas visuales.");
   await page
+    .getByRole("dialog", { name: /Cerrar y archivar/ })
     .getByRole("button", { name: "Archivar expediente", exact: true })
     .click();
 
