@@ -101,7 +101,7 @@ test("crea la tarea dentro del proyecto seleccionado", async ({ page }) => {
     .toEqual({ primary: "marca-sur", linked: ["marca-sur"] });
 });
 
-test("muestra el proyecto como espacio de trabajo con detalle flotante", async ({
+test("muestra el proyecto como espacio de trabajo con detalle dividido", async ({
   page,
 }) => {
   await page

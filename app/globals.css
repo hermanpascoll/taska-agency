@@ -787,3 +787,217 @@ html.dark .soft-scrollbar::-webkit-scrollbar-thumb {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Dense split-pane workspace rebuild. */
+.asana-clone-shell {
+  --clone-bg: #1e1f21;
+  --clone-panel: #242628;
+  --clone-sidebar: #2e2f31;
+  --clone-line: #424447;
+  --clone-soft: #a2a0a2;
+  --clone-text: #f5f4f3;
+  background: var(--clone-bg) !important;
+  color: var(--clone-text);
+}
+
+.asana-clone-shell .finder-sidebar {
+  width: 214px !important;
+  padding: 0 8px 12px !important;
+  background: var(--clone-sidebar) !important;
+  border-right: 1px solid var(--clone-line);
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+
+.asana-clone-shell .asana-create-button {
+  min-width: 88px;
+  padding: 5px 8px;
+  color: var(--clone-text);
+}
+
+.asana-clone-shell .asana-create-button:hover,
+.asana-clone-shell .asana-workspace-switch:hover {
+  background: rgb(255 255 255 / 8%);
+}
+
+.asana-clone-shell .finder-sidebar nav button,
+.asana-clone-shell .finder-sidebar p,
+.asana-clone-shell .finder-sidebar span {
+  color: #d7d5d2;
+}
+
+.asana-clone-shell .finder-sidebar nav button {
+  min-height: 34px;
+  border-radius: 6px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+  font-size: 12px;
+}
+
+.asana-clone-shell .finder-sidebar nav button:hover {
+  background: rgb(255 255 255 / 10%) !important;
+  color: white !important;
+}
+
+.asana-clone-shell > main,
+.asana-clone-shell main {
+  background: var(--clone-bg);
+}
+
+.asana-clone-shell main > header {
+  height: 56px !important;
+  min-height: 56px;
+  padding-left: 18px !important;
+  padding-right: 18px !important;
+  background: var(--clone-sidebar) !important;
+  border-color: var(--clone-line) !important;
+  backdrop-filter: none !important;
+}
+
+.asana-clone-shell main > header input[aria-label="Buscar tareas"] {
+  height: 36px;
+  max-width: 640px;
+  border-color: transparent !important;
+  background: #5c5d5f !important;
+  color: white !important;
+}
+
+.asana-clone-shell main > header input[aria-label="Buscar tareas"]::placeholder {
+  color: #efedef;
+}
+
+.asana-clone-shell [data-testid="project-workspace"] {
+  min-height: calc(100vh - 56px);
+  background: var(--clone-bg) !important;
+}
+
+.asana-clone-shell [data-testid="project-workspace"] > header {
+  padding: 15px 28px 0 !important;
+  background: var(--clone-bg) !important;
+  border-color: var(--clone-line) !important;
+}
+
+.asana-clone-shell [data-testid="project-workspace"] > header h1 {
+  color: var(--clone-text) !important;
+  font-size: 18px !important;
+  font-weight: 600 !important;
+}
+
+.asana-clone-shell [aria-label="Vistas del proyecto"] button {
+  color: var(--clone-soft) !important;
+  font-size: 11px !important;
+}
+
+.asana-clone-shell [aria-label="Vistas del proyecto"] button:hover {
+  color: white !important;
+}
+
+.asana-clone-shell [data-testid="project-task-list"] {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.asana-clone-shell [data-testid="project-task-list"] article {
+  min-height: 43px;
+  border-color: var(--clone-line) !important;
+  background: transparent !important;
+}
+
+.asana-clone-shell [data-testid="project-task-list"] article:hover,
+.asana-clone-shell [data-testid="project-task-list"] article:focus-within {
+  background: #303236 !important;
+}
+
+.asana-clone-shell [data-testid="project-task-list"] h3,
+.asana-clone-shell [data-testid="project-task-list"] strong,
+.asana-clone-shell [data-testid="project-task-list"] button {
+  color: #d7d5d2 !important;
+}
+
+.asana-clone-shell .task-detail-shell,
+.asana-clone-shell .task-detail-toolbar,
+.asana-clone-shell .task-detail-content,
+.asana-clone-shell [data-testid="task-detail"] {
+  background: var(--clone-bg) !important;
+  color: var(--clone-text) !important;
+  border-color: var(--clone-line) !important;
+}
+
+.asana-clone-shell [data-testid="task-detail"] input,
+.asana-clone-shell [data-testid="task-detail"] textarea,
+.asana-clone-shell [data-testid="task-detail"] select,
+.asana-clone-shell [data-testid="task-detail"] [contenteditable="true"] {
+  border-color: var(--clone-line) !important;
+  background: transparent !important;
+  color: var(--clone-text) !important;
+}
+
+.asana-clone-shell [data-testid="task-detail"] .task-panel-title {
+  border-color: transparent !important;
+  font-size: 23px !important;
+  line-height: 1.25 !important;
+}
+
+.asana-clone-shell [data-testid="task-detail"] .task-panel-title:hover,
+.asana-clone-shell [data-testid="task-detail"] .task-panel-title:focus {
+  border-color: var(--clone-line) !important;
+}
+
+.asana-clone-shell [data-testid="task-detail"] h1,
+.asana-clone-shell [data-testid="task-detail"] h2,
+.asana-clone-shell [data-testid="task-detail"] h3,
+.asana-clone-shell [data-testid="task-detail"] strong,
+.asana-clone-shell [data-testid="task-detail"] label {
+  color: var(--clone-text) !important;
+}
+
+.asana-clone-shell [data-testid="task-detail"] p,
+.asana-clone-shell [data-testid="task-detail"] span,
+.asana-clone-shell [data-testid="task-detail"] summary {
+  color: var(--clone-soft);
+}
+
+.asana-clone-shell [data-testid="task-detail"] section,
+.asana-clone-shell [data-testid="task-detail"] details,
+.asana-clone-shell [data-testid="task-detail"] form,
+.asana-clone-shell [data-testid="task-detail"] article {
+  border-color: var(--clone-line) !important;
+}
+
+.asana-clone-shell .bg-white,
+.asana-clone-shell .bg-white\/95,
+.asana-clone-shell .bg-white\/85 {
+  background-color: var(--clone-panel) !important;
+}
+
+.asana-clone-shell .bg-slate-50,
+.asana-clone-shell .bg-slate-50\/70,
+.asana-clone-shell .bg-slate-50\/60 {
+  background-color: #292b2e !important;
+}
+
+.asana-clone-shell .border-slate-100,
+.asana-clone-shell .border-slate-200,
+.asana-clone-shell .border-\[\#e6e8ee\] {
+  border-color: var(--clone-line) !important;
+}
+
+.asana-clone-shell .text-slate-900,
+.asana-clone-shell .text-slate-800,
+.asana-clone-shell .text-slate-700 {
+  color: var(--clone-text) !important;
+}
+
+.asana-clone-shell .text-slate-600,
+.asana-clone-shell .text-slate-500,
+.asana-clone-shell .text-slate-400 {
+  color: var(--clone-soft) !important;
+}
+
+@media (min-width: 1024px) {
+  .asana-clone-shell [data-testid="task-detail"] .task-detail-content {
+    padding: 26px 28px 120px !important;
+  }
+}

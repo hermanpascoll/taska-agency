@@ -182,19 +182,6 @@ type ProjectTab =
   | "files"
   | "workflow";
 
-const projectTabLabels: Record<ProjectTab, string> = {
-  overview: "Resumen",
-  list: "Lista",
-  board: "Tablero",
-  calendar: "Calendario",
-  timeline: "Cronograma",
-  gantt: "Gantt",
-  dashboard: "Panel",
-  workflow: "Flujo de trabajo",
-  messages: "Mensajes",
-  files: "Archivos",
-};
-
 const recurrenceLabels: Record<TaskRecurrence, string> = {
   none: "No se repite",
   daily: "Diaria",
@@ -1869,6 +1856,7 @@ function Sidebar({
   onWorkspaceChange,
   onCreateWorkspace,
   onCreateProject,
+  onCreateTask,
   onProjectSelect,
   onProjectSettings,
   onSettings,
@@ -1892,6 +1880,7 @@ function Sidebar({
   onWorkspaceChange: (workspaceId: string) => void;
   onCreateWorkspace: () => void;
   onCreateProject: () => void;
+  onCreateTask: () => void;
   onProjectSelect: (projectId: string) => void;
   onProjectSettings: (projectId: string) => void;
   onSettings: () => void;
@@ -1939,16 +1928,16 @@ function Sidebar({
           mobileOpen ? "translate-x-0" : "-translate-x-full",
         )}
       >
-        <div className="flex h-[76px] items-center justify-between px-2">
+        <div className="asana-sidebar-top flex h-[56px] items-center justify-between px-1">
           <button
-            className="focus-ring flex items-center gap-2.5 rounded-lg"
-            onClick={() => select("my_tasks")}
+            className="asana-create-button focus-ring flex items-center gap-2 rounded-lg"
+            onClick={onCreateTask}
           >
-            <span className="grid size-8 place-items-center rounded-[9px] bg-[#0a84ff] shadow-[0_5px_15px_rgba(10,132,255,0.28)]">
-              <Zap className="size-[17px] fill-white stroke-[2.4]" />
+            <span className="grid size-6 place-items-center rounded-full bg-[#f06a6a] text-white">
+              <Plus className="size-4 stroke-[2.5]" />
             </span>
-            <span className="text-[19px] font-bold tracking-[-0.02em] text-slate-800">
-              taska
+            <span className="text-[12px] font-semibold text-slate-700">
+              Crear
             </span>
           </button>
           <button
@@ -1960,27 +1949,19 @@ function Sidebar({
           </button>
         </div>
 
-        <div className="relative mb-6">
+        <div className="relative mb-3">
           <button
             onClick={() => setWorkspaceOpen((current) => !current)}
-            className="focus-ring flex w-full items-center gap-3 rounded-xl border border-black/5 bg-white/55 p-2.5 text-left shadow-sm transition hover:bg-white/80"
+            className="asana-workspace-switch focus-ring flex w-full items-center gap-2 rounded-md px-2 py-2 text-left transition hover:bg-black/[0.045]"
             aria-expanded={workspaceOpen}
             aria-label="Cambiar espacio de trabajo"
           >
-            <span className="grid size-8 place-items-center rounded-lg bg-emerald-400/15 text-xs font-bold text-emerald-300">
-              {activeWorkspace?.name.slice(0, 2).toUpperCase() ?? "ES"}
-            </span>
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-xs font-semibold text-slate-700">
-                {activeWorkspace?.name ?? "Espacio de trabajo"}
-              </span>
-              <span className="mt-0.5 block text-[10px] text-slate-500">
-                {activeWorkspace?.memberCount ?? 1}{" "}
-                {(activeWorkspace?.memberCount ?? 1) === 1
-                  ? "integrante"
-                  : "integrantes"}
+              <span className="block truncate text-[11px] font-semibold text-slate-500">
+                Trabajo
               </span>
             </span>
+            <span className="truncate text-[9px] text-slate-400">{activeWorkspace?.name}</span>
             <ChevronDown
               className={clsx(
                 "size-3.5 text-slate-400 transition",
@@ -3664,6 +3645,7 @@ function TaskDrawer({
   onTimerStop,
   onManualTimeCreate,
   onTimeEntryDelete,
+  embedded = false,
 }: {
   task: Task;
   parentTask: Task | null;
@@ -3704,6 +3686,7 @@ function TaskDrawer({
   onTimerStop: (entryId: string) => void;
   onManualTimeCreate: (input: NewManualTimeEntryInput) => void;
   onTimeEntryDelete: (entryId: string) => void;
+  embedded?: boolean;
 }) {
   const [comment, setComment] = useState("");
   const [commentType, setCommentType] = useState<CommentType>("comment");
@@ -3778,7 +3761,7 @@ function TaskDrawer({
         onCloseRef.current();
         return;
       }
-      if (event.key !== "Tab" || !dialog) return;
+      if (embedded || event.key !== "Tab" || !dialog) return;
       const focusable = Array.from(
         dialog.querySelectorAll<HTMLElement>(
           'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
@@ -3800,7 +3783,7 @@ function TaskDrawer({
       document.removeEventListener("keydown", handleKeyDown);
       previousFocus?.focus();
     };
-  }, [task.id]);
+  }, [embedded, task.id]);
 
   function submitComment(event: FormEvent) {
     event.preventDefault();
@@ -3830,25 +3813,34 @@ function TaskDrawer({
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center p-0 sm:p-3 lg:p-5"
+      className={clsx(
+        "fixed z-[70] flex",
+        embedded
+          ? "inset-y-0 right-0 w-full max-w-[760px] border-l border-slate-200 bg-white lg:top-[56px] lg:w-[48vw]"
+          : "inset-0 items-center justify-center p-0 sm:p-3 lg:p-5",
+      )}
       data-testid="task-detail"
     >
-      <button
-        className="absolute inset-0 bg-slate-950/55 backdrop-blur-[2px]"
-        onClick={onClose}
-        aria-label="Cerrar detalle"
-      />
+      {!embedded && (
+        <button
+          className="absolute inset-0 bg-slate-950/55 backdrop-blur-[2px]"
+          onClick={onClose}
+          aria-label="Cerrar detalle"
+        />
+      )}
       <aside
         ref={dialogRef}
         tabIndex={-1}
         className={clsx(
           "task-detail-shell animate-task-modal relative flex h-full w-full flex-col overflow-hidden border-slate-200 bg-white shadow-[0_32px_100px_rgba(15,23,42,0.38)] transition-[max-width,height,border-radius] duration-200 sm:border",
-          isFullscreen
+          embedded
+            ? "max-w-none border-0 shadow-none sm:rounded-none"
+            : isFullscreen
             ? "max-w-none sm:h-[calc(100vh-1.5rem)] sm:rounded-xl"
             : "max-w-[1380px] sm:h-[calc(100vh-2rem)] sm:max-h-[980px] sm:rounded-xl lg:h-[calc(100vh-2.5rem)]",
         )}
         role="dialog"
-        aria-modal="true"
+        aria-modal={embedded ? undefined : true}
         aria-label={`Detalle de ${task.title}`}
       >
         <header className="task-detail-toolbar relative flex min-h-16 shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 sm:gap-3 sm:px-5">
@@ -3872,18 +3864,20 @@ function TaskDrawer({
             </span>
           </button>
 
-          <input
-            key={`${task.id}-toolbar-title`}
-            defaultValue={task.title}
-            onBlur={(event) => {
-              const title = event.target.value.trim();
-              if (title.length >= 2 && title !== task.title) {
-                onTaskUpdate({ title });
-              }
-            }}
-            className="focus-ring min-w-0 flex-1 truncate rounded-md border border-transparent bg-transparent px-2 py-1.5 text-[15px] font-semibold text-slate-900 hover:border-slate-200 focus:border-violet-300 sm:text-[17px]"
-            aria-label="Título de la tarea"
-          />
+          {!embedded && (
+            <input
+              key={`${task.id}-toolbar-title`}
+              defaultValue={task.title}
+              onBlur={(event) => {
+                const title = event.target.value.trim();
+                if (title.length >= 2 && title !== task.title) {
+                  onTaskUpdate({ title });
+                }
+              }}
+              className="focus-ring min-w-0 flex-1 truncate rounded-md border border-transparent bg-transparent px-2 py-1.5 text-[15px] font-semibold text-slate-900 hover:border-slate-200 focus:border-violet-300 sm:text-[17px]"
+              aria-label="Título de la tarea"
+            />
+          )}
 
           <div
             className="hidden shrink-0 items-center -space-x-2 md:flex"
@@ -3990,7 +3984,10 @@ function TaskDrawer({
             <button
               type="button"
               onClick={() => setIsFullscreen((value) => !value)}
-              className="focus-ring hidden rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 sm:block"
+              className={clsx(
+                "focus-ring hidden rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 sm:block",
+                embedded && "lg:hidden",
+              )}
               aria-label={
                 isFullscreen
                   ? "Salir de pantalla completa"
@@ -4050,6 +4047,20 @@ function TaskDrawer({
         </header>
 
         <div className="soft-scrollbar task-detail-content flex flex-1 flex-col overflow-y-auto px-5 py-6 sm:px-9 lg:px-12">
+          {embedded && (
+            <input
+              key={`${task.id}-panel-title`}
+              defaultValue={task.title}
+              onBlur={(event) => {
+                const title = event.target.value.trim();
+                if (title.length >= 2 && title !== task.title) {
+                  onTaskUpdate({ title });
+                }
+              }}
+              className="task-panel-title focus-ring mb-5 w-full rounded-md border border-transparent bg-transparent px-1 py-2 text-[23px] font-semibold tracking-[-0.025em] text-slate-900 hover:border-slate-700 focus:border-slate-600"
+              aria-label="Título de la tarea"
+            />
+          )}
           <div className="flex items-center gap-2">
             {parentTask && (
               <>
@@ -8326,7 +8337,7 @@ export function TaskaApp() {
 
   return (
     <div
-      className="mac-wallpaper flex min-h-screen bg-[#f1f3f6]"
+      className="asana-clone-shell mac-wallpaper flex min-h-screen bg-[#f1f3f6]"
       style={{ "--app-accent": settings.accentColor } as CSSProperties}
     >
       <a href="#main-content" className="skip-link">
@@ -8358,6 +8369,7 @@ export function TaskaApp() {
         }}
         onCreateWorkspace={() => setShowNewWorkspace(true)}
         onCreateProject={() => setShowNewProject(true)}
+        onCreateTask={() => openNewTask()}
         onProjectSettings={setProjectSettingsId}
         onSettings={() => setSettingsOpen(true)}
         onAdmin={() => setAdminOpen(true)}
@@ -8375,7 +8387,14 @@ export function TaskaApp() {
         }}
       />
 
-      <main id="main-content" className="min-w-0 flex-1" tabIndex={-1}>
+      <main
+        id="main-content"
+        className={clsx(
+          "min-w-0 flex-1 transition-[margin] duration-200",
+          focusedProject && selectedTask && "lg:mr-[48vw]",
+        )}
+        tabIndex={-1}
+      >
         <header className="sticky top-0 z-30 flex h-16 items-center border-b border-[#e6e8ee] bg-white/95 px-4 backdrop-blur sm:px-7 lg:h-[70px] lg:px-9">
           <button
             onClick={() => setMobileMenu(true)}
@@ -8384,35 +8403,19 @@ export function TaskaApp() {
           >
             <Menu className="size-5" />
           </button>
-          {focusedProject ? (
-            <div className="hidden min-w-0 items-center gap-2 sm:flex">
-              <span
-                className="size-2.5 shrink-0 rounded-[3px]"
-                style={{ backgroundColor: focusedProject.color }}
-              />
-              <span className="truncate text-[12px] font-semibold text-slate-700">
-                {focusedProject.name}
-              </span>
-              <span className="text-[10px] text-slate-300">/</span>
-              <span className="text-[10px] text-slate-400">
-                {projectTabLabels[projectTab]}
-              </span>
-            </div>
-          ) : (
-            <div className="relative hidden w-full max-w-[390px] sm:block">
+          <div className="relative mx-auto hidden w-full max-w-[640px] sm:block">
               <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Buscar tareas, campañas o clientes…"
-                className="focus-ring h-10 w-full rounded-xl border border-slate-200 bg-[#f8f9fb] pl-10 pr-14 text-[12px] text-slate-700 placeholder:text-slate-400"
+                placeholder="Buscar"
+                className="focus-ring h-9 w-full rounded-full border border-slate-200 bg-[#f8f9fb] pl-10 pr-14 text-[12px] text-slate-700 placeholder:text-slate-400"
                 aria-label="Buscar tareas"
               />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[9px] font-medium text-slate-400">
                 ⌘ K
               </span>
-            </div>
-          )}
+          </div>
           <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
             {syncing && (
               <span className="hidden items-center gap-2 text-[10px] font-medium text-slate-400 md:flex">
@@ -9118,6 +9121,7 @@ export function TaskaApp() {
             void deleteTimeEntry(entryId);
             notify("Registro de tiempo eliminado");
           }}
+          embedded={Boolean(focusedProject)}
           notify={notify}
         />
       ))}
