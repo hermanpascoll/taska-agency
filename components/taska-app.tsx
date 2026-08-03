@@ -6,6 +6,7 @@ import {
   Activity,
   BarChart3,
   Bell,
+  Bold,
   Building2,
   CalendarDays,
   ChartGantt,
@@ -17,6 +18,7 @@ import {
   Columns3,
   CircleDollarSign,
   ContactRound,
+  Code2,
   Download,
   FileDown,
   FileSpreadsheet,
@@ -25,11 +27,17 @@ import {
   GitBranch,
   GripVertical,
   Hourglass,
+  Highlighter,
   ImagePlus,
   Inbox,
+  IndentIncrease,
+  Italic,
   LayoutDashboard,
   Link2,
+  List,
+  ListChecks,
   ListFilter,
+  ListOrdered,
   ListTodo,
   LoaderCircle,
   LogOut,
@@ -44,16 +52,21 @@ import {
   Play,
   Plus,
   Printer,
+  Quote,
+  Redo2,
   Repeat2,
   Search,
   Settings,
   Shield,
   SlidersHorizontal,
   Sparkles,
+  Strikethrough,
   Tags,
   TimerReset,
   ThumbsUp,
   Trash2,
+  Underline,
+  Undo2,
   UserPlus,
   UserRound,
   UsersRound,
@@ -459,12 +472,57 @@ function EmbeddedTaskAttachment({
 }
 
 function DescriptionInlineText({ text }: { text: string }) {
-  const parts = text.split(/(\*\*[^*]+\*\*|https?:\/\/[^\s]+)/g);
+  const parts = text.split(
+    /(\*\*[^*\n]+\*\*|~~[^~\n]+~~|==[^=\n]+==|<u>[^<\n]+<\/u>|`[^`\n]+`|\[[^\]\n]+\]\(https?:\/\/[^)\s]+\)|https?:\/\/[^\s]+|\*[^*\n]+\*)/g,
+  );
   return (
     <>
       {parts.filter(Boolean).map((part, index) => {
         if (part.startsWith("**") && part.endsWith("**")) {
           return <strong key={`${part}-${index}`}>{part.slice(2, -2)}</strong>;
+        }
+        if (part.startsWith("*") && part.endsWith("*")) {
+          return <em key={`${part}-${index}`}>{part.slice(1, -1)}</em>;
+        }
+        if (part.startsWith("~~") && part.endsWith("~~")) {
+          return <del key={`${part}-${index}`}>{part.slice(2, -2)}</del>;
+        }
+        if (part.startsWith("==") && part.endsWith("==")) {
+          return (
+            <mark
+              key={`${part}-${index}`}
+              className="rounded bg-amber-200/80 px-0.5 text-inherit"
+            >
+              {part.slice(2, -2)}
+            </mark>
+          );
+        }
+        if (part.startsWith("<u>") && part.endsWith("</u>")) {
+          return <u key={`${part}-${index}`}>{part.slice(3, -4)}</u>;
+        }
+        if (part.startsWith("`") && part.endsWith("`")) {
+          return (
+            <code
+              key={`${part}-${index}`}
+              className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[0.9em] text-violet-700"
+            >
+              {part.slice(1, -1)}
+            </code>
+          );
+        }
+        const markdownLink = part.match(/^\[([^\]]+)\]\((https?:\/\/[^)]+)\)$/);
+        if (markdownLink) {
+          return (
+            <a
+              key={`${part}-${index}`}
+              href={markdownLink[2]}
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium text-[#0879ea] underline decoration-[#0a84ff]/35 underline-offset-2"
+            >
+              {markdownLink[1]}
+            </a>
+          );
         }
         if (/^https?:\/\//.test(part)) {
           return (
@@ -494,53 +552,127 @@ function DescriptionTextPreview({ text }: { text: string }) {
     );
   }
 
+  const lines = text.split("\n");
+  const content = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line.startsWith("```")) {
+      const codeLines: string[] = [];
+      index += 1;
+      while (index < lines.length && !lines[index].startsWith("```")) {
+        codeLines.push(lines[index]);
+        index += 1;
+      }
+      content.push(
+        <pre
+          key={`code-${index}`}
+          className="overflow-x-auto rounded-xl bg-slate-950 px-4 py-3 font-mono text-[12px] leading-6 text-slate-100"
+        >
+          <code>{codeLines.join("\n")}</code>
+        </pre>,
+      );
+      continue;
+    }
+    if (!line.trim()) {
+      content.push(<div key={index} className="h-2" />);
+      continue;
+    }
+    if (/^---+$/.test(line.trim())) {
+      content.push(<hr key={index} className="my-4 border-slate-200" />);
+      continue;
+    }
+    if (line.startsWith("### ")) {
+      content.push(
+        <h5 key={index} className="pt-2 text-[15px] font-bold text-slate-900">
+          <DescriptionInlineText text={line.slice(4)} />
+        </h5>,
+      );
+      continue;
+    }
+    if (line.startsWith("## ")) {
+      content.push(
+        <h4 key={index} className="pt-3 text-[17px] font-bold text-slate-900">
+          <DescriptionInlineText text={line.slice(3)} />
+        </h4>,
+      );
+      continue;
+    }
+    if (line.startsWith("# ")) {
+      content.push(
+        <h3 key={index} className="pt-3 text-[20px] font-bold text-slate-900">
+          <DescriptionInlineText text={line.slice(2)} />
+        </h3>,
+      );
+      continue;
+    }
+    const checklist = line.match(/^[-*]\s\[([ xX])\]\s(.+)/);
+    if (checklist) {
+      const checked = checklist[1].toLowerCase() === "x";
+      content.push(
+        <p key={index} className="flex items-start gap-2.5 pl-1">
+          <span
+            className={clsx(
+              "mt-1.5 grid size-4 shrink-0 place-items-center rounded border",
+              checked
+                ? "border-emerald-500 bg-emerald-500 text-white"
+                : "border-slate-300 bg-white",
+            )}
+          >
+            {checked && <Check className="size-3 stroke-[3]" />}
+          </span>
+          <span className={clsx(checked && "text-slate-400 line-through")}>
+            <DescriptionInlineText text={checklist[2]} />
+          </span>
+        </p>,
+      );
+      continue;
+    }
+    if (/^[-*]\s/.test(line)) {
+      content.push(
+        <p key={index} className="flex gap-3 pl-2">
+          <span className="mt-[11px] size-1.5 shrink-0 rounded-full bg-slate-400" />
+          <span>
+            <DescriptionInlineText text={line.replace(/^[-*]\s/, "")} />
+          </span>
+        </p>,
+      );
+      continue;
+    }
+    const numbered = line.match(/^(\d+)\.\s(.+)/);
+    if (numbered) {
+      content.push(
+        <p key={index} className="flex gap-3 pl-1">
+          <span className="w-5 shrink-0 text-right font-semibold text-slate-400">
+            {numbered[1]}.
+          </span>
+          <span>
+            <DescriptionInlineText text={numbered[2]} />
+          </span>
+        </p>,
+      );
+      continue;
+    }
+    if (line.startsWith("> ")) {
+      content.push(
+        <blockquote
+          key={index}
+          className="border-l-3 border-violet-400 pl-4 italic text-slate-600"
+        >
+          <DescriptionInlineText text={line.slice(2)} />
+        </blockquote>,
+      );
+      continue;
+    }
+    content.push(
+      <p key={index}>
+        <DescriptionInlineText text={line} />
+      </p>,
+    );
+  }
+
   return (
     <div className="space-y-2 text-[14px] leading-7 text-slate-700">
-      {text.split("\n").map((line, index) => {
-        if (!line.trim()) return <div key={index} className="h-2" />;
-        if (line.startsWith("## ")) {
-          return (
-            <h4 key={index} className="pt-3 text-[17px] font-bold text-slate-900">
-              <DescriptionInlineText text={line.slice(3)} />
-            </h4>
-          );
-        }
-        if (line.startsWith("# ")) {
-          return (
-            <h3 key={index} className="pt-3 text-[20px] font-bold text-slate-900">
-              <DescriptionInlineText text={line.slice(2)} />
-            </h3>
-          );
-        }
-        if (/^[-*]\s/.test(line)) {
-          return (
-            <p key={index} className="flex gap-3 pl-2">
-              <span className="mt-[11px] size-1.5 shrink-0 rounded-full bg-slate-400" />
-              <span>
-                <DescriptionInlineText text={line.replace(/^[-*]\s/, "")} />
-              </span>
-            </p>
-          );
-        }
-        const numbered = line.match(/^(\d+)\.\s(.+)/);
-        if (numbered) {
-          return (
-            <p key={index} className="flex gap-3 pl-1">
-              <span className="w-5 shrink-0 text-right font-semibold text-slate-400">
-                {numbered[1]}.
-              </span>
-              <span>
-                <DescriptionInlineText text={numbered[2]} />
-              </span>
-            </p>
-          );
-        }
-        return (
-          <p key={index}>
-            <DescriptionInlineText text={line} />
-          </p>
-        );
-      })}
+      {content}
     </div>
   );
 }
@@ -550,18 +682,27 @@ function TaskDescriptionEditor({
   onUpdate,
   onUpload,
   onOpen,
+  onCreateSubtask,
 }: {
   task: Task;
   onUpdate: (description: string) => void;
   onUpload: (files: File[]) => Promise<TaskAttachment[]>;
   onOpen: (attachment: TaskAttachment) => void;
+  onCreateSubtask: (title: string) => void;
 }) {
   const initialBlocks = parseTaskDescription(task.description, task.attachments);
   const [blocks, setBlocks] = useState<TaskDescriptionBlock[]>(initialBlocks);
   const [editing, setEditing] = useState(() => !task.description.trim());
   const [uploading, setUploading] = useState(false);
+  const [slashMenuOpen, setSlashMenuOpen] = useState(false);
+  const [hasSelection, setHasSelection] = useState(false);
+  const [activeBlockIndex, setActiveBlockIndex] = useState(0);
   const blocksRef = useRef(initialBlocks);
   const fileInput = useRef<HTMLInputElement>(null);
+  const textareaRefs = useRef<Record<number, HTMLTextAreaElement | null>>({});
+  const historyRef = useRef<TaskDescriptionBlock[][]>([initialBlocks]);
+  const historyIndexRef = useRef(0);
+  const loadedTaskId = useRef(task.id);
   const selection = useRef({
     blockIndex: 0,
     offset: task.description.length,
@@ -574,10 +715,17 @@ function TaskDescriptionEditor({
     .join("|");
 
   useEffect(() => {
-    if (savedDescription.current === task.description) return;
+    const taskChanged = loadedTaskId.current !== task.id;
+    if (!taskChanged && savedDescription.current === task.description) return;
     const next = parseTaskDescription(task.description, task.attachments);
+    loadedTaskId.current = task.id;
     savedDescription.current = task.description;
     blocksRef.current = next;
+    historyRef.current = [next];
+    historyIndexRef.current = 0;
+    setHasSelection(false);
+    setActiveBlockIndex(0);
+    setSlashMenuOpen(false);
     setBlocks(next);
   }, [task.attachments, task.description, task.id]);
 
@@ -602,26 +750,68 @@ function TaskDescriptionEditor({
     setBlocks(next);
   }, [activeAttachmentIds, task.attachments]);
 
-  function setLocalBlocks(next: TaskDescriptionBlock[]) {
+  function setLocalBlocks(
+    next: TaskDescriptionBlock[],
+    recordHistory = false,
+  ) {
+    if (
+      recordHistory &&
+      serializeTaskDescription(next) !==
+        serializeTaskDescription(blocksRef.current)
+    ) {
+      const history = historyRef.current.slice(
+        0,
+        historyIndexRef.current + 1,
+      );
+      history.push(next.map((block) => ({ ...block })));
+      if (history.length > 80) history.shift();
+      historyRef.current = history;
+      historyIndexRef.current = history.length - 1;
+    }
     blocksRef.current = next;
     setBlocks(next);
   }
 
-  function persist(next: TaskDescriptionBlock[]) {
+  function persist(next: TaskDescriptionBlock[], recordHistory = false) {
     const description = serializeTaskDescription(next);
     savedDescription.current = description;
-    setLocalBlocks(next);
+    setLocalBlocks(next, recordHistory);
     if (description !== task.description) onUpdate(description);
   }
 
-  function updateText(index: number, text: string) {
+  function updateText(index: number, text: string, recordHistory = true) {
     setLocalBlocks(
       blocksRef.current.map((block, blockIndex) =>
         blockIndex === index && block.type === "text"
           ? { ...block, text }
           : block,
       ),
+      recordHistory,
     );
+  }
+
+  function rememberSelection(
+    index: number,
+    target: HTMLTextAreaElement,
+  ) {
+    selection.current = {
+      blockIndex: index,
+      offset: target.selectionStart,
+      end: target.selectionEnd,
+    };
+    setActiveBlockIndex(index);
+    setHasSelection(target.selectionEnd > target.selectionStart);
+  }
+
+  function restoreSelection(index: number, start: number, end = start) {
+    selection.current = { blockIndex: index, offset: start, end };
+    setActiveBlockIndex(index);
+    setHasSelection(end > start);
+    window.requestAnimationFrame(() => {
+      const textarea = textareaRefs.current[index];
+      textarea?.focus();
+      textarea?.setSelectionRange(start, end);
+    });
   }
 
   function applyTextFormat(
@@ -631,20 +821,118 @@ function TaskDescriptionEditor({
     linePrefix = false,
   ) {
     const current = blocksRef.current;
-    const target = current[selection.current.blockIndex];
+    const targetIndex = selection.current.blockIndex;
+    const target = current[targetIndex];
     if (!target || target.type !== "text") return;
-    const start = linePrefix
-      ? target.text.lastIndexOf("\n", selection.current.offset - 1) + 1
-      : selection.current.offset;
-    const end = Math.max(start, selection.current.end);
-    const selected = target.text.slice(start, end);
-    const replacement = linePrefix
-      ? `${prefix}${target.text.slice(start)}`
-      : `${prefix}${selected || placeholder}${suffix}`;
-    const nextText = linePrefix
-      ? `${target.text.slice(0, start)}${replacement}`
-      : `${target.text.slice(0, start)}${replacement}${target.text.slice(end)}`;
-    updateText(selection.current.blockIndex, nextText);
+    const rawStart = Math.min(selection.current.offset, target.text.length);
+    const rawEnd = Math.max(rawStart, Math.min(selection.current.end, target.text.length));
+    if (linePrefix) {
+      const start = target.text.lastIndexOf("\n", rawStart - 1) + 1;
+      const nextBreak = target.text.indexOf("\n", rawEnd);
+      const end = nextBreak === -1 ? target.text.length : nextBreak;
+      const selectedLines = target.text.slice(start, end) || placeholder;
+      const replacement = selectedLines
+        .split("\n")
+        .map((line) => `${prefix}${line}`)
+        .join("\n");
+      const nextText = `${target.text.slice(0, start)}${replacement}${target.text.slice(end)}`;
+      updateText(targetIndex, nextText);
+      restoreSelection(targetIndex, start + prefix.length, start + replacement.length);
+      return;
+    }
+    const selected = target.text.slice(rawStart, rawEnd);
+    const content = selected || placeholder;
+    const replacement = `${prefix}${content}${suffix}`;
+    const nextText = `${target.text.slice(0, rawStart)}${replacement}${target.text.slice(rawEnd)}`;
+    updateText(targetIndex, nextText);
+    restoreSelection(
+      targetIndex,
+      rawStart + prefix.length,
+      rawStart + prefix.length + content.length,
+    );
+  }
+
+  function undoDescription() {
+    if (historyIndexRef.current <= 0) return;
+    historyIndexRef.current -= 1;
+    const next = historyRef.current[historyIndexRef.current];
+    setLocalBlocks(next.map((block) => ({ ...block })));
+  }
+
+  function redoDescription() {
+    if (historyIndexRef.current >= historyRef.current.length - 1) return;
+    historyIndexRef.current += 1;
+    const next = historyRef.current[historyIndexRef.current];
+    setLocalBlocks(next.map((block) => ({ ...block })));
+  }
+
+  function removeSlashTrigger() {
+    const targetIndex = selection.current.blockIndex;
+    const target = blocksRef.current[targetIndex];
+    if (!target || target.type !== "text") return;
+    const cursor = selection.current.offset;
+    if (cursor <= 0 || target.text[cursor - 1] !== "/") return;
+    const nextText = `${target.text.slice(0, cursor - 1)}${target.text.slice(cursor)}`;
+    updateText(targetIndex, nextText);
+    restoreSelection(targetIndex, cursor - 1);
+  }
+
+  function runSlashCommand(action: () => void) {
+    removeSlashTrigger();
+    window.requestAnimationFrame(action);
+    setSlashMenuOpen(false);
+  }
+
+  function createSubtaskFromSelection() {
+    const target = blocksRef.current[selection.current.blockIndex];
+    if (!target || target.type !== "text") return;
+    const title = target.text
+      .slice(selection.current.offset, selection.current.end)
+      .replace(/[#*_~=`<>\[\]()]/g, "")
+      .trim();
+    if (!title) return;
+    onCreateSubtask(title);
+  }
+
+  function runFormatCommand(command: string) {
+    switch (command) {
+      case "bold":
+        applyTextFormat("**", "**", "negrita");
+        break;
+      case "italic":
+        applyTextFormat("*", "*", "cursiva");
+        break;
+      case "underline":
+        applyTextFormat("<u>", "</u>", "subrayado");
+        break;
+      case "highlight":
+        applyTextFormat("==", "==", "resaltado");
+        break;
+      case "strike":
+        applyTextFormat("~~", "~~", "tachado");
+        break;
+      case "bullets":
+        applyTextFormat("- ", "", "Elemento", true);
+        break;
+      case "numbered":
+        applyTextFormat("1. ", "", "Elemento", true);
+        break;
+      case "checklist":
+        applyTextFormat("- [ ] ", "", "Pendiente", true);
+        break;
+      case "indent":
+        applyTextFormat("  ", "", "Texto", true);
+        break;
+      case "link":
+        applyTextFormat("[", "](https://)", "texto del enlace");
+        break;
+      case "code":
+        applyTextFormat("`", "`", "código");
+        break;
+      case "quote":
+        applyTextFormat("> ", "", "Cita", true);
+        break;
+    }
   }
 
   async function insertFiles(files: File[]) {
@@ -681,9 +969,12 @@ function TaskDescriptionEditor({
           ...attachmentBlocks,
           { type: "text", text: after },
           ...current.slice(requestedIndex + 1),
-        ]);
+        ], true);
       } else {
-        persist([...current, ...attachmentBlocks, { type: "text", text: "" }]);
+        persist(
+          [...current, ...attachmentBlocks, { type: "text", text: "" }],
+          true,
+        );
       }
     } finally {
       setUploading(false);
@@ -709,54 +1000,169 @@ function TaskDescriptionEditor({
               );
             }
             return (
-              <textarea
-                key={`${task.id}-text-${index}`}
-                value={block.text}
-                rows={Math.min(
-                  24,
-                  Math.max(5, block.text.split("\n").length + 2),
+              <div key={`${task.id}-text-${index}`} className="relative">
+                <textarea
+                  ref={(element) => {
+                    textareaRefs.current[index] = element;
+                  }}
+                  value={block.text}
+                  rows={Math.min(
+                    24,
+                    Math.max(5, block.text.split("\n").length + 2),
+                  )}
+                  onChange={(event) => updateText(index, event.target.value)}
+                  onSelect={(event) =>
+                    rememberSelection(index, event.currentTarget)
+                  }
+                  onFocus={(event) =>
+                    rememberSelection(index, event.currentTarget)
+                  }
+                  onKeyUp={(event) =>
+                    rememberSelection(index, event.currentTarget)
+                  }
+                  onClick={(event) =>
+                    rememberSelection(index, event.currentTarget)
+                  }
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape" && slashMenuOpen) {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setSlashMenuOpen(false);
+                      return;
+                    }
+                    if (event.key === "/" && !event.metaKey && !event.ctrlKey) {
+                      setSlashMenuOpen(true);
+                    }
+                    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
+                      event.preventDefault();
+                      applyTextFormat("**", "**", "negrita");
+                    }
+                    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "i") {
+                      event.preventDefault();
+                      applyTextFormat("*", "*", "cursiva");
+                    }
+                    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+                      event.preventDefault();
+                      if (event.shiftKey) redoDescription();
+                      else undoDescription();
+                    }
+                  }}
+                  onBlur={(event) => {
+                    rememberSelection(index, event.currentTarget);
+                    persist(blocksRef.current);
+                  }}
+                  placeholder={'Escribí "/" para ver el menú'}
+                  className="block min-h-32 w-full resize-y border-0 bg-transparent text-[13px] leading-6 text-slate-700 outline-none placeholder:text-slate-400"
+                  aria-label="Descripción de la tarea"
+                />
+                {slashMenuOpen && activeBlockIndex === index && (
+                  <div className="absolute left-2 top-10 z-30 grid w-64 gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-2xl">
+                    <p className="px-2 pb-1 pt-0.5 text-[8px] font-bold uppercase tracking-[0.12em] text-slate-400">
+                      Insertar bloque
+                    </p>
+                    <button
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() =>
+                        runSlashCommand(() =>
+                          applyTextFormat("# ", "", "Título", true),
+                        )
+                      }
+                      className="focus-ring flex items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-slate-100"
+                    >
+                      <Bold className="size-4 text-slate-500" />
+                      <span>
+                        <span className="block text-[10px] font-semibold text-slate-700">Título</span>
+                        <span className="block text-[8px] text-slate-400">Encabezado principal</span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() =>
+                        runSlashCommand(() =>
+                          applyTextFormat("- ", "", "Elemento", true),
+                        )
+                      }
+                      className="focus-ring flex items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-slate-100"
+                    >
+                      <List className="size-4 text-slate-500" />
+                      <span>
+                        <span className="block text-[10px] font-semibold text-slate-700">Lista con viñetas</span>
+                        <span className="block text-[8px] text-slate-400">Lista simple</span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() =>
+                        runSlashCommand(() =>
+                          applyTextFormat("- [ ] ", "", "Pendiente", true),
+                        )
+                      }
+                      className="focus-ring flex items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-slate-100"
+                    >
+                      <ListChecks className="size-4 text-slate-500" />
+                      <span>
+                        <span className="block text-[10px] font-semibold text-slate-700">Lista de tareas</span>
+                        <span className="block text-[8px] text-slate-400">Checklist</span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() =>
+                        runSlashCommand(() =>
+                          applyTextFormat("> ", "", "Cita", true),
+                        )
+                      }
+                      className="focus-ring flex items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-slate-100"
+                    >
+                      <Quote className="size-4 text-slate-500" />
+                      <span>
+                        <span className="block text-[10px] font-semibold text-slate-700">Cita</span>
+                        <span className="block text-[8px] text-slate-400">Destacar un texto</span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() =>
+                        runSlashCommand(() =>
+                          applyTextFormat("```\n", "\n```", "código"),
+                        )
+                      }
+                      className="focus-ring flex items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-slate-100"
+                    >
+                      <Code2 className="size-4 text-slate-500" />
+                      <span>
+                        <span className="block text-[10px] font-semibold text-slate-700">Bloque de código</span>
+                        <span className="block text-[8px] text-slate-400">Código con formato</span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        removeSlashTrigger();
+                        setSlashMenuOpen(false);
+                        fileInput.current?.click();
+                      }}
+                      className="focus-ring flex items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-slate-100"
+                    >
+                      <ImagePlus className="size-4 text-slate-500" />
+                      <span>
+                        <span className="block text-[10px] font-semibold text-slate-700">
+                          Imagen o archivo
+                        </span>
+                        <span className="block text-[8px] text-slate-400">
+                          Embebido en la descripción
+                        </span>
+                      </span>
+                    </button>
+                  </div>
                 )}
-                onChange={(event) => updateText(index, event.target.value)}
-                onSelect={(event) => {
-                  selection.current = {
-                    blockIndex: index,
-                    offset: event.currentTarget.selectionStart,
-                    end: event.currentTarget.selectionEnd,
-                  };
-                }}
-                onFocus={(event) => {
-                  selection.current = {
-                    blockIndex: index,
-                    offset: event.currentTarget.selectionStart,
-                    end: event.currentTarget.selectionEnd,
-                  };
-                }}
-                onKeyUp={(event) => {
-                  selection.current = {
-                    blockIndex: index,
-                    offset: event.currentTarget.selectionStart,
-                    end: event.currentTarget.selectionEnd,
-                  };
-                }}
-                onClick={(event) => {
-                  selection.current = {
-                    blockIndex: index,
-                    offset: event.currentTarget.selectionStart,
-                    end: event.currentTarget.selectionEnd,
-                  };
-                }}
-                onBlur={(event) => {
-                  selection.current = {
-                    blockIndex: index,
-                    offset: event.currentTarget.selectionStart,
-                    end: event.currentTarget.selectionEnd,
-                  };
-                  persist(blocksRef.current);
-                }}
-                placeholder="Escribí el brief, contexto, objetivos y referencias de esta tarea…"
-                className="block min-h-28 w-full resize-y border-0 bg-transparent text-[13px] leading-6 text-slate-700 outline-none placeholder:text-slate-400"
-                aria-label="Descripción de la tarea"
-              />
+              </div>
             );
           }
 
@@ -782,6 +1188,7 @@ function TaskDescriptionEditor({
                     blocksRef.current.filter(
                       (_, blockIndex) => blockIndex !== index,
                     ),
+                    true,
                   )
                 }
                 className="focus-ring absolute right-2 top-2 grid size-7 place-items-center rounded-full bg-slate-950/70 text-white opacity-0 shadow-lg backdrop-blur transition hover:bg-rose-600 group-hover/embedded:opacity-100 focus:opacity-100"
@@ -793,49 +1200,179 @@ function TaskDescriptionEditor({
           );
         })}
       </div>
-      <div className="flex flex-wrap items-center gap-1.5 border-t border-slate-100 bg-slate-50/70 px-3 py-2">
+      <div className="task-document-toolbar flex min-h-12 flex-wrap items-center gap-0.5 border-t border-slate-200 bg-slate-50/80 px-3 py-2">
         {editing && (
           <>
             <button
               type="button"
-              onClick={() => applyTextFormat("# ", "", "Título", true)}
-              className="focus-ring rounded-lg px-2 py-1.5 text-[9px] font-bold text-slate-500 hover:bg-white hover:text-slate-800"
-              aria-label="Título"
+              disabled={uploading}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => fileInput.current?.click()}
+              className="focus-ring grid size-8 place-items-center rounded-md text-slate-500 hover:bg-white hover:text-slate-900 disabled:opacity-40"
+              aria-label="Insertar imagen o archivo en la descripción"
+              title="Insertar imagen o archivo"
             >
-              H1
+              {uploading ? (
+                <LoaderCircle className="size-4 animate-spin" />
+              ) : (
+                <Plus className="size-4" />
+              )}
+            </button>
+            <span className="mx-1 h-6 w-px bg-slate-200" />
+            <button
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={undoDescription}
+              className="focus-ring grid size-8 place-items-center rounded-md text-slate-500 hover:bg-white hover:text-slate-900"
+              aria-label="Deshacer"
+              title="Deshacer (⌘Z)"
+            >
+              <Undo2 className="size-4" />
             </button>
             <button
               type="button"
-              onClick={() => applyTextFormat("**", "**", "negrita")}
-              className="focus-ring rounded-lg px-2 py-1.5 text-[9px] font-black text-slate-500 hover:bg-white hover:text-slate-800"
-              aria-label="Negrita"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={redoDescription}
+              className="focus-ring grid size-8 place-items-center rounded-md text-slate-500 hover:bg-white hover:text-slate-900"
+              aria-label="Rehacer"
+              title="Rehacer (⌘⇧Z)"
             >
-              B
+              <Redo2 className="size-4" />
             </button>
+            <span className="mx-1 h-6 w-px bg-slate-200" />
+            {[
+              {
+                label: "Negrita",
+                title: "Negrita (⌘B)",
+                icon: Bold,
+                command: "bold",
+              },
+              {
+                label: "Cursiva",
+                title: "Cursiva (⌘I)",
+                icon: Italic,
+                command: "italic",
+              },
+              {
+                label: "Subrayado",
+                title: "Subrayado",
+                icon: Underline,
+                command: "underline",
+              },
+              {
+                label: "Resaltar",
+                title: "Resaltar texto",
+                icon: Highlighter,
+                command: "highlight",
+              },
+              {
+                label: "Tachado",
+                title: "Tachado",
+                icon: Strikethrough,
+                command: "strike",
+              },
+            ].map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.label}
+                  type="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => runFormatCommand(item.command)}
+                  className="focus-ring grid size-8 place-items-center rounded-md text-slate-500 hover:bg-white hover:text-slate-900"
+                  aria-label={item.label}
+                  title={item.title}
+                >
+                  <Icon className="size-4" />
+                </button>
+              );
+            })}
+            <span className="mx-1 h-6 w-px bg-slate-200" />
+            {[
+              {
+                label: "Lista con viñetas",
+                icon: List,
+                command: "bullets",
+              },
+              {
+                label: "Lista numerada",
+                icon: ListOrdered,
+                command: "numbered",
+              },
+              {
+                label: "Lista de tareas",
+                icon: ListChecks,
+                command: "checklist",
+              },
+              {
+                label: "Aumentar sangría",
+                icon: IndentIncrease,
+                command: "indent",
+              },
+            ].map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.label}
+                  type="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => runFormatCommand(item.command)}
+                  className="focus-ring grid size-8 place-items-center rounded-md text-slate-500 hover:bg-white hover:text-slate-900"
+                  aria-label={item.label}
+                  title={item.label}
+                >
+                  <Icon className="size-4" />
+                </button>
+              );
+            })}
+            <span className="mx-1 h-6 w-px bg-slate-200" />
+            {[
+              {
+                label: "Insertar enlace",
+                icon: Link2,
+                command: "link",
+              },
+              {
+                label: "Código en línea",
+                icon: Code2,
+                command: "code",
+              },
+              {
+                label: "Cita",
+                icon: Quote,
+                command: "quote",
+              },
+            ].map((item) => {
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.label}
+                  type="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => runFormatCommand(item.command)}
+                  className="focus-ring grid size-8 place-items-center rounded-md text-slate-500 hover:bg-white hover:text-slate-900"
+                  aria-label={item.label}
+                  title={item.label}
+                >
+                  <Icon className="size-4" />
+                </button>
+              );
+            })}
+            <span className="mx-1 h-6 w-px bg-slate-200" />
             <button
               type="button"
-              onClick={() => applyTextFormat("- ", "", "Elemento", true)}
-              className="focus-ring rounded-lg px-2 py-1.5 text-[9px] font-semibold text-slate-500 hover:bg-white hover:text-slate-800"
-              aria-label="Lista con viñetas"
+              disabled={!hasSelection}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={createSubtaskFromSelection}
+              className="focus-ring flex h-8 items-center gap-1.5 rounded-md px-2 text-[9px] font-semibold text-slate-500 hover:bg-white hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-35"
+              aria-label="Crear tarea desde el texto seleccionado"
+              title="Crear una subtarea con el texto seleccionado"
             >
-              • Lista
+              <ListChecks className="size-4" />
+              <span className="hidden xl:inline">Crear tarea</span>
             </button>
           </>
         )}
-        <button
-          type="button"
-          disabled={uploading}
-          onClick={() => fileInput.current?.click()}
-          className="focus-ring flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[9px] font-semibold text-[#0879ea] hover:bg-[#0a84ff]/10 disabled:opacity-50"
-          aria-label="Insertar imagen o archivo en la descripción"
-        >
-          {uploading ? (
-            <LoaderCircle className="size-3.5 animate-spin" />
-          ) : (
-            <ImagePlus className="size-3.5" />
-          )}
-          {uploading ? "Insertando…" : "Insertar imagen o archivo"}
-        </button>
         <button
           type="button"
           onClick={() => {
@@ -3210,6 +3747,12 @@ function TaskDrawer({
               onUpdate={(description) => onTaskUpdate({ description })}
               onUpload={onAttachmentUpload}
               onOpen={onAttachmentOpen}
+              onCreateSubtask={(title) =>
+                onSubtaskCreate(
+                  title,
+                  task.assignee?.id ?? currentPerson?.id ?? "",
+                )
+              }
             />
             <label className="mt-4 block">
               <span className="mb-2 flex items-center gap-2 text-[10px] font-semibold text-slate-500">

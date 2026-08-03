@@ -289,6 +289,21 @@ html.dark .task-detail-timer-panel {
   background: rgb(255 255 255 / 2.5%);
 }
 
+html.dark .task-document-toolbar {
+  border-color: rgb(255 255 255 / 9%);
+  background: rgb(36 36 39 / 96%);
+}
+
+html.dark .task-document mark {
+  background: rgb(245 158 11 / 30%);
+  color: #fde68a;
+}
+
+html.dark .task-document code:not(pre code) {
+  background: rgb(139 92 246 / 16%);
+  color: #c4b5fd;
+}
+
 html.dark .task-row-selected {
   background:
     linear-gradient(90deg, rgb(10 132 255 / 24%), rgb(10 132 255 / 10%)),

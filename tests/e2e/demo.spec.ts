@@ -161,6 +161,34 @@ test("ofrece un detalle de tarea con flujo tipo Asana y timer integrado", async 
   ).toBeVisible();
 
   await detail
+    .getByTestId("task-description-document")
+    .getByRole("button", { name: "Editar documento" })
+    .click();
+  const descriptionDocument = detail.getByTestId(
+    "task-description-document",
+  );
+  for (const command of [
+    "Deshacer",
+    "Rehacer",
+    "Negrita",
+    "Cursiva",
+    "Subrayado",
+    "Resaltar",
+    "Tachado",
+    "Lista con viñetas",
+    "Lista numerada",
+    "Lista de tareas",
+    "Insertar enlace",
+    "Código en línea",
+    "Cita",
+    "Crear tarea desde el texto seleccionado",
+  ]) {
+    await expect(
+      descriptionDocument.getByRole("button", { name: command }),
+    ).toBeVisible();
+  }
+
+  await detail
     .getByRole("button", { name: "Abrir en pantalla completa" })
     .click();
   await expect(
