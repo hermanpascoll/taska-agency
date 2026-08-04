@@ -1,0 +1,2130 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  clients as demoClients,
+  initialTasks,
+  invitations as demoInvitations,
+  notifications as demoNotifications,
+  people as demoPeople,
+  projects as demoProjects,
+  timeEntries as demoTimeEntries,
+  workspaceMembers as demoMembers,
+  workspaces as demoWorkspaces,
+} from "@/lib/demo-data";
+import {
+  addRemoteComment,
+  archiveRemoteTask,
+  createRemoteClient,
+  createRemoteInvitation,
+  createRemoteManualTimeEntry,
+  createRemoteProject,
+  createRemoteTask,
+  createRemoteWorkspace,
+  deleteRemoteAttachment,
+  deleteRemoteComment,
+  deleteRemoteClient,
+  deleteRemoteProject,
+  deleteRemoteTimeEntry,
+  deleteRemoteWorkspace,
+  downloadRemoteAttachment,
+  loadWorkspace,
+  markAllRemoteNotificationsRead,
+  markRemoteNotificationRead,
+  removeRemoteMember,
+  revokeRemoteInvitation,
+  restoreRemoteAttachment,
+  restoreRemoteTask,
+  startRemoteTimer,
+  stopRemoteTimer,
+  touchRemotePresence,
+  trashRemoteTask,
+  updateRemoteClient,
+  updateRemoteAttachmentStatus,
+  updateRemoteMemberHourlyRate,
+  updateRemoteMemberRole,
+  updateRemoteProfile,
+  updateRemoteProject,
+  updateRemoteTask,
+  updateRemoteWorkspace,
+  uploadRemoteAttachment,
+} from "@/lib/task-repository";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
+import { formatTaskDueLabel, nextTaskCode } from "@/lib/task-utils";
+import type {
+  AppNotification,
+  ArchiveTaskInput,
+  AttachmentApprovalStatus,
+  AppSettings,
+  Client,
+  CommentType,
+  CommentVisibility,
+  NewClientInput,
+  NewManualTimeEntryInput,
+  NewProjectInput,
+  NewTaskInput,
+  Person,
+  Project,
+  Task,
+  TaskAttachment,
+  TaskEvent,
+  TaskRecurrence,
+  TaskStatus,
+  TeamInvitation,
+  TeamRole,
+  TimeEntry,
+  UpdateClientInput,
+  UpdateProjectInput,
+  UpdateTaskInput,
+  UpdateWorkspaceInput,
+  Workspace,
+  WorkspaceMember,
+} from "@/lib/types";
+
+const demoStorageKey = "taska-demo-workspace-v2";
+const themeStorageKey = "taska-theme";
+const defaultSettings: AppSettings = {
+  compactMode: false,
+  showCompleted: true,
+  accentColor: "#0A84FF",
+  theme: "system",
+  warnTimerOverlaps: true,
+  staleTimerHours: 8,
+};
+
+function loadStoredSettings(): AppSettings {
+  if (typeof window === "undefined") return defaultSettings;
+  try {
+    const storedTheme = window.localStorage.getItem(themeStorageKey);
+    return {
+      ...defaultSettings,
+      theme:
+        storedTheme === "dark" || storedTheme === "light"
+          ? storedTheme
+          : "system",
+    };
+  } catch {
+    return defaultSettings;
+  }
+}
+
+function applyTheme(theme: AppSettings["theme"]) {
+  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.classList.toggle(
+    "dark",
+    theme === "dark" || (theme === "system" && prefersDark),
+  );
+  document.documentElement.dataset.theme = theme;
+}
+
+function localId(prefix: string) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function localEvent(
+  actor: Person | null,
+  type: string,
+  summary: string,
+  metadata: Record<string, unknown> = {},
+): TaskEvent {
+  return {
+    id: localId("event"),
+    actor,
+    type,
+    summary,
+    metadata,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function taskUpdateSummary(input: UpdateTaskInput) {
+  if (input.status === "resuelto") return "Tarea completada";
+  if (input.status) return "Cambió el estado de la tarea";
+  if (input.assigneeId !== undefined) return "Cambió el responsable";
+  if (
+    input.startDate !== undefined ||
+    input.dueDate !== undefined ||
+    input.dueTime !== undefined
+  ) {
+    return "Actualizó la planificación";
+  }
+  if (input.brief !== undefined) return "Actualizó el brief";
+  if (input.projectIds !== undefined) return "Actualizó los proyectos";
+  if (
+    input.clientId !== undefined ||
+    input.clientCategory !== undefined
+  ) {
+    return "Actualizó la clasificación del cliente";
+  }
+  return "Actualizó la tarea";
+}
+
+function taskFamilyIds(tasks: Task[], taskId: string) {
+  const ids = new Set([taskId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    tasks.forEach((task) => {
+      if (
+        task.parentTaskId &&
+        ids.has(task.parentTaskId) &&
+        !ids.has(task.id)
+      ) {
+        ids.add(task.id);
+        changed = true;
+      }
+    });
+  }
+  return ids;
+}
+
+function shiftDate(value: string | null, days: number) {
+  if (!value) return null;
+  const date = new Date(`${value}T12:00:00`);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function nextRecurringDate(
+  dueDate: string | null,
+  rule: TaskRecurrence,
+  interval = 1,
+) {
+  const date = dueDate
+    ? new Date(`${dueDate}T12:00:00`)
+    : new Date();
+  const safeInterval = Math.max(1, interval);
+  if (rule === "monthly") {
+    const originalDay = date.getDate();
+    date.setDate(1);
+    date.setMonth(date.getMonth() + safeInterval);
+    const lastDay = new Date(
+      date.getFullYear(),
+      date.getMonth() + 1,
+      0,
+    ).getDate();
+    date.setDate(Math.min(originalDay, lastDay));
+  } else {
+    const multiplier =
+      rule === "daily" ? 1 : rule === "weekly" ? 7 : 14;
+    date.setDate(date.getDate() + multiplier * safeInterval);
+  }
+  return date.toISOString().slice(0, 10);
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(String(reader.result)));
+    reader.addEventListener("error", () =>
+      reject(new Error("No se pudo leer el archivo.")),
+    );
+    reader.readAsDataURL(file);
+  });
+}
+
+export function useTaskWorkspace() {
+  const supabaseConfigured = isSupabaseConfigured();
+  const [allTasks, setAllTasks] = useState<Task[]>(
+    supabaseConfigured ? [] : initialTasks,
+  );
+  const [allProjects, setAllProjects] = useState<Project[]>(
+    supabaseConfigured ? [] : demoProjects,
+  );
+  const [allClients, setAllClients] = useState<Client[]>(
+    supabaseConfigured ? [] : demoClients,
+  );
+  const [workspaces, setWorkspaces] = useState<Workspace[]>(
+    supabaseConfigured ? [] : demoWorkspaces,
+  );
+  const [allPeople, setAllPeople] = useState<Person[]>(
+    supabaseConfigured ? [] : demoPeople,
+  );
+  const [members, setMembers] = useState<WorkspaceMember[]>(
+    supabaseConfigured ? [] : demoMembers,
+  );
+  const [invitations, setInvitations] =
+    useState<TeamInvitation[]>(supabaseConfigured ? [] : demoInvitations);
+  const [notifications, setNotifications] =
+    useState<AppNotification[]>(supabaseConfigured ? [] : demoNotifications);
+  const [allTimeEntries, setAllTimeEntries] =
+    useState<TimeEntry[]>(supabaseConfigured ? [] : demoTimeEntries);
+  const [peopleByWorkspace, setPeopleByWorkspace] = useState<
+    Record<string, string[]>
+  >(
+    supabaseConfigured
+      ? {}
+      : {
+          [demoWorkspaces[0].id]: demoPeople.map((person) => person.id),
+        },
+  );
+  const [currentUserId, setCurrentUserId] = useState(
+    supabaseConfigured ? "" : "martina",
+  );
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState(
+    supabaseConfigured ? "" : demoWorkspaces[0].id,
+  );
+  const [settings, setSettings] =
+    useState<AppSettings>(loadStoredSettings);
+  const [mode, setMode] = useState<"demo" | "supabase">(
+    supabaseConfigured ? "supabase" : "demo",
+  );
+  const [syncing, setSyncing] = useState(supabaseConfigured);
+  const [initializing, setInitializing] = useState(supabaseConfigured);
+  const [demoReady, setDemoReady] = useState(false);
+
+  const refresh = useCallback(async () => {
+    if (!isSupabaseConfigured()) return;
+    try {
+      const workspace = await loadWorkspace();
+      if (!workspace) return;
+      setAllTasks(workspace.tasks);
+      setAllProjects(workspace.projects);
+      setAllClients(workspace.clients);
+      setWorkspaces(workspace.workspaces);
+      setAllPeople(workspace.people);
+      setPeopleByWorkspace(workspace.peopleByWorkspace);
+      setMembers(workspace.members);
+      setInvitations(workspace.invitations);
+      setNotifications(workspace.notifications);
+      setAllTimeEntries(workspace.timeEntries);
+      setCurrentUserId(workspace.currentUserId);
+      setActiveWorkspaceId((current) =>
+        workspace.workspaces.some(
+          (item) => item.id === current && !item.archived,
+        )
+          ? current
+          : (workspace.workspaces.find((item) => !item.archived)?.id ?? ""),
+      );
+      setMode("supabase");
+    } catch (error) {
+      console.error("No se pudo sincronizar Supabase:", error);
+    } finally {
+      setSyncing(false);
+      setInitializing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isSupabaseConfigured()) {
+      const timeout = window.setTimeout(() => void refresh(), 0);
+      return () => window.clearTimeout(timeout);
+    }
+
+    const timeout = window.setTimeout(() => {
+      try {
+        const stored = window.localStorage.getItem(demoStorageKey);
+        if (stored) {
+          const snapshot = JSON.parse(stored) as {
+            tasks?: Task[];
+            projects?: Project[];
+            clients?: Client[];
+            workspaces?: Workspace[];
+            people?: Person[];
+            members?: WorkspaceMember[];
+            invitations?: TeamInvitation[];
+            notifications?: AppNotification[];
+            timeEntries?: TimeEntry[];
+            peopleByWorkspace?: Record<string, string[]>;
+            activeWorkspaceId?: string;
+            settings?: AppSettings;
+          };
+          if (Array.isArray(snapshot.tasks)) {
+            const demoDates = new Map(
+              initialTasks.map((task) => [task.id, task.startDate]),
+            );
+            setAllTasks(
+              snapshot.tasks.map((task) => ({
+                ...task,
+                projects:
+                  task.projects?.length
+                    ? task.projects
+                    : [task.project],
+                startDate:
+                  task.startDate ??
+                  demoDates.get(task.id) ??
+                  task.dueDate ??
+                  null,
+                clientId: task.clientId ?? task.project.clientId ?? null,
+                clientCategory:
+                  task.clientCategory ??
+                  task.project.clientCategory ??
+                  null,
+                dueTime: task.dueTime ?? null,
+                recurrenceRule: task.recurrenceRule ?? "none",
+                recurrenceInterval: task.recurrenceInterval ?? 1,
+                recurrenceOriginId: task.recurrenceOriginId ?? null,
+                recurrenceGeneratedAt:
+                  task.recurrenceGeneratedAt ?? null,
+                brief: task.brief ?? {},
+                closureSummary: task.closureSummary ?? null,
+                lessonsLearned: task.lessonsLearned ?? null,
+                archivedAt: task.archivedAt ?? null,
+                archivedBy: task.archivedBy ?? null,
+                deletedAt: task.deletedAt ?? null,
+                deletedBy: task.deletedBy ?? null,
+                comments: (task.comments ?? []).map((comment) => ({
+                  ...comment,
+                  type: comment.type ?? "comment",
+                  visibility: comment.visibility ?? "team",
+                  deletedAt: comment.deletedAt ?? null,
+                })),
+                attachments: (task.attachments ?? []).map(
+                  (attachment) => ({
+                    ...attachment,
+                    versionGroupId:
+                      attachment.versionGroupId ?? attachment.id,
+                    versionNumber: attachment.versionNumber ?? 1,
+                    approvalStatus:
+                      attachment.approvalStatus ?? "draft",
+                    deletedAt: attachment.deletedAt ?? null,
+                  }),
+                ),
+                events: task.events ?? [],
+              })),
+            );
+          }
+          if (Array.isArray(snapshot.projects)) {
+            setAllProjects(
+              snapshot.projects.map((project) => ({
+                ...project,
+                clientId: project.clientId ?? null,
+                clientName: project.clientName ?? null,
+                clientCategory: project.clientCategory ?? null,
+              })),
+            );
+          }
+          if (Array.isArray(snapshot.clients)) {
+            setAllClients(
+              snapshot.clients.map((client) => ({
+                ...client,
+                categories: client.categories ?? [],
+              })),
+            );
+          }
+          if (Array.isArray(snapshot.workspaces) && snapshot.workspaces.length) {
+            setWorkspaces(
+              snapshot.workspaces.map((workspace) => ({
+                ...workspace,
+                currency: workspace.currency || "USD",
+              })),
+            );
+            setActiveWorkspaceId(
+              snapshot.activeWorkspaceId ??
+                snapshot.workspaces.find((item) => !item.archived)?.id ??
+                snapshot.workspaces[0].id,
+            );
+          }
+          if (Array.isArray(snapshot.people)) setAllPeople(snapshot.people);
+          if (Array.isArray(snapshot.members)) {
+            setMembers(
+              snapshot.members.map((member) => ({
+                ...member,
+                hourlyRate: Number(member.hourlyRate ?? 0),
+              })),
+            );
+          }
+          if (Array.isArray(snapshot.invitations)) {
+            setInvitations(snapshot.invitations);
+          }
+          if (Array.isArray(snapshot.notifications)) {
+            setNotifications(snapshot.notifications);
+          }
+          if (Array.isArray(snapshot.timeEntries)) {
+            setAllTimeEntries(snapshot.timeEntries);
+          }
+          if (snapshot.peopleByWorkspace) {
+            setPeopleByWorkspace(snapshot.peopleByWorkspace);
+          }
+          if (snapshot.settings) {
+            setSettings((current) => ({
+              ...defaultSettings,
+              ...snapshot.settings,
+              theme: current.theme,
+            }));
+          }
+        }
+      } catch (error) {
+        console.warn("No se pudo restaurar la demo guardada:", error);
+      } finally {
+        setDemoReady(true);
+      }
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [refresh]);
+
+  useEffect(() => {
+    if (!supabaseConfigured || initializing) return;
+    const touch = () => {
+      if (document.visibilityState === "visible") {
+        void touchRemotePresence().catch(() => undefined);
+      }
+    };
+    touch();
+    const intervalId = window.setInterval(touch, 60_000);
+    document.addEventListener("visibilitychange", touch);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", touch);
+    };
+  }, [initializing, supabaseConfigured]);
+
+  useEffect(() => {
+    if (mode !== "demo" || !demoReady) return;
+    window.localStorage.setItem(
+      demoStorageKey,
+      JSON.stringify({
+        tasks: allTasks,
+        projects: allProjects,
+        clients: allClients,
+        workspaces,
+        people: allPeople,
+        members,
+        invitations,
+        notifications,
+        timeEntries: allTimeEntries,
+        peopleByWorkspace,
+        activeWorkspaceId,
+        settings,
+      }),
+    );
+  }, [
+    activeWorkspaceId,
+    allClients,
+    allPeople,
+    allProjects,
+    allTasks,
+    allTimeEntries,
+    demoReady,
+    invitations,
+    members,
+    mode,
+    notifications,
+    peopleByWorkspace,
+    settings,
+    workspaces,
+  ]);
+
+  const people = useMemo(() => {
+    const memberIds = peopleByWorkspace[activeWorkspaceId];
+    if (!memberIds) {
+      return allPeople.filter((person) => person.id === currentUserId);
+    }
+    const idSet = new Set(memberIds);
+    return allPeople.filter((person) => idSet.has(person.id));
+  }, [activeWorkspaceId, allPeople, currentUserId, peopleByWorkspace]);
+
+  const workspaceMembers = useMemo(
+    () => members.filter((member) => member.workspaceId === activeWorkspaceId),
+    [activeWorkspaceId, members],
+  );
+  const workspaceInvitations = useMemo(
+    () =>
+      invitations.filter(
+        (invitation) => invitation.workspaceId === activeWorkspaceId,
+      ),
+    [activeWorkspaceId, invitations],
+  );
+  const projects = useMemo(
+    () =>
+      allProjects.filter(
+        (project) => project.workspaceId === activeWorkspaceId,
+      ),
+    [activeWorkspaceId, allProjects],
+  );
+  const clients = useMemo(
+    () =>
+      allClients.filter(
+        (client) => client.workspaceId === activeWorkspaceId,
+      ),
+    [activeWorkspaceId, allClients],
+  );
+  const projectIds = useMemo(
+    () => new Set(projects.map((project) => project.id)),
+    [projects],
+  );
+  const tasks = useMemo(
+    () =>
+      allTasks.filter((task) =>
+        task.projects.some((project) => projectIds.has(project.id)),
+      ),
+    [allTasks, projectIds],
+  );
+  const timeEntries = useMemo(
+    () =>
+      allTimeEntries.filter(
+        (entry) => entry.workspaceId === activeWorkspaceId,
+      ),
+    [activeWorkspaceId, allTimeEntries],
+  );
+
+  const updateTask = useCallback(
+    async (taskId: string, input: UpdateTaskInput) => {
+      const actor =
+        allPeople.find((person) => person.id === currentUserId) ?? null;
+      setAllTasks((current) => {
+        const source = current.find((task) => task.id === taskId);
+        const shouldGenerateRecurrence = Boolean(
+          mode === "demo" &&
+            source &&
+            !source.parentTaskId &&
+            source.status !== "resuelto" &&
+            input.status === "resuelto" &&
+            (source.recurrenceRule ?? "none") !== "none" &&
+            !source.recurrenceGeneratedAt,
+        );
+        const updated = current.map((task) => {
+          if (task.id !== taskId) return task;
+          const { projectIds: nextProjectIds, ...taskInput } = input;
+          const assignee =
+            input.assigneeId === undefined
+              ? task.assignee
+              : (allPeople.find(
+                  (person) => person.id === input.assigneeId,
+                ) ?? null);
+          const nextDueDate =
+            input.dueDate === undefined ? task.dueDate : input.dueDate;
+          const nextDueTime =
+            input.dueTime === undefined ? task.dueTime : input.dueTime;
+          const nextStartDate =
+            input.startDate === undefined ? task.startDate : input.startDate;
+          const nextProjects =
+            nextProjectIds === undefined
+              ? task.projects
+              : nextProjectIds
+                  .map((projectId) =>
+                    allProjects.find((project) => project.id === projectId),
+                  )
+                  .filter((project): project is Project => Boolean(project));
+          const primaryProject = nextProjects[0] ?? task.project;
+          const nextClientId =
+            input.clientId === undefined
+              ? (task.clientId ?? primaryProject.clientId)
+              : input.clientId;
+          const nextClient = allClients.find(
+            (client) => client.id === nextClientId,
+          );
+          const nextClientCategory =
+            input.clientCategory !== undefined
+              ? input.clientCategory
+              : input.clientId !== undefined &&
+                  input.clientId !== task.clientId
+                ? null
+                : (task.clientCategory ?? primaryProject.clientCategory);
+          const nextStatus = input.status ?? task.status;
+          return {
+            ...task,
+            ...taskInput,
+            assignee,
+            project: primaryProject,
+            projects: nextProjects.length ? nextProjects : task.projects,
+            client:
+              nextClient?.name ??
+              (nextClientId ? primaryProject.clientName : null) ??
+              "Sin cliente",
+            clientId: nextClientId ?? null,
+            clientCategory: nextClientCategory ?? null,
+            startDate: nextStartDate,
+            dueDate: nextDueDate,
+            dueTime: nextDueTime ?? null,
+            dueLabel: formatTaskDueLabel(nextDueDate, nextDueTime),
+            resolvedAt:
+              nextStatus === "resuelto"
+                ? (task.resolvedAt ?? new Date().toISOString())
+                : null,
+            recurrenceGeneratedAt: shouldGenerateRecurrence
+              ? new Date().toISOString()
+              : task.recurrenceGeneratedAt,
+            updatedAt: "Ahora",
+            events:
+              mode === "demo"
+                ? [
+                    ...(task.events ?? []),
+                    localEvent(
+                      actor,
+                      input.status === "resuelto"
+                        ? "task_completed"
+                        : "task_updated",
+                      taskUpdateSummary(input),
+                      input as Record<string, unknown>,
+                    ),
+                  ]
+                : task.events,
+          };
+        });
+
+        if (!shouldGenerateRecurrence || !source) return updated;
+        const recurrenceRule = source.recurrenceRule ?? "none";
+        const nextDueDate = nextRecurringDate(
+          source.dueDate,
+          recurrenceRule,
+          source.recurrenceInterval,
+        );
+        const baseDate = source.dueDate ?? new Date().toISOString().slice(0, 10);
+        const shiftDays = Math.round(
+          (new Date(`${nextDueDate}T12:00:00`).getTime() -
+            new Date(`${baseDate}T12:00:00`).getTime()) /
+            86_400_000,
+        );
+        let nextCodeNumber = current.reduce((highest, task) => {
+          const value = Number(task.code.replace(/\D/g, ""));
+          return Number.isFinite(value) ? Math.max(highest, value) : highest;
+        }, 150);
+        const nextCode = () => `AG-${++nextCodeNumber}`;
+        const nextParentId = localId("task");
+        const createdAt = new Date().toISOString();
+        const nextParent: Task = {
+          ...source,
+          id: nextParentId,
+          code: nextCode(),
+          parentTaskId: null,
+          status: "nuevo",
+          startDate: shiftDate(source.startDate, shiftDays),
+          dueDate: nextDueDate,
+          dueLabel: formatTaskDueLabel(nextDueDate, source.dueTime),
+          recurrenceOriginId: source.recurrenceOriginId ?? source.id,
+          recurrenceGeneratedAt: null,
+          createdAt,
+          resolvedAt: null,
+          updatedAt: "Ahora",
+          comments: [],
+          attachments: [],
+          events: [
+            localEvent(
+              actor,
+              "task_created",
+              "Ocurrencia recurrente creada automáticamente",
+            ),
+          ],
+        };
+        const nextSubtasks = current
+          .filter((task) => task.parentTaskId === source.id)
+          .map<Task>((subtask) => {
+            const dueDate = shiftDate(subtask.dueDate, shiftDays);
+            return {
+              ...subtask,
+              id: localId("subtask"),
+              code: nextCode(),
+              parentTaskId: nextParentId,
+              status: "nuevo",
+              startDate: shiftDate(subtask.startDate, shiftDays),
+              dueDate,
+              dueLabel: formatTaskDueLabel(dueDate, subtask.dueTime),
+              recurrenceRule: "none",
+              recurrenceInterval: 1,
+              recurrenceOriginId: null,
+              recurrenceGeneratedAt: null,
+              createdAt,
+              resolvedAt: null,
+              updatedAt: "Ahora",
+              comments: [],
+              attachments: [],
+              events: [
+                localEvent(
+                  actor,
+                  "task_created",
+                  "Subtarea recurrente creada automáticamente",
+                ),
+              ],
+            };
+          });
+        return [nextParent, ...nextSubtasks, ...updated];
+      });
+      if (mode === "supabase") {
+        try {
+          await updateRemoteTask(taskId, input);
+          await refresh();
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [
+      allClients,
+      allPeople,
+      allProjects,
+      currentUserId,
+      mode,
+      refresh,
+    ],
+  );
+
+  const updateStatus = useCallback(
+    (taskId: string, status: TaskStatus) => updateTask(taskId, { status }),
+    [updateTask],
+  );
+
+  const archiveTask = useCallback(
+    async (taskId: string, input: ArchiveTaskInput) => {
+      const familyIds = taskFamilyIds(allTasks, taskId);
+      const actor =
+        allPeople.find((person) => person.id === currentUserId) ?? null;
+      const archivedAt = new Date().toISOString();
+      setAllTasks((current) =>
+        current.map((task) =>
+          familyIds.has(task.id)
+            ? {
+                ...task,
+                status: "resuelto",
+                resolvedAt: task.resolvedAt ?? archivedAt,
+                archivedAt,
+                archivedBy: currentUserId,
+                deletedAt: null,
+                deletedBy: null,
+                closureSummary:
+                  task.id === taskId
+                    ? input.closureSummary
+                    : task.closureSummary,
+                lessonsLearned:
+                  task.id === taskId
+                    ? input.lessonsLearned
+                    : task.lessonsLearned,
+                events: [
+                  ...(task.events ?? []),
+                  localEvent(
+                    actor,
+                    "task_archived",
+                    "Expediente archivado",
+                  ),
+                ],
+              }
+            : task,
+        ),
+      );
+      if (mode === "supabase") {
+        try {
+          await archiveRemoteTask(taskId, input);
+          await refresh();
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [allPeople, allTasks, currentUserId, mode, refresh],
+  );
+
+  const deleteTask = useCallback(
+    async (taskId: string) => {
+      const familyIds = taskFamilyIds(allTasks, taskId);
+      const actor =
+        allPeople.find((person) => person.id === currentUserId) ?? null;
+      const deletedAt = new Date().toISOString();
+      setAllTasks((current) =>
+        current.map((task) =>
+          familyIds.has(task.id)
+            ? {
+                ...task,
+                archivedAt: task.archivedAt ?? deletedAt,
+                archivedBy: task.archivedBy ?? currentUserId,
+                deletedAt,
+                deletedBy: currentUserId,
+                events: [
+                  ...(task.events ?? []),
+                  localEvent(
+                    actor,
+                    "task_trashed",
+                    "Tarea enviada a la papelera",
+                  ),
+                ],
+              }
+            : task,
+        ),
+      );
+      if (mode === "supabase") {
+        try {
+          await trashRemoteTask(taskId);
+          await refresh();
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [allPeople, allTasks, currentUserId, mode, refresh],
+  );
+
+  const restoreTask = useCallback(
+    async (taskId: string) => {
+      const familyIds = taskFamilyIds(allTasks, taskId);
+      const actor =
+        allPeople.find((person) => person.id === currentUserId) ?? null;
+      setAllTasks((current) =>
+        current.map((task) =>
+          familyIds.has(task.id)
+            ? {
+                ...task,
+                archivedAt: null,
+                archivedBy: null,
+                deletedAt: null,
+                deletedBy: null,
+                events: [
+                  ...(task.events ?? []),
+                  localEvent(actor, "task_restored", "Expediente restaurado"),
+                ],
+              }
+            : task,
+        ),
+      );
+      if (mode === "supabase") {
+        try {
+          await restoreRemoteTask(taskId);
+          await refresh();
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [allPeople, allTasks, currentUserId, mode, refresh],
+  );
+
+  const addComment = useCallback(
+    async (
+      taskId: string,
+      body: string,
+      type: CommentType,
+      visibility: CommentVisibility,
+    ) => {
+      const author =
+        allPeople.find((person) => person.id === currentUserId) ?? demoPeople[0];
+      setAllTasks((current) =>
+        current.map((task) =>
+          task.id === taskId
+            ? {
+                ...task,
+                comments: [
+                  ...task.comments,
+                  {
+                    id: localId("comment"),
+                    author,
+                    body,
+                    createdAt: "Ahora",
+                    type,
+                    visibility,
+                    deletedAt: null,
+                  },
+                ],
+                events: [
+                  ...(task.events ?? []),
+                  localEvent(
+                    author,
+                    "comment_added",
+                    type === "decision"
+                      ? "Registró una decisión"
+                      : type === "approval"
+                        ? "Registró una aprobación"
+                        : type === "change_request"
+                          ? "Registró una solicitud de cambios"
+                          : type === "client_feedback"
+                            ? "Registró feedback del cliente"
+                            : "Agregó un comentario",
+                    { type, visibility, excerpt: body },
+                  ),
+                ],
+                updatedAt: "Ahora",
+              }
+            : task,
+        ),
+      );
+      if (mode === "supabase") {
+        try {
+          await addRemoteComment(taskId, body, type, visibility);
+          await refresh();
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [allPeople, currentUserId, mode, refresh],
+  );
+
+  const deleteComment = useCallback(
+    async (taskId: string, commentId: string) => {
+      setAllTasks((current) =>
+        current.map((task) =>
+          task.id === taskId
+            ? {
+                ...task,
+                comments: task.comments.map((comment) =>
+                  comment.id === commentId
+                    ? { ...comment, deletedAt: new Date().toISOString() }
+                    : comment,
+                ),
+                events: [
+                  ...(task.events ?? []),
+                  localEvent(
+                    allPeople.find(
+                      (person) => person.id === currentUserId,
+                    ) ?? null,
+                    "comment_removed",
+                    "Retiró un comentario del expediente visible",
+                  ),
+                ],
+              }
+            : task,
+        ),
+      );
+      if (mode === "supabase") {
+        try {
+          await deleteRemoteComment(commentId);
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [allPeople, currentUserId, mode, refresh],
+  );
+
+  const createTask = useCallback(
+    async (input: NewTaskInput) => {
+      const selectedProjects = input.projectIds
+        .map((projectId) =>
+          allProjects.find((item) => item.id === projectId),
+        )
+        .filter((project): project is Project => Boolean(project));
+      const project =
+        selectedProjects.find((item) => item.id === input.projectId) ??
+        selectedProjects[0] ??
+        projects[0];
+      if (!project) throw new Error("Creá un proyecto antes de sumar tareas.");
+      const assignee =
+        allPeople.find((person) => person.id === input.assigneeId) ?? null;
+      const client =
+        allClients.find((item) => item.id === input.clientId) ?? null;
+      const task: Task = {
+        id: localId("task"),
+        code: nextTaskCode(allTasks),
+        title: input.title,
+        description: input.description,
+        project,
+        projects: selectedProjects.length ? selectedProjects : [project],
+        parentTaskId: input.parentTaskId ?? null,
+        status: input.status ?? "nuevo",
+        priority: input.priority,
+        assignee,
+        client: client?.name || project.clientName || input.client || "Sin cliente",
+        clientId: input.clientId ?? project.clientId,
+        clientCategory:
+          input.clientCategory ?? project.clientCategory ?? null,
+        startDate: input.startDate || null,
+        dueDate: input.dueDate || null,
+        dueTime: input.dueTime || null,
+        dueLabel: formatTaskDueLabel(
+          input.dueDate || null,
+          input.dueTime || null,
+        ),
+        recurrenceRule: input.recurrenceRule,
+        recurrenceInterval: input.recurrenceInterval,
+        recurrenceOriginId: null,
+        recurrenceGeneratedAt: null,
+        createdAt: new Date().toISOString(),
+        resolvedAt: null,
+        brief: {},
+        closureSummary: null,
+        lessonsLearned: null,
+        archivedAt: null,
+        archivedBy: null,
+        deletedAt: null,
+        deletedBy: null,
+        updatedAt: "Ahora",
+        tags: input.tags,
+        comments: [],
+        attachments: [],
+        events: [
+          localEvent(
+            allPeople.find((person) => person.id === currentUserId) ?? null,
+            "task_created",
+            "Tarea creada",
+          ),
+        ],
+      };
+      setAllTasks((current) => [task, ...current]);
+      if (mode === "supabase") {
+        try {
+          const remoteId = await createRemoteTask(input);
+          await refresh();
+          return { ...task, id: remoteId ?? task.id };
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+      return task;
+    },
+    [
+      allClients,
+      allPeople,
+      allProjects,
+      allTasks,
+      currentUserId,
+      mode,
+      projects,
+      refresh,
+    ],
+  );
+
+  const createProject = useCallback(
+    async (input: NewProjectInput) => {
+      if (mode === "supabase") {
+        const project = await createRemoteProject(input);
+        await refresh();
+        return project;
+      }
+      const project: Project = {
+        id: localId("project"),
+        name: input.name,
+        color: input.color,
+        description: input.description,
+        workspaceId: input.workspaceId,
+        clientId: input.clientId ?? null,
+        clientName:
+          allClients.find((client) => client.id === input.clientId)?.name ??
+          null,
+        clientCategory: input.clientCategory ?? null,
+        archived: false,
+      };
+      setAllProjects((current) => [...current, project]);
+      return project;
+    },
+    [allClients, mode, refresh],
+  );
+
+  const updateProject = useCallback(
+    async (projectId: string, input: UpdateProjectInput) => {
+      const clientName =
+        input.clientId === undefined
+          ? undefined
+          : (allClients.find((client) => client.id === input.clientId)?.name ??
+            null);
+      const clientCategory =
+        input.clientId === null
+          ? null
+          : input.clientId !== undefined &&
+              input.clientCategory === undefined
+            ? null
+            : input.clientCategory;
+      setAllProjects((current) =>
+        current.map((project) =>
+          project.id === projectId
+            ? {
+                ...project,
+                ...input,
+                ...(clientName !== undefined ? { clientName } : {}),
+                ...(clientCategory !== undefined ? { clientCategory } : {}),
+              }
+            : project,
+        ),
+      );
+      setAllTasks((current) =>
+        current.map((task) => {
+          if (!task.projects.some((project) => project.id === projectId)) {
+            return task;
+          }
+          const nextProjects = task.projects.map((project) =>
+            project.id === projectId
+              ? {
+                  ...project,
+                  ...input,
+                  ...(clientName !== undefined ? { clientName } : {}),
+                  ...(clientCategory !== undefined
+                    ? { clientCategory }
+                    : {}),
+                }
+              : project,
+          );
+          const primaryProject =
+            nextProjects.find((project) => project.id === task.project.id) ??
+            nextProjects[0];
+          return {
+            ...task,
+            project: primaryProject,
+            projects: nextProjects,
+            client:
+              task.project.id === projectId && clientName !== undefined
+                ? (clientName ?? "Sin cliente")
+                : task.client,
+          };
+        }),
+      );
+      if (mode === "supabase") {
+        try {
+          await updateRemoteProject(projectId, input);
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [allClients, mode, refresh],
+  );
+
+  const deleteProject = useCallback(
+    async (projectId: string) => {
+      setAllProjects((current) =>
+        current.filter((project) => project.id !== projectId),
+      );
+      const deletedTaskIds = new Set(
+        allTasks
+          .filter(
+            (task) =>
+              task.projects.length === 1 &&
+              task.projects[0].id === projectId,
+          )
+          .map((task) => task.id),
+      );
+      setAllTasks((current) =>
+        current
+          .filter((task) => !deletedTaskIds.has(task.id))
+          .map((task) => {
+            if (!task.projects.some((project) => project.id === projectId)) {
+              return task;
+            }
+            const nextProjects = task.projects.filter(
+              (project) => project.id !== projectId,
+            );
+            return {
+              ...task,
+              project: nextProjects[0],
+              projects: nextProjects,
+              client: nextProjects[0].clientName ?? task.client,
+            };
+          }),
+      );
+      setAllTimeEntries((current) =>
+        current.filter((entry) => !deletedTaskIds.has(entry.taskId)),
+      );
+      if (mode === "supabase") {
+        try {
+          await deleteRemoteProject(projectId);
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [allTasks, mode, refresh],
+  );
+
+  const createClient = useCallback(
+    async (input: NewClientInput) => {
+      if (mode === "supabase") {
+        const client = await createRemoteClient(input);
+        await refresh();
+        return client;
+      }
+      const client: Client = {
+        id: localId("client"),
+        name: input.name,
+        email: input.email,
+        notes: input.notes,
+        categories: input.categories,
+        workspaceId: input.workspaceId,
+        archived: false,
+      };
+      setAllClients((current) => [...current, client]);
+      return client;
+    },
+    [mode, refresh],
+  );
+
+  const updateClient = useCallback(
+    async (clientId: string, input: UpdateClientInput) => {
+      setAllClients((current) =>
+        current.map((client) =>
+          client.id === clientId ? { ...client, ...input } : client,
+        ),
+      );
+      if (input.name !== undefined) {
+        setAllProjects((current) =>
+          current.map((project) =>
+            project.clientId === clientId
+              ? { ...project, clientName: input.name! }
+              : project,
+          ),
+        );
+        setAllTasks((current) =>
+          current.map((task) =>
+            task.clientId === clientId
+              ? { ...task, client: input.name! }
+              : task,
+          ),
+        );
+      }
+      if (mode === "supabase") {
+        try {
+          await updateRemoteClient(clientId, input);
+          await refresh();
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [mode, refresh],
+  );
+
+  const deleteClient = useCallback(
+    async (clientId: string) => {
+      setAllClients((current) =>
+        current.filter((client) => client.id !== clientId),
+      );
+      setAllProjects((current) =>
+        current.map((project) =>
+          project.clientId === clientId
+            ? {
+                ...project,
+                clientId: null,
+                clientName: null,
+                clientCategory: null,
+              }
+            : project,
+        ),
+      );
+      setAllTasks((current) =>
+        current.map((task) =>
+          task.clientId === clientId
+            ? {
+                ...task,
+                client: "Sin cliente",
+                clientId: null,
+                clientCategory: null,
+              }
+            : task,
+        ),
+      );
+      if (mode === "supabase") {
+        try {
+          await deleteRemoteClient(clientId);
+          await refresh();
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [mode, refresh],
+  );
+
+  const createWorkspace = useCallback(
+    async (name: string) => {
+      if (mode === "supabase") {
+        const workspaceId = await createRemoteWorkspace(name);
+        await refresh();
+        if (workspaceId) setActiveWorkspaceId(workspaceId);
+        return workspaceId;
+      }
+      const workspace: Workspace = {
+        id: localId("workspace"),
+        name,
+        memberCount: 1,
+        role: "owner",
+        archived: false,
+        currency: "USD",
+      };
+      const currentPerson =
+        allPeople.find((person) => person.id === currentUserId) ?? demoPeople[0];
+      setWorkspaces((current) => [...current, workspace]);
+      setPeopleByWorkspace((current) => ({
+        ...current,
+        [workspace.id]: [currentUserId],
+      }));
+      setMembers((current) => [
+        ...current,
+        {
+          workspaceId: workspace.id,
+          user: currentPerson,
+          role: "owner",
+          joinedAt: "Ahora",
+          hourlyRate: 0,
+        },
+      ]);
+      setActiveWorkspaceId(workspace.id);
+      return workspace.id;
+    },
+    [allPeople, currentUserId, mode, refresh],
+  );
+
+  const updateWorkspace = useCallback(
+    async (
+      workspaceId: string,
+      input: UpdateWorkspaceInput,
+    ) => {
+      setWorkspaces((current) =>
+        current.map((workspace) =>
+          workspace.id === workspaceId ? { ...workspace, ...input } : workspace,
+        ),
+      );
+      if (input.archived && workspaceId === activeWorkspaceId) {
+        setActiveWorkspaceId(
+          workspaces.find(
+            (workspace) => workspace.id !== workspaceId && !workspace.archived,
+          )?.id ?? "",
+        );
+      }
+      if (mode === "supabase") {
+        try {
+          await updateRemoteWorkspace(workspaceId, input);
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [activeWorkspaceId, mode, refresh, workspaces],
+  );
+
+  const deleteWorkspace = useCallback(
+    async (workspaceId: string) => {
+      const workspaceProjectIds = new Set(
+        allProjects
+          .filter((project) => project.workspaceId === workspaceId)
+          .map((project) => project.id),
+      );
+      setWorkspaces((current) =>
+        current.filter((workspace) => workspace.id !== workspaceId),
+      );
+      setAllProjects((current) =>
+        current.filter((project) => project.workspaceId !== workspaceId),
+      );
+      setAllTasks((current) =>
+        current.filter((task) => !workspaceProjectIds.has(task.project.id)),
+      );
+      setAllTimeEntries((current) =>
+        current.filter((entry) => entry.workspaceId !== workspaceId),
+      );
+      setMembers((current) =>
+        current.filter((member) => member.workspaceId !== workspaceId),
+      );
+      setInvitations((current) =>
+        current.filter(
+          (invitation) => invitation.workspaceId !== workspaceId,
+        ),
+      );
+      setActiveWorkspaceId(
+        workspaces.find((workspace) => workspace.id !== workspaceId)?.id ?? "",
+      );
+      if (mode === "supabase") {
+        try {
+          await deleteRemoteWorkspace(workspaceId);
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [allProjects, mode, refresh, workspaces],
+  );
+
+  const updateMemberRole = useCallback(
+    async (userId: string, role: TeamRole) => {
+      setMembers((current) =>
+        current.map((member) =>
+          member.workspaceId === activeWorkspaceId &&
+          member.user.id === userId
+            ? { ...member, role }
+            : member,
+        ),
+      );
+      if (mode === "supabase") {
+        try {
+          await updateRemoteMemberRole(activeWorkspaceId, userId, role);
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [activeWorkspaceId, mode, refresh],
+  );
+
+  const updateMemberHourlyRate = useCallback(
+    async (userId: string, hourlyRate: number) => {
+      setMembers((current) =>
+        current.map((member) =>
+          member.workspaceId === activeWorkspaceId &&
+          member.user.id === userId
+            ? { ...member, hourlyRate }
+            : member,
+        ),
+      );
+      if (mode === "supabase") {
+        try {
+          await updateRemoteMemberHourlyRate(
+            activeWorkspaceId,
+            userId,
+            hourlyRate,
+          );
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [activeWorkspaceId, mode, refresh],
+  );
+
+  const removeMember = useCallback(
+    async (userId: string) => {
+      setMembers((current) =>
+        current.filter(
+          (member) =>
+            !(
+              member.workspaceId === activeWorkspaceId &&
+              member.user.id === userId
+            ),
+        ),
+      );
+      setPeopleByWorkspace((current) => ({
+        ...current,
+        [activeWorkspaceId]: (current[activeWorkspaceId] ?? []).filter(
+          (id) => id !== userId,
+        ),
+      }));
+      if (mode === "supabase") {
+        try {
+          await removeRemoteMember(activeWorkspaceId, userId);
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [activeWorkspaceId, mode, refresh],
+  );
+
+  const inviteMember = useCallback(
+    async (
+      email: string,
+      role: Exclude<TeamRole, "owner">,
+    ): Promise<{ invitation: TeamInvitation; emailed: boolean }> => {
+      if (mode === "supabase") {
+        const result = await createRemoteInvitation(
+          activeWorkspaceId,
+          email,
+          role,
+        );
+        await refresh();
+        return result;
+      }
+      const invitation: TeamInvitation = {
+        id: localId("invite"),
+        workspaceId: activeWorkspaceId,
+        email: email.toLowerCase(),
+        role,
+        token: localId("token"),
+        createdAt: "Ahora",
+        expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+        acceptedAt: null,
+      };
+      setInvitations((current) => [invitation, ...current]);
+      return { invitation, emailed: false };
+    },
+    [activeWorkspaceId, mode, refresh],
+  );
+
+  const revokeInvitation = useCallback(
+    async (id: string) => {
+      setInvitations((current) =>
+        current.filter((invitation) => invitation.id !== id),
+      );
+      if (mode === "supabase") {
+        try {
+          await revokeRemoteInvitation(id);
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [mode, refresh],
+  );
+
+  const uploadAttachment = useCallback(
+    async (task: Task, file: File) => {
+      if (file.size > 10 * 1024 * 1024) {
+        throw new Error("El archivo supera el límite de 10 MB.");
+      }
+      const uploader =
+        allPeople.find((person) => person.id === currentUserId) ?? demoPeople[0];
+      if (mode === "supabase") {
+        const remote = await uploadRemoteAttachment(task, file);
+        if (!remote) throw new Error("No se pudo guardar el adjunto.");
+        const attachment: TaskAttachment = {
+          id: remote.id,
+          taskId: remote.task_id,
+          name: remote.name,
+          size: remote.size_bytes,
+          mimeType: remote.mime_type,
+          storagePath: remote.storage_path,
+          createdAt: "Ahora",
+          uploader,
+          versionGroupId: remote.version_group_id,
+          versionNumber: remote.version_number,
+          approvalStatus: remote.approval_status,
+          deletedAt: remote.deleted_at,
+        };
+        setAllTasks((current) =>
+          current.map((item) =>
+            item.id === task.id
+              ? {
+                  ...item,
+                  attachments: [...item.attachments, attachment],
+                }
+              : item,
+          ),
+        );
+        return attachment;
+      }
+      const attachment: TaskAttachment = {
+        id: localId("attachment"),
+        taskId: task.id,
+        name: file.name,
+        size: file.size,
+        mimeType: file.type || "application/octet-stream",
+        storagePath: null,
+        dataUrl: await readFileAsDataUrl(file),
+        createdAt: "Ahora",
+        uploader,
+        versionGroupId:
+          task.attachments
+            .filter(
+              (item) => item.name.toLowerCase() === file.name.toLowerCase(),
+            )
+            .sort(
+              (a, b) =>
+                (b.versionNumber ?? 1) - (a.versionNumber ?? 1),
+            )[0]?.versionGroupId ?? localId("file"),
+        versionNumber:
+          Math.max(
+            0,
+            ...task.attachments
+              .filter(
+                (item) =>
+                  item.name.toLowerCase() === file.name.toLowerCase(),
+              )
+              .map((item) => item.versionNumber ?? 1),
+          ) + 1,
+        approvalStatus: "draft",
+        deletedAt: null,
+      };
+      setAllTasks((current) =>
+        current.map((item) =>
+          item.id === task.id
+            ? {
+                ...item,
+                attachments: [...item.attachments, attachment],
+                events: [
+                  ...(item.events ?? []),
+                  localEvent(
+                    uploader,
+                    "attachment_uploaded",
+                    `Subió ${file.name} · v${attachment.versionNumber}`,
+                  ),
+                ],
+              }
+            : item,
+        ),
+      );
+      return attachment;
+    },
+    [allPeople, currentUserId, mode],
+  );
+
+  const deleteAttachment = useCallback(
+    async (taskId: string, attachment: TaskAttachment) => {
+      setAllTasks((current) =>
+        current.map((task) =>
+          task.id === taskId
+            ? {
+                ...task,
+                attachments: task.attachments.map((item) =>
+                  item.id === attachment.id
+                    ? { ...item, deletedAt: new Date().toISOString() }
+                    : item,
+                ),
+                events: [
+                  ...(task.events ?? []),
+                  localEvent(
+                    allPeople.find(
+                      (person) => person.id === currentUserId,
+                    ) ?? null,
+                    "attachment_removed",
+                    `Envió ${attachment.name} a la papelera`,
+                  ),
+                ],
+              }
+            : task,
+        ),
+      );
+      if (mode === "supabase") {
+        try {
+          await deleteRemoteAttachment(attachment);
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [allPeople, currentUserId, mode, refresh],
+  );
+
+  const restoreAttachment = useCallback(
+    async (taskId: string, attachmentId: string) => {
+      setAllTasks((current) =>
+        current.map((task) =>
+          task.id === taskId
+            ? {
+                ...task,
+                attachments: task.attachments.map((attachment) =>
+                  attachment.id === attachmentId
+                    ? { ...attachment, deletedAt: null }
+                    : attachment,
+                ),
+              }
+            : task,
+        ),
+      );
+      if (mode === "supabase") {
+        try {
+          await restoreRemoteAttachment(attachmentId);
+          await refresh();
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [mode, refresh],
+  );
+
+  const updateAttachmentStatus = useCallback(
+    async (
+      taskId: string,
+      attachmentId: string,
+      status: AttachmentApprovalStatus,
+    ) => {
+      setAllTasks((current) =>
+        current.map((task) =>
+          task.id === taskId
+            ? {
+                ...task,
+                attachments: task.attachments.map((attachment) =>
+                  attachment.id === attachmentId
+                    ? { ...attachment, approvalStatus: status }
+                    : attachment,
+                ),
+              }
+            : task,
+        ),
+      );
+      if (mode === "supabase") {
+        try {
+          await updateRemoteAttachmentStatus(attachmentId, status);
+          await refresh();
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [mode, refresh],
+  );
+
+  const openAttachment = useCallback(
+    async (attachment: TaskAttachment) => {
+      let href = attachment.dataUrl;
+      let objectUrl: string | null = null;
+      if (mode === "supabase") {
+        const blob = await downloadRemoteAttachment(attachment);
+        if (!blob) throw new Error("No se pudo descargar el archivo.");
+        objectUrl = URL.createObjectURL(blob);
+        href = objectUrl;
+      }
+      if (!href) throw new Error("El archivo no está disponible.");
+      const anchor = document.createElement("a");
+      anchor.href = href;
+      anchor.download = attachment.name;
+      anchor.click();
+      if (objectUrl) window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+    },
+    [mode],
+  );
+
+  const markNotificationRead = useCallback(
+    async (id: string) => {
+      const now = new Date().toISOString();
+      setNotifications((current) =>
+        current.map((notification) =>
+          notification.id === id
+            ? { ...notification, readAt: now }
+            : notification,
+        ),
+      );
+      if (mode === "supabase") await markRemoteNotificationRead(id);
+    },
+    [mode],
+  );
+
+  const markAllNotificationsRead = useCallback(async () => {
+    const now = new Date().toISOString();
+    setNotifications((current) =>
+      current.map((notification) => ({ ...notification, readAt: now })),
+    );
+    if (mode === "supabase") await markAllRemoteNotificationsRead();
+  }, [mode]);
+
+  const updateProfile = useCallback(
+    async (name: string, title: string) => {
+      setAllPeople((current) =>
+        current.map((person) =>
+          person.id === currentUserId
+            ? {
+                ...person,
+                name,
+                role: title,
+                initials: name
+                  .split(" ")
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((part) => part[0])
+                  .join("")
+                  .toUpperCase(),
+              }
+            : person,
+        ),
+      );
+      if (mode === "supabase") {
+        try {
+          await updateRemoteProfile(name, title);
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [currentUserId, mode, refresh],
+  );
+
+  const updateSettings = useCallback((input: Partial<AppSettings>) => {
+    if (input.theme) {
+      applyTheme(input.theme);
+      window.localStorage.setItem(themeStorageKey, input.theme);
+    }
+    setSettings((current) => ({ ...current, ...input }));
+  }, []);
+
+  useEffect(() => {
+    applyTheme(settings.theme);
+    if (settings.theme !== "system") return;
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = () => applyTheme("system");
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, [settings.theme]);
+
+  const startTimer = useCallback(
+    async (taskId: string, description: string, billable: boolean) => {
+      const task = allTasks.find((item) => item.id === taskId);
+      if (!task) throw new Error("La tarea no existe.");
+      const existingTimer = allTimeEntries.find(
+        (item) =>
+          item.workspaceId === activeWorkspaceId &&
+          item.taskId === taskId &&
+          item.user.id === currentUserId &&
+          !item.endedAt,
+      );
+      if (existingTimer) {
+        throw new Error("Ya tenés un timer activo para esta tarea.");
+      }
+      const user =
+        allPeople.find((person) => person.id === currentUserId) ?? demoPeople[0];
+      const hourlyRate =
+        members.find(
+          (member) =>
+            member.workspaceId === activeWorkspaceId &&
+            member.user.id === currentUserId,
+        )?.hourlyRate ?? 0;
+      const now = new Date();
+      const nowIso = now.toISOString();
+      const entry: TimeEntry = {
+        id: localId("time"),
+        workspaceId: activeWorkspaceId,
+        taskId,
+        taskCode: task.code,
+        taskTitle: task.title,
+        projectId: task.project.id,
+        projectName: task.project.name,
+        user,
+        description: description.trim(),
+        startedAt: nowIso,
+        endedAt: null,
+        durationSeconds: 0,
+        billable,
+        hourlyRate,
+        createdAt: "Ahora",
+      };
+      setAllTimeEntries((current) => [entry, ...current]);
+      setAllTasks((current) =>
+        current.map((item) =>
+          item.id === taskId
+            ? {
+                ...item,
+                events: [
+                  ...(item.events ?? []),
+                  localEvent(user, "timer_started", "Inició el cronómetro", {
+                    description: description.trim(),
+                    billable,
+                  }),
+                ],
+              }
+            : item,
+        ),
+      );
+      if (mode === "supabase") {
+        try {
+          await startRemoteTimer(taskId, description, billable);
+          await refresh();
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+      return entry;
+    },
+    [
+      activeWorkspaceId,
+      allPeople,
+      allTasks,
+      allTimeEntries,
+      currentUserId,
+      members,
+      mode,
+      refresh,
+    ],
+  );
+
+  const stopTimer = useCallback(
+    async (entryId: string) => {
+      const now = new Date();
+      const stoppedEntry = allTimeEntries.find(
+        (entry) => entry.id === entryId,
+      );
+      setAllTimeEntries((current) =>
+        current.map((entry) =>
+          entry.id === entryId && !entry.endedAt
+            ? {
+                ...entry,
+                endedAt: now.toISOString(),
+                durationSeconds: Math.max(
+                  entry.durationSeconds,
+                  Math.floor(
+                    (now.getTime() - new Date(entry.startedAt).getTime()) / 1000,
+                  ),
+                ),
+              }
+            : entry,
+        ),
+      );
+      if (stoppedEntry) {
+        setAllTasks((current) =>
+          current.map((task) =>
+            task.id === stoppedEntry.taskId
+              ? {
+                  ...task,
+                  events: [
+                    ...(task.events ?? []),
+                    localEvent(
+                      stoppedEntry.user,
+                      "timer_stopped",
+                      "Detuvo el cronómetro",
+                    ),
+                  ],
+                }
+              : task,
+          ),
+        );
+      }
+      if (mode === "supabase") {
+        try {
+          await stopRemoteTimer(entryId);
+          await refresh();
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [allTimeEntries, mode, refresh],
+  );
+
+  const createManualTimeEntry = useCallback(
+    async (input: NewManualTimeEntryInput) => {
+      const task = allTasks.find((item) => item.id === input.taskId);
+      if (!task) throw new Error("La tarea no existe.");
+      const user =
+        allPeople.find((person) => person.id === currentUserId) ?? demoPeople[0];
+      const hourlyRate =
+        members.find(
+          (member) =>
+            member.workspaceId === activeWorkspaceId &&
+            member.user.id === currentUserId,
+        )?.hourlyRate ?? 0;
+      const startedAt = new Date(`${input.date}T12:00:00`);
+      const entry: TimeEntry = {
+        id: localId("time"),
+        workspaceId: activeWorkspaceId,
+        taskId: input.taskId,
+        taskCode: task.code,
+        taskTitle: task.title,
+        projectId: task.project.id,
+        projectName: task.project.name,
+        user,
+        description: input.description.trim(),
+        startedAt: startedAt.toISOString(),
+        endedAt: new Date(
+          startedAt.getTime() + input.durationSeconds * 1000,
+        ).toISOString(),
+        durationSeconds: input.durationSeconds,
+        billable: input.billable,
+        hourlyRate,
+        createdAt: "Ahora",
+      };
+      setAllTimeEntries((current) => [entry, ...current]);
+      setAllTasks((current) =>
+        current.map((item) =>
+          item.id === input.taskId
+            ? {
+                ...item,
+                events: [
+                  ...(item.events ?? []),
+                  localEvent(
+                    user,
+                    "time_added",
+                    "Registró tiempo manual",
+                    {
+                      durationSeconds: input.durationSeconds,
+                      billable: input.billable,
+                    },
+                  ),
+                ],
+              }
+            : item,
+        ),
+      );
+      if (mode === "supabase") {
+        try {
+          await createRemoteManualTimeEntry(input);
+          await refresh();
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+      return entry;
+    },
+    [
+      activeWorkspaceId,
+      allPeople,
+      allTasks,
+      currentUserId,
+      members,
+      mode,
+      refresh,
+    ],
+  );
+
+  const deleteTimeEntry = useCallback(
+    async (entryId: string) => {
+      setAllTimeEntries((current) =>
+        current.filter((entry) => entry.id !== entryId),
+      );
+      if (mode === "supabase") {
+        try {
+          await deleteRemoteTimeEntry(entryId);
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [mode, refresh],
+  );
+
+  const resetDemo = useCallback(() => {
+    if (mode !== "demo") return;
+    window.localStorage.removeItem(demoStorageKey);
+    setAllTasks(initialTasks);
+    setAllProjects(demoProjects);
+    setAllClients(demoClients);
+    setWorkspaces(demoWorkspaces);
+    setAllPeople(demoPeople);
+    setMembers(demoMembers);
+    setInvitations(demoInvitations);
+    setNotifications(demoNotifications);
+    setAllTimeEntries(demoTimeEntries);
+    setPeopleByWorkspace({
+      [demoWorkspaces[0].id]: demoPeople.map((person) => person.id),
+    });
+    setActiveWorkspaceId(demoWorkspaces[0].id);
+    setSettings(defaultSettings);
+  }, [mode]);
+
+  return {
+    tasks,
+    projects,
+    clients,
+    workspaces,
+    people,
+    members: workspaceMembers,
+    invitations: workspaceInvitations,
+    notifications,
+    timeEntries,
+    currentUserId,
+    activeWorkspaceId,
+    settings,
+    mode,
+    syncing,
+    initializing,
+    setActiveWorkspaceId,
+    updateTask,
+    updateStatus,
+    archiveTask,
+    deleteTask,
+    restoreTask,
+    addComment,
+    deleteComment,
+    createTask,
+    createProject,
+    updateProject,
+    deleteProject,
+    createClient,
+    updateClient,
+    deleteClient,
+    createWorkspace,
+    updateWorkspace,
+    deleteWorkspace,
+    updateMemberRole,
+    updateMemberHourlyRate,
+    removeMember,
+    inviteMember,
+    revokeInvitation,
+    uploadAttachment,
+    deleteAttachment,
+    restoreAttachment,
+    updateAttachmentStatus,
+    openAttachment,
+    markNotificationRead,
+    markAllNotificationsRead,
+    updateProfile,
+    updateSettings,
+    startTimer,
+    stopTimer,
+    createManualTimeEntry,
+    deleteTimeEntry,
+    resetDemo,
+  };
+}

@@ -1,0 +1,180 @@
+import { describe, expect, it } from "vitest";
+import {
+  formatBytes,
+  formatDuration,
+  formatDueLabel,
+  formatTaskDueLabel,
+  buildTimeReportCsv,
+  canAuditTimeReports,
+  elapsedSeconds,
+  hasTimeEntryOverlap,
+  isStaleTimer,
+  isTaskAssignedToCurrentUser,
+  matchesTaskFilters,
+  nextTaskCode,
+  nonOverlappingTimeSeconds,
+  overlappingTimeSeconds,
+  safeStorageName,
+  timeEntryCost,
+} from "@/lib/task-utils";
+import { initialTasks, timeEntries } from "@/lib/demo-data";
+import type { AdvancedFilters } from "@/lib/types";
+
+const noAdvancedFilters: AdvancedFilters = {
+  status: "todos",
+  assigneeId: "todos",
+  due: "todas",
+};
+
+describe("task utils", () => {
+  it("genera el próximo código sin colisiones", () => {
+    expect(nextTaskCode(initialTasks)).toMatch(/^AG-\d+$/);
+    expect(Number(nextTaskCode(initialTasks).slice(3))).toBeGreaterThan(150);
+  });
+
+  it("formatea fechas relativas en español", () => {
+    const now = new Date("2026-07-24T09:00:00-03:00");
+    expect(formatDueLabel("2026-07-24", now)).toBe("Hoy");
+    expect(formatDueLabel("2026-07-25", now)).toBe("Mañana");
+    expect(formatDueLabel(null, now)).toBe("Sin fecha");
+    expect(formatTaskDueLabel("2026-07-24", "17:30:00", now)).toBe(
+      "Hoy · 17:30",
+    );
+    expect(formatTaskDueLabel(null, "17:30", now)).toBe("Sin fecha");
+  });
+
+  it("combina búsqueda, prioridad, responsable y estado", () => {
+    const task = initialTasks[0];
+    expect(
+      matchesTaskFilters(task, {
+        query: task.project.name,
+        priority: task.priority,
+        projectId: task.project.id,
+        advanced: {
+          ...noAdvancedFilters,
+          status: task.status,
+          assigneeId: task.assignee?.id ?? "sin_asignar",
+        },
+      }),
+    ).toBe(true);
+    expect(
+      matchesTaskFilters(task, {
+        query: "contenido inexistente",
+        priority: "todas",
+        projectId: "todos",
+        advanced: noAdvancedFilters,
+      }),
+    ).toBe(false);
+  });
+
+  it("incluye una subtarea asignada aunque el padre sea de otra persona", () => {
+    const parent = initialTasks.find((task) => task.id === "task-1")!;
+    const subtask = initialTasks.find((task) => task.id === "subtask-2")!;
+    expect(parent.assignee?.id).not.toBe(subtask.assignee?.id);
+    expect(
+      isTaskAssignedToCurrentUser(subtask, subtask.assignee!.id),
+    ).toBe(true);
+  });
+
+  it("encuentra una tarea desde cualquiera de sus proyectos vinculados", () => {
+    const task = initialTasks.find((item) => item.projects.length > 1)!;
+    const secondaryProject = task.projects.find(
+      (project) => project.id !== task.project.id,
+    )!;
+    expect(
+      matchesTaskFilters(task, {
+        query: "",
+        priority: "todas",
+        projectId: secondaryProject.id,
+        advanced: noAdvancedFilters,
+      }),
+    ).toBe(true);
+  });
+
+  it("filtra vencimientos y archivos de forma segura", () => {
+    const overdueTask = {
+      ...initialTasks[0],
+      dueDate: "2026-07-20",
+      status: "nuevo" as const,
+    };
+    expect(
+      matchesTaskFilters(overdueTask, {
+        query: "",
+        priority: "todas",
+        projectId: "todos",
+        advanced: { ...noAdvancedFilters, due: "vencidas" },
+        now: new Date("2026-07-24T12:00:00-03:00"),
+      }),
+    ).toBe(true);
+    expect(safeStorageName("Brief campaña #1 (final).pdf")).toBe(
+      "Brief-campana-1-final-.pdf",
+    );
+    expect(formatBytes(1_572_864)).toBe("1.5 MB");
+  });
+
+  it("calcula duración, costo y exportación auditable", () => {
+    const entry = timeEntries[0];
+    expect(elapsedSeconds(entry)).toBe(8100);
+    expect(formatDuration(8100)).toBe("02:15:00");
+    expect(timeEntryCost(entry)).toBe(117);
+    const csv = buildTimeReportCsv([entry], "USD");
+    expect(csv).toContain("Duración (horas)");
+    expect(csv).toContain("Adaptar campaña de lanzamiento a stories");
+    expect(csv).toContain("117.00");
+    expect(canAuditTimeReports("owner")).toBe(true);
+    expect(canAuditTimeReports("admin")).toBe(true);
+    expect(canAuditTimeReports("agent")).toBe(false);
+    expect(canAuditTimeReports("viewer")).toBe(false);
+  });
+
+  it("separa tiempo bruto de tiempo real cuando una persona solapa timers", () => {
+    const source = timeEntries[0];
+    const first = {
+      ...source,
+      id: "overlap-1",
+      startedAt: "2026-07-28T12:00:00.000Z",
+      endedAt: "2026-07-28T13:00:00.000Z",
+      durationSeconds: 3600,
+    };
+    const second = {
+      ...source,
+      id: "overlap-2",
+      taskId: "task-2",
+      startedAt: "2026-07-28T12:30:00.000Z",
+      endedAt: "2026-07-28T13:30:00.000Z",
+      durationSeconds: 3600,
+    };
+
+    expect(nonOverlappingTimeSeconds([first, second])).toBe(5400);
+    expect(overlappingTimeSeconds([first, second])).toBe(1800);
+    expect(hasTimeEntryOverlap([first, second])).toBe(true);
+  });
+
+  it("suma el trabajo concurrente de personas distintas", () => {
+    const source = timeEntries[0];
+    const otherPerson = {
+      ...source,
+      id: "parallel-user",
+      user: { ...source.user, id: "another-user" },
+    };
+    expect(nonOverlappingTimeSeconds([source, otherPerson])).toBe(
+      elapsedSeconds(source) * 2,
+    );
+  });
+
+  it("marca timers probablemente olvidados", () => {
+    const source = timeEntries[0];
+    expect(
+      isStaleTimer(
+        {
+          ...source,
+          endedAt: null,
+          startedAt: "2026-07-28T01:00:00.000Z",
+          durationSeconds: 0,
+        },
+        8,
+        new Date("2026-07-28T10:00:00.000Z"),
+      ),
+    ).toBe(true);
+  });
+});
