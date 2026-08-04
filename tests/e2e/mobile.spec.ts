@@ -49,8 +49,8 @@ test("mantiene navegables las tareas y el detalle en pantallas táctiles", async
 test("crea una tarea con el formulario desplazable", async ({ page }) => {
   await page.getByRole("button", { name: "Abrir menú" }).click();
   await page.getByRole("button", { name: "Crear", exact: true }).click();
-  await page.getByLabel("Nombre de la tarea").fill("Tarea móvil E2E");
-  await page.getByLabel("Descripción", { exact: true }).fill(
+  await page.getByLabel("Título de la nueva tarea").fill("Tarea móvil E2E");
+  await page.getByLabel("Descripción de la tarea").fill(
     "Creada desde una pantalla táctil.",
   );
   await page.getByRole("button", { name: "Crear tarea" }).click();

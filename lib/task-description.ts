@@ -55,6 +55,16 @@ export function serializeTaskDescription(blocks: TaskDescriptionBlock[]) {
 export function taskDescriptionPlainText(description: string) {
   return description
     .replace(attachmentToken, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|h[1-6]|blockquote|li)>/gi, "\n")
+    .replace(/<li[^>]*>/gi, "• ")
+    .replace(/<[^>]+>/g, "")
+    .replaceAll("&nbsp;", " ")
+    .replaceAll("&amp;", "&")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&#039;", "'")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }

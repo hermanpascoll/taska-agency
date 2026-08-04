@@ -29,9 +29,9 @@ test("crea una tarea y conserva el cambio al recargar", async ({ page }) => {
     page.getByRole("heading", { name: /Buenos días/i }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Crear", exact: true }).click();
-  await page.getByLabel("Nombre de la tarea").fill("Revisar home Apple");
+  await page.getByLabel("Título de la nueva tarea").fill("Revisar home Apple");
   await page
-    .getByLabel("Descripción", { exact: true })
+    .getByLabel("Descripción de la tarea")
     .fill("Validar jerarquía, espaciado y estados del Finder.");
   await page.getByRole("button", { name: "Crear tarea" }).click();
   await expect(page.getByLabel("Título de la tarea")).toHaveValue(
@@ -56,6 +56,31 @@ test("crea una tarea y conserva el cambio al recargar", async ({ page }) => {
   ).toBeVisible();
 });
 
+test("acopla la creación y reconoce fuentes de enlaces", async ({ page }) => {
+  await page.getByRole("button", { name: "Crear", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Nueva tarea" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: /Buenos días/i }),
+  ).toBeVisible();
+
+  const editor = page.getByLabel("Descripción de la tarea");
+  await editor.fill("Referencia: ");
+  await editor.type("https://drive.google.com/file/d/abc");
+  await editor.press("Space");
+  await editor.press("Enter");
+  await editor.type("https://www.youtube.com/watch?v=abc123");
+  await editor.press("Space");
+
+  await expect(
+    editor.getByRole("link", { name: "https://drive.google.com/file/d/abc" }),
+  ).toHaveAttribute("data-link-provider", "drive");
+  await expect(
+    editor.getByRole("link", {
+      name: "https://www.youtube.com/watch?v=abc123",
+    }),
+  ).toHaveAttribute("data-link-provider", "youtube");
+});
+
 test("crea la tarea dentro del proyecto seleccionado", async ({ page }) => {
   await page.getByRole("button", { name: "Marca Sur", exact: true }).click();
   await page.getByRole("button", { name: "Crear", exact: true }).click();
@@ -68,7 +93,7 @@ test("crea la tarea dentro del proyecto seleccionado", async ({ page }) => {
   ).toBeChecked();
 
   await page
-    .getByLabel("Nombre de la tarea")
+    .getByLabel("Título de la nueva tarea")
     .fill("Preparar presentación de identidad");
   await page.getByRole("button", { name: "Crear tarea" }).click();
   await expect(page.getByLabel("Título de la tarea")).toHaveValue(
@@ -210,10 +235,6 @@ test("ofrece un detalle de tarea con flujo tipo Asana y timer integrado", async 
     detail.getByRole("tab", { name: /Adjuntos/ }),
   ).toBeVisible();
 
-  await detail
-    .getByTestId("task-description-document")
-    .getByRole("button", { name: "Editar documento" })
-    .click();
   const descriptionDocument = detail.getByTestId(
     "task-description-document",
   );
@@ -227,16 +248,34 @@ test("ofrece un detalle de tarea con flujo tipo Asana y timer integrado", async 
     "Tachado",
     "Lista con viñetas",
     "Lista numerada",
-    "Lista de tareas",
-    "Insertar enlace",
-    "Código en línea",
+    "Lista de verificación",
+    "Agregar enlace",
+    "Bloque de código",
     "Cita",
-    "Crear tarea desde el texto seleccionado",
+    "Insertar imagen en la descripción",
+    "Crear subtarea con el texto seleccionado",
   ]) {
     await expect(
       descriptionDocument.getByRole("button", { name: command }),
     ).toBeVisible();
   }
+
+  const documentBody = descriptionDocument.getByLabel(
+    "Descripción de la tarea",
+  );
+  await documentBody.fill("Formato inmediato");
+  await documentBody.press("Meta+A");
+  await descriptionDocument.getByRole("button", { name: "Negrita" }).click();
+  await expect(documentBody.locator("strong")).toHaveText("Formato inmediato");
+  await documentBody.press("End");
+  await documentBody.press("Enter");
+  await documentBody.type("Texto antes de la imagen");
+  await descriptionDocument
+    .getByLabel("Seleccionar imágenes para la descripción")
+    .setInputFiles("public/og.png");
+  await expect(documentBody.locator("img")).toHaveCount(1);
+  await documentBody.type("Texto después de la imagen");
+  await expect(documentBody).toContainText("Texto después de la imagen");
 
   await detail
     .getByRole("button", { name: "Abrir en pantalla completa" })
@@ -299,13 +338,13 @@ test("embebe una imagen en la descripción al crear la tarea", async ({
 
   await page.getByRole("button", { name: "Crear", exact: true }).click();
   await page
-    .getByLabel("Nombre de la tarea")
+    .getByLabel("Título de la nueva tarea")
     .fill("Revisar visual embebido");
   await page
-    .getByLabel("Descripción", { exact: true })
+    .getByLabel("Descripción de la tarea")
     .fill("Referencia visual para revisar con el equipo.");
   await page
-    .getByLabel("Seleccionar archivos para la descripción")
+    .getByLabel("Seleccionar imágenes para la descripción")
     .setInputFiles({
       name: "referencia-asana.png",
       mimeType: "image/png",
@@ -313,9 +352,9 @@ test("embebe una imagen en la descripción al crear la tarea", async ({
     });
 
   await expect(
-    page.getByRole("img", {
-      name: "Vista previa de referencia-asana.png",
-    }),
+    page
+      .getByLabel("Descripción de la tarea")
+      .getByRole("img", { name: "referencia-asana.png" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Crear tarea" }).click();
 
@@ -325,12 +364,10 @@ test("embebe una imagen en la descripción al crear la tarea", async ({
   await expect(
     page
       .getByTestId("task-description-document")
-      .getByRole("img", {
-        name: "Adjunto embebido referencia-asana.png",
-      }),
+      .getByRole("img", { name: "referencia-asana.png" }),
   ).toBeVisible();
   await expect(
-    page.getByText("Tarea creada correctamente · 1 archivo embebido"),
+    page.getByText("Tarea creada correctamente · 1 imagen embebida"),
   ).toBeVisible();
 
   const descriptionDocument = page.getByTestId(
@@ -563,13 +600,13 @@ test("crea clientes y vincula una tarea a varios proyectos", async ({
   ).toBeVisible();
 
   await page.getByRole("button", { name: "Crear", exact: true }).click();
-  await page.getByLabel("Nombre de la tarea").fill("Tarea multiproyecto E2E");
+  await page.getByLabel("Título de la nueva tarea").fill("Tarea multiproyecto E2E");
   await page
     .getByLabel("Proyecto principal")
     .selectOption({ label: "Proyecto Cliente E2E" });
   const projectCheckboxes = page.getByRole("checkbox");
   await projectCheckboxes.first().check();
-  await page.getByLabel("Hora de entrega").fill("16:45");
+  await page.getByLabel("Hora").fill("16:45");
   await page.getByLabel("Repetición").selectOption("weekly");
   await page
     .getByPlaceholder("Ej. Diseño, Cartelería, Cambio de cliente")
@@ -719,13 +756,13 @@ test("crea, documenta, archiva y restaura un expediente de proceso", async ({
   await page.getByRole("button", { name: "Crear", exact: true }).click();
   await page
     .locator("summary")
-    .filter({ hasText: "Usar una plantilla de proceso" })
+    .filter({ hasText: "Proyecto, cliente y opciones adicionales" })
     .click();
   await page
     .getByLabel("Plantilla de proceso")
     .selectOption("campaign");
   await page
-    .getByLabel("Nombre de la tarea")
+    .getByLabel("Título de la nueva tarea")
     .fill("Campaña documentada E2E");
   await page.getByRole("button", { name: "Crear tarea" }).click();
 

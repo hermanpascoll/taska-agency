@@ -94,6 +94,14 @@ import { clsx } from "clsx";
 import { AdminPanel } from "@/components/admin-panel";
 import { GanttChart } from "@/components/gantt-chart";
 import {
+  NewTaskModal,
+  type PendingTaskImage,
+} from "@/components/new-task-modal";
+import {
+  resolveTaskAttachmentUrl,
+  TaskRichTextEditor,
+} from "@/components/task-rich-text-editor";
+import {
   ActivityHistory,
   ArchivedTaskDrawer,
   ArchiveTaskModal,
@@ -104,7 +112,6 @@ import {
 import { useTaskWorkspace } from "@/hooks/use-task-workspace";
 import { useStrategicWork, type GoalStatus } from "@/hooks/use-strategic-work";
 import {
-  appendDescriptionAttachments,
   parseTaskDescription,
   serializeTaskDescription,
   type TaskDescriptionBlock,
@@ -113,6 +120,10 @@ import {
   findProcessTemplate,
   processTemplates,
 } from "@/lib/process-templates";
+import {
+  descriptionWithUploadedImages,
+  descriptionWithoutDraftImages,
+} from "@/lib/pending-task-description";
 import { createClient } from "@/lib/supabase/client";
 import {
   buildTimeReportCsv,
@@ -701,7 +712,7 @@ function DescriptionTextPreview({ text }: { text: string }) {
   );
 }
 
-function TaskDescriptionEditor({
+export function LegacyTaskDescriptionEditor({
   task,
   onUpdate,
   onUpload,
@@ -4581,7 +4592,7 @@ function TaskDrawer({
             <h3 className="text-[15px] font-bold tracking-[-0.01em] text-slate-800">
               Descripción
             </h3>
-            <TaskDescriptionEditor
+            <TaskRichTextEditor
               task={task}
               onUpdate={(description) => onTaskUpdate({ description })}
               onUpload={onAttachmentUpload}
@@ -5304,7 +5315,7 @@ function TaskDrawer({
   );
 }
 
-function NewTaskModal({
+export function LegacyNewTaskModal({
   projects,
   clients,
   people,
@@ -8535,9 +8546,21 @@ export function TaskaApp() {
     window.setTimeout(() => setToast(null), 2500);
   }
 
-  async function handleCreate(input: NewTaskInput, files: File[] = []) {
+  async function handleCreate(
+    input: NewTaskInput,
+    pendingImages: PendingTaskImage[] = [],
+  ) {
     try {
-      const task = await createTask(input);
+      const draftImageIds = new Set(
+        pendingImages.map((image) => image.draftId),
+      );
+      const task = await createTask({
+        ...input,
+        description: descriptionWithoutDraftImages(
+          input.description,
+          draftImageIds,
+        ),
+      });
       const template = findProcessTemplate(input.templateId);
       if (template) {
         await updateTask(task.id, { brief: template.brief });
@@ -8556,20 +8579,29 @@ export function TaskaApp() {
         }
       }
       let failedUploads = 0;
-      const uploadedAttachmentIds: string[] = [];
-      for (const file of files) {
+      const replacements = new Map<
+        string,
+        { attachmentId: string; src: string }
+      >();
+      for (const pendingImage of pendingImages) {
         try {
-          const attachment = await uploadAttachment(task, file);
-          uploadedAttachmentIds.push(attachment.id);
+          const attachment = await uploadAttachment(task, pendingImage.file);
+          const src = await resolveTaskAttachmentUrl(attachment);
+          if (!src) throw new Error("No se pudo obtener la imagen cargada.");
+          replacements.set(pendingImage.draftId, {
+            attachmentId: attachment.id,
+            src,
+          });
         } catch {
           failedUploads += 1;
         }
       }
-      if (uploadedAttachmentIds.length > 0) {
+      if (pendingImages.length > 0) {
         await updateTask(task.id, {
-          description: appendDescriptionAttachments(
+          description: descriptionWithUploadedImages(
             input.description,
-            uploadedAttachmentIds,
+            draftImageIds,
+            replacements,
           ),
         });
       }
@@ -8584,8 +8616,8 @@ export function TaskaApp() {
       notify(
         failedUploads > 0
           ? `${creationMessage}; ${failedUploads} ${failedUploads === 1 ? "archivo no pudo cargarse" : "archivos no pudieron cargarse"}`
-          : files.length > 0
-            ? `${creationMessage} · ${files.length} ${files.length === 1 ? "archivo embebido" : "archivos embebidos"}`
+          : pendingImages.length > 0
+            ? `${creationMessage} · ${pendingImages.length} ${pendingImages.length === 1 ? "imagen embebida" : "imágenes embebidas"}`
             : creationMessage,
       );
     } catch {
@@ -8730,6 +8762,7 @@ export function TaskaApp() {
         className={clsx(
           "min-w-0 flex-1 transition-[margin] duration-200",
           focusedProject && selectedTask && "lg:mr-[48vw]",
+          showNewTask && "lg:mr-[48vw]",
         )}
         tabIndex={-1}
       >
