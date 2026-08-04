@@ -105,6 +105,9 @@ const SmartLink = Link.extend({
 
 export async function resolveTaskAttachmentUrl(attachment: TaskAttachment) {
   if (attachment.dataUrl) return attachment.dataUrl;
+  if (attachment.storageProvider === "google_drive" && attachment.externalFileId) {
+    return `https://drive.google.com/thumbnail?id=${encodeURIComponent(attachment.externalFileId)}&sz=w1600`;
+  }
   if (!attachment.storagePath) return null;
   const supabase = createClient();
   if (!supabase) return null;

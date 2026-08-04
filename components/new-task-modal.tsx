@@ -164,8 +164,8 @@ export function NewTaskModal({
     if (!uploader) throw new Error("No hay un usuario disponible para cargar la imagen.");
     const created = await Promise.all(
       files.map(async (file) => {
-        if (file.size > 10 * 1024 * 1024) {
-          throw new Error(`${file.name} supera el límite de 10 MB.`);
+        if (file.size > 100 * 1024 * 1024) {
+          throw new Error(`${file.name} supera el límite de 100 MB.`);
         }
         const id = draftId();
         const attachment: TaskAttachment = {

@@ -50,6 +50,8 @@ export type Workspace = {
   role: TeamRole;
   archived: boolean;
   currency: string;
+  googleDriveId?: string | null;
+  googleDriveName?: string | null;
 };
 
 export type Client = {
@@ -91,6 +93,10 @@ export type TaskAttachment = {
   size: number;
   mimeType: string;
   storagePath: string | null;
+  storageProvider?: "supabase" | "google_drive";
+  externalFileId?: string | null;
+  externalWebUrl?: string | null;
+  externalThumbnailUrl?: string | null;
   dataUrl?: string;
   createdAt: string;
   uploader: Person;

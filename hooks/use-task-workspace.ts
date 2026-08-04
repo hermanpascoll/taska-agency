@@ -1728,13 +1728,16 @@ export function useTaskWorkspace() {
 
   const uploadAttachment = useCallback(
     async (task: Task, file: File) => {
-      if (file.size > 10 * 1024 * 1024) {
-        throw new Error("El archivo supera el límite de 10 MB.");
+      if (file.size > 100 * 1024 * 1024) {
+        throw new Error("El archivo supera el límite de 100 MB.");
       }
       const uploader =
         allPeople.find((person) => person.id === currentUserId) ?? demoPeople[0];
       if (mode === "supabase") {
-        const remote = await uploadRemoteAttachment(task, file);
+        const driveId = workspaces.find(
+          (workspace) => workspace.id === task.project.workspaceId,
+        )?.googleDriveId;
+        const remote = await uploadRemoteAttachment(task, file, driveId);
         if (!remote) throw new Error("No se pudo guardar el adjunto.");
         const attachment: TaskAttachment = {
           id: remote.id,
@@ -1743,6 +1746,10 @@ export function useTaskWorkspace() {
           size: remote.size_bytes,
           mimeType: remote.mime_type,
           storagePath: remote.storage_path,
+          storageProvider: remote.storage_provider,
+          externalFileId: remote.external_file_id,
+          externalWebUrl: remote.external_web_url,
+          externalThumbnailUrl: remote.external_thumbnail_url,
           createdAt: "Ahora",
           uploader,
           versionGroupId: remote.version_group_id,
@@ -1814,7 +1821,7 @@ export function useTaskWorkspace() {
       );
       return attachment;
     },
-    [allPeople, currentUserId, mode],
+    [allPeople, currentUserId, mode, workspaces],
   );
 
   const deleteAttachment = useCallback(
@@ -1919,6 +1926,16 @@ export function useTaskWorkspace() {
 
   const openAttachment = useCallback(
     async (attachment: TaskAttachment) => {
+      if (attachment.storageProvider === "google_drive") {
+        const href =
+          attachment.externalWebUrl ??
+          (attachment.externalFileId
+            ? `https://drive.google.com/file/d/${encodeURIComponent(attachment.externalFileId)}/view`
+            : null);
+        if (!href) throw new Error("El archivo de Drive no está disponible.");
+        window.open(href, "_blank", "noopener,noreferrer");
+        return;
+      }
       let href = attachment.dataUrl;
       let objectUrl: string | null = null;
       if (mode === "supabase") {

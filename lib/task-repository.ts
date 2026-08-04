@@ -1,5 +1,9 @@
 import { createClient } from "@/lib/supabase/client";
 import { formatTaskDueLabel, safeStorageName } from "@/lib/task-utils";
+import {
+  googleDrivePreviewUrl,
+  uploadTaskFileToGoogleDrive,
+} from "@/lib/google-drive-client";
 import type {
   AppNotification,
   ArchiveTaskInput,
@@ -89,7 +93,11 @@ type RemoteAttachment = {
   name: string;
   size_bytes: number;
   mime_type: string;
-  storage_path: string;
+  storage_path: string | null;
+  storage_provider: "supabase" | "google_drive";
+  external_file_id: string | null;
+  external_web_url: string | null;
+  external_thumbnail_url: string | null;
   created_at: string;
   version_group_id: string;
   version_number: number;
@@ -306,6 +314,10 @@ function mapAttachment(
     size: Number(attachment.size_bytes),
     mimeType: attachment.mime_type,
     storagePath: attachment.storage_path,
+    storageProvider: attachment.storage_provider,
+    externalFileId: attachment.external_file_id,
+    externalWebUrl: attachment.external_web_url,
+    externalThumbnailUrl: attachment.external_thumbnail_url,
     createdAt: relativeTime(attachment.created_at),
     versionGroupId: attachment.version_group_id,
     versionNumber: Number(attachment.version_number),
@@ -447,7 +459,7 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     supabase.auth.getSession(),
     supabase
       .from("teams")
-      .select("id, name, archived, currency")
+      .select("id, name, archived, currency, google_drive_id, google_drive_name")
       .order("created_at"),
     supabase
       .from("team_members")
@@ -471,7 +483,7 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     supabase
       .from("tasks")
       .select(
-        "id, task_number, title, description, brief, closure_summary, lessons_learned, archived_at, archived_by, deleted_at, deleted_by, status, priority, start_date, due_date, due_time, client_name, client_email, client_id, client_category, recurrence_rule, recurrence_interval, recurrence_origin_id, recurrence_generated_at, created_at, resolved_at, updated_at, tags, parent_task_id, projects!tasks_project_id_fkey(id, name, color, team_id, description, archived, client_id, client_category, client:clients(id, team_id, name, email, notes, categories, archived)), client:clients!tasks_client_id_fkey(id, team_id, name, email, notes, categories, archived), task_projects(project:projects(id, name, color, team_id, description, archived, client_id, client_category, client:clients(id, team_id, name, email, notes, categories, archived))), assignee:profiles!tasks_assignee_id_fkey(id, full_name, email, role, avatar_url), comments(id, body, comment_type, visibility, deleted_at, created_at, author:profiles!comments_author_id_fkey(id, full_name, email, role, avatar_url)), attachments:task_attachments(id, task_id, name, size_bytes, mime_type, storage_path, version_group_id, version_number, approval_status, deleted_at, created_at, uploader:profiles!task_attachments_uploaded_by_fkey(id, full_name, email, role, avatar_url)), events:task_events(id, event_type, summary, metadata, created_at, actor:profiles!task_events_actor_id_fkey(id, full_name, email, role, avatar_url))",
+        "id, task_number, title, description, brief, closure_summary, lessons_learned, archived_at, archived_by, deleted_at, deleted_by, status, priority, start_date, due_date, due_time, client_name, client_email, client_id, client_category, recurrence_rule, recurrence_interval, recurrence_origin_id, recurrence_generated_at, created_at, resolved_at, updated_at, tags, parent_task_id, projects!tasks_project_id_fkey(id, name, color, team_id, description, archived, client_id, client_category, client:clients(id, team_id, name, email, notes, categories, archived)), client:clients!tasks_client_id_fkey(id, team_id, name, email, notes, categories, archived), task_projects(project:projects(id, name, color, team_id, description, archived, client_id, client_category, client:clients(id, team_id, name, email, notes, categories, archived))), assignee:profiles!tasks_assignee_id_fkey(id, full_name, email, role, avatar_url), comments(id, body, comment_type, visibility, deleted_at, created_at, author:profiles!comments_author_id_fkey(id, full_name, email, role, avatar_url)), attachments:task_attachments(id, task_id, name, size_bytes, mime_type, storage_path, storage_provider, external_file_id, external_web_url, external_thumbnail_url, version_group_id, version_number, approval_status, deleted_at, created_at, uploader:profiles!task_attachments_uploaded_by_fkey(id, full_name, email, role, avatar_url)), events:task_events(id, event_type, summary, metadata, created_at, actor:profiles!task_events_actor_id_fkey(id, full_name, email, role, avatar_url))",
       )
       .order("updated_at", { ascending: false }),
     supabase
@@ -566,6 +578,8 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     name: string;
     archived: boolean;
     currency: string;
+    google_drive_id: string | null;
+    google_drive_name: string | null;
   }[];
   const remoteInvitations = (invitationsResult.data ?? []) as {
     id: string;
@@ -608,6 +622,8 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
       role: roleByWorkspace[workspace.id] ?? "viewer",
       archived: workspace.archived,
       currency: workspace.currency || "USD",
+      googleDriveId: workspace.google_drive_id,
+      googleDriveName: workspace.google_drive_name,
     })),
     clients: ((clientsResult.data ?? []) as RemoteClient[]).map(mapClient),
     projects: ((projectsResult.data ?? []) as RemoteProject[]).map(mapProject),
@@ -1193,11 +1209,41 @@ export async function deleteRemoteComment(id: string) {
   if (error) throw error;
 }
 
-export async function uploadRemoteAttachment(task: Task, file: File) {
+export async function uploadRemoteAttachment(
+  task: Task,
+  file: File,
+  googleDriveId?: string | null,
+) {
   const supabase = createClient();
   if (!supabase) return null;
   const { data: userData } = await supabase.auth.getUser();
   if (!userData.user) throw new Error("No hay una sesión activa.");
+
+  if (googleDriveId) {
+    const driveFile = await uploadTaskFileToGoogleDrive(task, file, googleDriveId);
+    const webUrl = driveFile.webViewLink || googleDrivePreviewUrl(driveFile.id);
+    const { data, error } = await supabase
+      .from("task_attachments")
+      .insert({
+        task_id: task.id,
+        uploaded_by: userData.user.id,
+        name: file.name,
+        storage_path: null,
+        storage_provider: "google_drive",
+        external_file_id: driveFile.id,
+        external_web_url: webUrl,
+        external_thumbnail_url: driveFile.thumbnailLink ?? null,
+        size_bytes: file.size,
+        mime_type: file.type || "application/octet-stream",
+      })
+      .select(
+        "id, task_id, name, size_bytes, mime_type, storage_path, storage_provider, external_file_id, external_web_url, external_thumbnail_url, version_group_id, version_number, approval_status, deleted_at, created_at",
+      )
+      .single();
+    if (error) throw error;
+    return data as Omit<RemoteAttachment, "uploader">;
+  }
+
   const path = `${task.project.workspaceId}/${task.id}/${crypto.randomUUID()}-${safeStorageName(file.name)}`;
   const upload = await supabase.storage
     .from("task-attachments")
@@ -1215,7 +1261,7 @@ export async function uploadRemoteAttachment(task: Task, file: File) {
       mime_type: file.type || "application/octet-stream",
     })
     .select(
-      "id, task_id, name, size_bytes, mime_type, storage_path, version_group_id, version_number, approval_status, deleted_at, created_at",
+      "id, task_id, name, size_bytes, mime_type, storage_path, storage_provider, external_file_id, external_web_url, external_thumbnail_url, version_group_id, version_number, approval_status, deleted_at, created_at",
     )
     .single();
   if (error) {
@@ -1264,6 +1310,20 @@ export async function updateRemoteAttachmentStatus(
 }
 
 export async function downloadRemoteAttachment(attachment: TaskAttachment) {
+  if (attachment.storageProvider === "google_drive") {
+    if (attachment.externalWebUrl) {
+      window.open(attachment.externalWebUrl, "_blank", "noopener,noreferrer");
+      return null;
+    }
+    if (attachment.externalFileId) {
+      window.open(
+        googleDrivePreviewUrl(attachment.externalFileId),
+        "_blank",
+        "noopener,noreferrer",
+      );
+      return null;
+    }
+  }
   const supabase = createClient();
   if (!supabase || !attachment.storagePath) return null;
   const { data, error } = await supabase.storage

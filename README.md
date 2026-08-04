@@ -40,8 +40,10 @@ espacio compartido.
 - Comentarios tipificados como decisión, aprobación, feedback de cliente,
   pedido de cambio, entrega, nota interna o incidente, con visibilidad
   diferenciada.
-- Comentarios, notificaciones y adjuntos privados de hasta 10 MB. Los adjuntos
-  se pueden cargar antes de crear la tarea o en lote desde la descripción; las
+- Comentarios, notificaciones y adjuntos privados de hasta 100 MB. Cada espacio
+  puede vincular una unidad compartida de Google Drive para aprovechar la cuota
+  de Google Workspace sin consumir almacenamiento de Supabase. Los adjuntos se
+  pueden cargar antes de crear la tarea o en lote desde la descripción; las
   imágenes se muestran embebidas y todos conservan versiones y estados de
   aprobación (borrador, enviado, cambios, aprobado y final).
 - Plantillas reutilizables para campañas, redes, calendarios mensuales,
@@ -75,6 +77,7 @@ espacio compartido.
 - TypeScript
 - Tailwind CSS 4
 - Supabase Auth + PostgREST
+- Google Drive API para adjuntos de espacios vinculados
 - PostgreSQL
 - Lucide Icons
 
@@ -92,6 +95,29 @@ La aplicación queda disponible en [http://localhost:3000](http://localhost:3000
 Sin variables de Supabase, se abre directamente un espacio de demostración
 totalmente interactivo con campañas y entregables de una agencia ficticia.
 Los cambios de la demo se conservan en `localStorage` entre recargas.
+
+## Adjuntos en Google Drive
+
+Taska puede guardar los archivos de un espacio directamente en una unidad
+compartida de Google Workspace. La base de datos conserva únicamente el vínculo,
+el tipo, el tamaño y la información de auditoría; el archivo permanece en Drive.
+
+1. Creá una unidad compartida y agregá como integrantes a las mismas personas
+   que participan del espacio de Taska. Se recomienda administrar ambos accesos
+   mediante un Google Group del equipo.
+2. Configurá un cliente OAuth web en Google Cloud, habilitá Google Drive API y
+   autorizá el alcance `https://www.googleapis.com/auth/drive.file`.
+3. Agregá los orígenes de la aplicación, por ejemplo `http://localhost:3000` y
+   el dominio productivo de Vercel.
+4. Guardá el ID público del cliente en
+   `NEXT_PUBLIC_GOOGLE_DRIVE_CLIENT_ID` y el ID de la unidad en
+   `teams.google_drive_id`. Opcionalmente, guardá su nombre en
+   `teams.google_drive_name`.
+
+La primera carga de cada usuario abre el consentimiento de Google. Taska no
+recibe ni almacena contraseñas de Google y el token permanece temporalmente en
+el navegador. Si un usuario no pertenece a la unidad compartida, Drive rechazará
+la carga aunque sea integrante del espacio en Taska.
 
 ## Conectar Supabase
 

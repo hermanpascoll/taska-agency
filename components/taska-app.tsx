@@ -423,13 +423,18 @@ function EmbeddedTaskAttachment({
 }) {
   const image = isImageFile(attachment.mimeType);
   const [signedUrl, setSignedUrl] = useState<string | null>(null);
-  const previewUrl = attachment.dataUrl ?? signedUrl;
+  const previewUrl =
+    attachment.dataUrl ??
+    (attachment.storageProvider === "google_drive" && attachment.externalFileId
+      ? `https://drive.google.com/thumbnail?id=${encodeURIComponent(attachment.externalFileId)}&sz=w1600`
+      : signedUrl);
 
   useEffect(() => {
     let active = true;
     if (
       !image ||
       attachment.dataUrl ||
+      attachment.storageProvider === "google_drive" ||
       !attachment.storagePath
     ) {
       return () => {
@@ -451,6 +456,7 @@ function EmbeddedTaskAttachment({
     };
   }, [
     attachment.dataUrl,
+    attachment.storageProvider,
     attachment.storagePath,
     image,
   ]);
@@ -5386,7 +5392,7 @@ function TaskDrawer({
                   onClick={() => attachmentInput.current?.click()}
                   className="focus-ring w-full rounded-xl border border-dashed border-slate-200 p-4 text-center text-[10px] text-slate-400 hover:border-[#0a84ff]/40 hover:bg-[#0a84ff]/5 hover:text-[#0879ea]"
                 >
-                  Arrastrá el contexto al equipo con archivos de hasta 10 MB.
+                  Arrastrá el contexto al equipo con archivos de hasta 100 MB.
                 </button>
               )}
             </div>
@@ -6084,7 +6090,7 @@ export function LegacyNewTaskModal({
                   Imagen o archivo
                 </button>
                 <span className="text-[8px] text-slate-400">
-                  Hasta 10 MB por archivo
+                  Hasta 100 MB por archivo
                 </span>
               </div>
               <input
