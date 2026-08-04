@@ -7,6 +7,7 @@ export type TaskRecurrence =
   | "biweekly"
   | "monthly";
 export type TeamRole = "owner" | "admin" | "agent" | "viewer";
+export type ProjectRole = "admin" | "editor" | "commenter" | "viewer";
 export type CommentType =
   | "comment"
   | "internal_note"
@@ -37,6 +38,7 @@ export type Person = {
   name: string;
   initials: string;
   color: string;
+  avatarUrl?: string;
   role?: string;
   email?: string;
 };
@@ -152,6 +154,27 @@ export type WorkspaceMember = {
   role: TeamRole;
   joinedAt: string;
   hourlyRate: number;
+};
+
+export type ProjectMember = {
+  projectId: string;
+  user: Person;
+  role: ProjectRole;
+  notifyOnNewTasks: boolean;
+  joinedAt: string;
+};
+
+export type ProjectInvitation = {
+  id: string;
+  projectId: string;
+  workspaceId: string;
+  email: string;
+  role: ProjectRole;
+  notifyOnNewTasks: boolean;
+  token: string;
+  createdAt: string;
+  expiresAt: string;
+  acceptedAt: string | null;
 };
 
 export type TimeEntry = {

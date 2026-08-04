@@ -17,9 +17,13 @@ export default function AcceptInvitationPage() {
     const timeout = window.setTimeout(() => {
       void (async () => {
         try {
-          await acceptRemoteInvitation(params.token);
+          const result = await acceptRemoteInvitation(params.token);
           setState("success");
-          setMessage("Ya sos parte del espacio de trabajo.");
+          setMessage(
+            result.kind === "project"
+              ? "Ya tenés acceso a la campaña compartida."
+              : "Ya sos parte del espacio de trabajo.",
+          );
           window.setTimeout(() => router.replace("/"), 1200);
         } catch (error) {
           setState("error");

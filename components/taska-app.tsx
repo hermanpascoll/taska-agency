@@ -153,6 +153,9 @@ import type {
   NewTaskInput,
   Person,
   Project,
+  ProjectInvitation,
+  ProjectMember,
+  ProjectRole,
   Task,
   TaskAttachment,
   TaskPriority,
@@ -309,13 +312,22 @@ function Avatar({
   return (
     <span
       className={clsx(
-        "grid shrink-0 place-items-center rounded-full font-bold text-white shadow-sm",
+        "grid shrink-0 place-items-center overflow-hidden rounded-full font-bold text-white shadow-sm",
         sizes[size],
       )}
       style={{ background: person.color }}
       title={person.name}
     >
-      {person.initials}
+      {person.avatarUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={person.avatarUrl}
+          alt={person.name}
+          className="h-full w-full object-cover"
+        />
+      ) : (
+        person.initials
+      )}
     </span>
   );
 }
@@ -2492,6 +2504,11 @@ function ProjectWorkspaceView({
   project,
   tasks,
   allTasks,
+  people,
+  projectMembers,
+  projectInvitations,
+  currentUserId,
+  canManageSharing,
   tab,
   selectedTaskId,
   onTabChange,
@@ -2500,10 +2517,20 @@ function ProjectWorkspaceView({
   onComplete,
   onMove,
   onUpdateDates,
+  onProjectMemberUpsert,
+  onProjectMemberRemove,
+  onProjectInvite,
+  onProjectInvitationRevoke,
+  notify,
 }: {
   project: Project;
   tasks: Task[];
   allTasks: Task[];
+  people: Person[];
+  projectMembers: ProjectMember[];
+  projectInvitations: ProjectInvitation[];
+  currentUserId: string;
+  canManageSharing: boolean;
   tab: ProjectTab;
   selectedTaskId: string | null;
   onTabChange: (tab: ProjectTab) => void;
@@ -2515,7 +2542,23 @@ function ProjectWorkspaceView({
     taskId: string,
     input: Pick<UpdateTaskInput, "startDate" | "dueDate">,
   ) => void;
+  onProjectMemberUpsert: (
+    projectId: string,
+    userId: string,
+    role: ProjectRole,
+    notifyOnNewTasks: boolean,
+  ) => Promise<void>;
+  onProjectMemberRemove: (projectId: string, userId: string) => Promise<void>;
+  onProjectInvite: (
+    projectId: string,
+    email: string,
+    role: ProjectRole,
+    notifyOnNewTasks: boolean,
+  ) => Promise<{ invitation: ProjectInvitation; emailed: boolean }>;
+  onProjectInvitationRevoke: (id: string) => Promise<void>;
+  notify: (message: string) => void;
 }) {
+  const [shareOpen, setShareOpen] = useState(false);
   const completed = tasks.filter((task) => task.status === "resuelto").length;
   const urgent = tasks.filter(
     (task) =>
@@ -2525,6 +2568,9 @@ function ProjectWorkspaceView({
   const progress = tasks.length
     ? Math.round((completed / tasks.length) * 100)
     : 0;
+  const visibleProjectMembers = projectMembers.filter(
+    (member) => member.projectId === project.id,
+  );
   const tabs: Array<{ id: ProjectTab; label: string; icon?: typeof ListTodo }> =
     [
       { id: "overview", label: "Resumen" },
@@ -2598,6 +2644,29 @@ function ProjectWorkspaceView({
           >
             <Plus className="size-3.5" />
             Agregar tarea
+          </button>
+          <div className="hidden -space-x-2 sm:flex" aria-label="Miembros del proyecto">
+            {visibleProjectMembers.slice(0, 3).map((member) => (
+              <span
+                key={member.user.id}
+                className="rounded-full border-2 border-white"
+              >
+                <Avatar person={member.user} size="sm" />
+              </span>
+            ))}
+            {visibleProjectMembers.length > 3 && (
+              <span className="grid size-7 place-items-center rounded-full border-2 border-white bg-slate-200 text-[8px] font-bold text-slate-600">
+                +{visibleProjectMembers.length - 3}
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setShareOpen(true)}
+            className="focus-ring flex items-center gap-1.5 rounded-lg bg-[#3978e8] px-3 py-2 text-[10px] font-bold text-white shadow-sm hover:bg-[#2f6fdc]"
+          >
+            <Users className="size-3.5" />
+            Compartir
           </button>
         </div>
         <nav
@@ -2738,7 +2807,410 @@ function ProjectWorkspaceView({
           </>
         )}
       </div>
+      {shareOpen && (
+        <ProjectShareModal
+          project={project}
+          people={people}
+          members={visibleProjectMembers}
+          invitations={projectInvitations.filter(
+            (invitation) =>
+              invitation.projectId === project.id && !invitation.acceptedAt,
+          )}
+          currentUserId={currentUserId}
+          canManage={canManageSharing}
+          onClose={() => setShareOpen(false)}
+          onMemberUpsert={onProjectMemberUpsert}
+          onMemberRemove={onProjectMemberRemove}
+          onInvite={onProjectInvite}
+          onInvitationRevoke={onProjectInvitationRevoke}
+          notify={notify}
+        />
+      )}
     </section>
+  );
+}
+
+const projectRoleLabels: Record<ProjectRole, string> = {
+  admin: "Administrador",
+  editor: "Editor",
+  commenter: "Comentador",
+  viewer: "Sólo lectura",
+};
+
+function ProjectShareModal({
+  project,
+  people,
+  members,
+  invitations,
+  currentUserId,
+  canManage,
+  onClose,
+  onMemberUpsert,
+  onMemberRemove,
+  onInvite,
+  onInvitationRevoke,
+  notify,
+}: {
+  project: Project;
+  people: Person[];
+  members: ProjectMember[];
+  invitations: ProjectInvitation[];
+  currentUserId: string;
+  canManage: boolean;
+  onClose: () => void;
+  onMemberUpsert: (
+    projectId: string,
+    userId: string,
+    role: ProjectRole,
+    notifyOnNewTasks: boolean,
+  ) => Promise<void>;
+  onMemberRemove: (projectId: string, userId: string) => Promise<void>;
+  onInvite: (
+    projectId: string,
+    email: string,
+    role: ProjectRole,
+    notifyOnNewTasks: boolean,
+  ) => Promise<{ invitation: ProjectInvitation; emailed: boolean }>;
+  onInvitationRevoke: (id: string) => Promise<void>;
+  notify: (message: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [role, setRole] = useState<ProjectRole>("editor");
+  const [notifyOnNewTasks, setNotifyOnNewTasks] = useState(true);
+  const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const memberIds = useMemo(
+    () => new Set(members.map((member) => member.user.id)),
+    [members],
+  );
+  const suggestions = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return [];
+    return people
+      .filter((person) => !memberIds.has(person.id))
+      .filter(
+        (person) =>
+          person.name.toLowerCase().includes(normalized) ||
+          person.email?.toLowerCase().includes(normalized),
+      )
+      .slice(0, 5);
+  }, [memberIds, people, query]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!canManage || saving || !query.trim()) return;
+    const matchingPerson =
+      people.find((person) => person.id === selectedPersonId) ??
+      people.find(
+        (person) =>
+          person.email?.toLowerCase() === query.trim().toLowerCase(),
+      );
+    setSaving(true);
+    try {
+      if (matchingPerson) {
+        await onMemberUpsert(
+          project.id,
+          matchingPerson.id,
+          role,
+          notifyOnNewTasks,
+        );
+        notify(`${matchingPerson.name} ahora participa en ${project.name}`);
+      } else {
+        const result = await onInvite(
+          project.id,
+          query.trim(),
+          role,
+          notifyOnNewTasks,
+        );
+        notify(
+          result.emailed
+            ? "Invitación enviada por email"
+            : "Invitación creada; podés copiar su enlace",
+        );
+      }
+      setQuery("");
+      setSelectedPersonId(null);
+    } catch (error) {
+      notify(
+        error instanceof Error ? error.message : "No se pudo compartir",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function copyProjectLink() {
+    const url = new URL(window.location.href);
+    url.searchParams.set("project", project.id);
+    url.searchParams.delete("task");
+    await navigator.clipboard.writeText(url.toString());
+    notify("Enlace del proyecto copiado");
+  }
+
+  return (
+    <div className="fixed inset-0 z-[110] grid place-items-center p-3 sm:p-6">
+      <button
+        type="button"
+        className="absolute inset-0 bg-slate-950/55 backdrop-blur-sm"
+        onClick={onClose}
+        aria-label="Cerrar compartir proyecto"
+      />
+      <section
+        className="mac-window soft-scrollbar relative max-h-[90vh] w-full max-w-[660px] overflow-y-auto rounded-2xl border border-white/10 bg-white shadow-[0_30px_100px_rgba(0,0,0,.42)]"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="project-share-title"
+      >
+        <header className="sticky top-0 z-10 flex items-center border-b border-slate-200 bg-white/95 px-6 py-5 backdrop-blur-xl">
+          <h2
+            id="project-share-title"
+            className="text-[19px] font-bold tracking-[-0.025em] text-slate-900"
+          >
+            Compartir {project.name}
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="focus-ring ml-auto rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            aria-label="Cerrar"
+          >
+            <X className="size-5" />
+          </button>
+        </header>
+
+        <div className="border-b border-slate-200 px-6 py-6">
+          <h3 className="text-[13px] font-bold text-slate-800">
+            Invitación por email
+          </h3>
+          <form onSubmit={submit} className="mt-3">
+            <div className="relative flex flex-col gap-2 sm:flex-row">
+              <div className="relative min-w-0 flex-1">
+                <input
+                  value={query}
+                  onChange={(event) => {
+                    setQuery(event.target.value);
+                    setSelectedPersonId(null);
+                  }}
+                  disabled={!canManage}
+                  placeholder="Agregá miembros por nombre o email…"
+                  className="mac-input focus-ring w-full rounded-xl border border-slate-300 px-4 py-3 pr-28 text-[12px]"
+                  aria-label="Persona o email para compartir"
+                />
+                <select
+                  value={role}
+                  onChange={(event) =>
+                    setRole(event.target.value as ProjectRole)
+                  }
+                  disabled={!canManage}
+                  className="focus-ring absolute right-2 top-1/2 -translate-y-1/2 rounded-lg border-0 bg-transparent px-2 py-1 text-[10px] font-semibold text-slate-600"
+                  aria-label="Nivel de acceso"
+                >
+                  {Object.entries(projectRoleLabels).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+                {suggestions.length > 0 && (
+                  <div className="absolute inset-x-0 top-[calc(100%+6px)] z-20 overflow-hidden rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
+                    {suggestions.map((person) => (
+                      <button
+                        key={person.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedPersonId(person.id);
+                          setQuery(person.email ?? person.name);
+                        }}
+                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-slate-100"
+                      >
+                        <Avatar person={person} size="sm" />
+                        <span className="min-w-0">
+                          <strong className="block truncate text-[10px] text-slate-800">
+                            {person.name}
+                          </strong>
+                          <span className="block truncate text-[9px] text-slate-400">
+                            {person.email ?? "Integrante del espacio"}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <button
+                type="submit"
+                disabled={!canManage || !query.trim() || saving}
+                className="mac-button-primary focus-ring rounded-xl px-5 py-3 text-[11px] font-bold text-white disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                {saving ? "Invitando…" : "Invitar"}
+              </button>
+            </div>
+            <label className="mt-4 flex cursor-pointer items-center gap-2 text-[10px] text-slate-600">
+              <input
+                type="checkbox"
+                checked={notifyOnNewTasks}
+                onChange={(event) => setNotifyOnNewTasks(event.target.checked)}
+                disabled={!canManage}
+                className="size-4 rounded border-slate-300 accent-[#3978e8]"
+              />
+              Enviar notificaciones cuando se agreguen tareas al proyecto
+            </label>
+          </form>
+          {!canManage && (
+            <p className="mt-3 text-[9px] text-amber-600">
+              Sólo los administradores pueden invitar o cambiar accesos.
+            </p>
+          )}
+        </div>
+
+        <div className="px-6 py-6">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <div className="flex items-center gap-3">
+              <UsersRound className="size-4 text-slate-500" />
+              <span>
+                <strong className="block text-[11px] text-slate-700">
+                  Visible para integrantes del espacio
+                </strong>
+                <span className="text-[9px] text-slate-400">
+                  Los invitados aparecen como miembros específicos del proyecto.
+                </span>
+              </span>
+            </div>
+          </div>
+
+          <h3 className="mt-6 text-[13px] font-bold text-slate-800">
+            Quién tiene acceso
+          </h3>
+          <div className="mt-3 space-y-1">
+            {members.map((member) => (
+              <div
+                key={member.user.id}
+                className="flex items-center gap-3 rounded-xl px-2 py-2.5 hover:bg-slate-50"
+              >
+                <Avatar person={member.user} size="md" />
+                <span className="min-w-0 flex-1">
+                  <strong className="block truncate text-[11px] text-slate-800">
+                    {member.user.name}
+                    {member.user.id === currentUserId ? " (vos)" : ""}
+                  </strong>
+                  <span className="block truncate text-[9px] text-slate-400">
+                    {member.user.email ?? member.user.role}
+                  </span>
+                </span>
+                <select
+                  value={member.role}
+                  disabled={!canManage}
+                  onChange={(event) => {
+                    void onMemberUpsert(
+                      project.id,
+                      member.user.id,
+                      event.target.value as ProjectRole,
+                      member.notifyOnNewTasks,
+                    ).catch((error: unknown) =>
+                      notify(
+                        error instanceof Error
+                          ? error.message
+                          : "No se pudo cambiar el acceso",
+                      ),
+                    );
+                  }}
+                  className="focus-ring rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[9px] font-semibold text-slate-600"
+                  aria-label={`Acceso de ${member.user.name}`}
+                >
+                  {Object.entries(projectRoleLabels).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+                {canManage && member.user.id !== currentUserId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void onMemberRemove(project.id, member.user.id)
+                        .then(() => notify("Integrante removido del proyecto"))
+                        .catch((error: unknown) =>
+                          notify(
+                            error instanceof Error
+                              ? error.message
+                              : "No se pudo remover",
+                          ),
+                        );
+                    }}
+                    className="focus-ring rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                    aria-label={`Quitar a ${member.user.name}`}
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {invitations.length > 0 && (
+            <>
+              <h3 className="mt-6 text-[11px] font-bold text-slate-700">
+                Invitaciones pendientes
+              </h3>
+              <div className="mt-2 space-y-2">
+                {invitations.map((invitation) => (
+                  <div
+                    key={invitation.id}
+                    className="flex items-center gap-3 rounded-xl border border-dashed border-slate-200 px-3 py-3"
+                  >
+                    <span className="grid size-8 place-items-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-500">
+                      {invitation.email.slice(0, 1).toUpperCase()}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <strong className="block truncate text-[10px] text-slate-700">
+                        {invitation.email}
+                      </strong>
+                      <span className="text-[8px] text-slate-400">
+                        Pendiente · {projectRoleLabels[invitation.role]}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const url = `${window.location.origin}/invite/${invitation.token}`;
+                        void navigator.clipboard.writeText(url).then(() =>
+                          notify("Enlace de invitación copiado"),
+                        );
+                      }}
+                      className="focus-ring rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+                      aria-label={`Copiar invitación para ${invitation.email}`}
+                    >
+                      <Link2 className="size-3.5" />
+                    </button>
+                    {canManage && (
+                      <button
+                        type="button"
+                        onClick={() => void onInvitationRevoke(invitation.id)}
+                        className="focus-ring rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                        aria-label={`Revocar invitación de ${invitation.email}`}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        <footer className="sticky bottom-0 flex justify-end border-t border-slate-200 bg-white/95 px-6 py-4 backdrop-blur-xl">
+          <button
+            type="button"
+            onClick={() => void copyProjectLink()}
+            className="focus-ring flex items-center gap-2 rounded-xl border border-slate-300 px-4 py-2.5 text-[10px] font-bold text-slate-700 hover:bg-slate-50"
+          >
+            <Link2 className="size-3.5" />
+            Copiar el enlace del proyecto
+          </button>
+        </footer>
+      </section>
+    </div>
   );
 }
 
@@ -3215,7 +3687,7 @@ function KanbanBoard({
                 <h3 className="ml-2 text-[12px] font-bold text-slate-700">
                   {meta.label}
                 </h3>
-                <span className="ml-2 rounded-full bg-slate-200/70 px-2 py-0.5 text-[9px] font-bold text-slate-500">
+                <span className="kanban-count ml-2 rounded-full px-2 py-0.5 text-[9px] font-bold">
                   {columnTasks.length}
                 </span>
                 {columnTasks.length >= 6 && (
@@ -3283,9 +3755,9 @@ function KanbanBoard({
                   setOverStatus(null);
                 }}
                 className={clsx(
-                  "min-h-28 space-y-3 rounded-xl bg-[#eef0f4]/85 p-2.5 transition",
+                  "kanban-column min-h-28 space-y-3 rounded-xl p-2.5 transition",
                   overStatus === status &&
-                    "bg-[#dcecff] ring-2 ring-[#0a84ff]/35 ring-inset",
+                    "kanban-column-over ring-2 ring-[#0a84ff]/45 ring-inset",
                 )}
               >
                 {columnTasks.map((task) => (
@@ -3303,7 +3775,7 @@ function KanbanBoard({
                       setOverStatus(null);
                     }}
                     className={clsx(
-                      "group cursor-grab rounded-xl border border-white bg-white p-3.5 shadow-[0_1px_3px_rgba(23,32,51,0.07)] transition active:cursor-grabbing hover:-translate-y-0.5 hover:shadow-[0_7px_20px_rgba(23,32,51,0.09)]",
+                      "kanban-card group cursor-grab rounded-xl border p-3.5 transition active:cursor-grabbing hover:-translate-y-0.5",
                       draggedTaskId === task.id && "opacity-45",
                     )}
                   >
@@ -3325,7 +3797,7 @@ function KanbanBoard({
                         {task.tags.slice(0, 2).map((tag) => (
                           <span
                             key={tag}
-                            className="rounded-md bg-slate-100 px-2 py-1 text-[9px] font-medium text-slate-500"
+                            className="kanban-tag rounded-md px-2 py-1 text-[9px] font-medium"
                           >
                             {tag}
                           </span>
@@ -7536,7 +8008,11 @@ function SettingsModal({
   settings: AppSettings;
   mode: "demo" | "supabase";
   onClose: () => void;
-  onProfileUpdate: (name: string, title: string) => Promise<void>;
+  onProfileUpdate: (
+    name: string,
+    title: string,
+    avatarFile?: File | null,
+  ) => Promise<void>;
   onSettingsUpdate: (settings: Partial<AppSettings>) => void;
   onInvite: (
     email: string,
@@ -7556,6 +8032,13 @@ function SettingsModal({
   const [profileTitle, setProfileTitle] = useState(
     currentPerson?.role ?? "Equipo creativo",
   );
+  const [profilePhoto, setProfilePhoto] = useState<File | null>(null);
+  const [profilePreviewUrl, setProfilePreviewUrl] = useState<string | null>(
+    null,
+  );
+  const [profileSaving, setProfileSaving] = useState(false);
+  const profilePhotoInputRef = useRef<HTMLInputElement>(null);
+  const profilePreviewUrlRef = useRef<string | null>(null);
   const [workspaceName, setWorkspaceName] = useState(workspace.name);
   const [currency, setCurrency] = useState(workspace.currency);
   const [email, setEmail] = useState("");
@@ -7565,6 +8048,61 @@ function SettingsModal({
   >(null);
   const [removeUserId, setRemoveUserId] = useState<string | null>(null);
   const canManage = workspace.role === "owner" || workspace.role === "admin";
+
+  useEffect(
+    () => () => {
+      if (profilePreviewUrlRef.current) {
+        URL.revokeObjectURL(profilePreviewUrlRef.current);
+      }
+    },
+    [],
+  );
+
+  function chooseProfilePhoto(file: File | null) {
+    if (!file) return;
+    if (
+      !(["image/jpeg", "image/png", "image/webp"] as string[]).includes(
+        file.type,
+      )
+    ) {
+      notify("Usá una imagen JPG, PNG o WebP");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      notify("La foto de perfil no puede superar los 5 MB");
+      return;
+    }
+    if (profilePreviewUrlRef.current) {
+      URL.revokeObjectURL(profilePreviewUrlRef.current);
+    }
+    const previewUrl = URL.createObjectURL(file);
+    profilePreviewUrlRef.current = previewUrl;
+    setProfilePreviewUrl(previewUrl);
+    setProfilePhoto(file);
+  }
+
+  async function saveProfile() {
+    if (!name.trim() || !profileTitle.trim() || profileSaving) return;
+    setProfileSaving(true);
+    try {
+      await onProfileUpdate(name.trim(), profileTitle.trim(), profilePhoto);
+      setProfilePhoto(null);
+      if (profilePreviewUrlRef.current) {
+        URL.revokeObjectURL(profilePreviewUrlRef.current);
+        profilePreviewUrlRef.current = null;
+      }
+      setProfilePreviewUrl(null);
+      notify("Perfil actualizado");
+    } catch (error) {
+      notify(
+        error instanceof Error
+          ? error.message
+          : "No se pudo actualizar el perfil",
+      );
+    } finally {
+      setProfileSaving(false);
+    }
+  }
 
   async function submitInvitation(event: FormEvent) {
     event.preventDefault();
@@ -7663,7 +8201,47 @@ function SettingsModal({
                     Perfil
                   </h3>
                   <div className="mt-3 flex items-start gap-3">
-                    <Avatar person={currentPerson} size="lg" />
+                    <div className="group relative shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => profilePhotoInputRef.current?.click()}
+                        className="focus-ring relative block overflow-hidden rounded-full"
+                        aria-label="Cambiar foto de perfil"
+                      >
+                        {profilePreviewUrl ? (
+                          <span className="block size-10 overflow-hidden rounded-full">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={profilePreviewUrl}
+                              alt="Vista previa de la foto de perfil"
+                              className="h-full w-full object-cover"
+                            />
+                          </span>
+                        ) : (
+                          <Avatar person={currentPerson} size="lg" />
+                        )}
+                        <span className="absolute inset-0 grid place-items-center rounded-full bg-slate-950/55 text-white opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100">
+                          <ImagePlus className="size-4" />
+                        </span>
+                      </button>
+                      <input
+                        ref={profilePhotoInputRef}
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className="sr-only"
+                        onChange={(event) => {
+                          chooseProfilePhoto(event.target.files?.[0] ?? null);
+                          event.target.value = "";
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => profilePhotoInputRef.current?.click()}
+                        className="mt-1 w-full text-center text-[8px] font-semibold text-[#0a84ff] hover:underline"
+                      >
+                        Cambiar
+                      </button>
+                    </div>
                     <div className="min-w-0 flex-1 space-y-2">
                       <label className="block">
                         <span className="mb-1 block text-[9px] font-semibold text-slate-500">
@@ -7689,20 +8267,13 @@ function SettingsModal({
                       </label>
                     </div>
                     <button
-                      onClick={() => {
-                        void onProfileUpdate(
-                          name.trim(),
-                          profileTitle.trim(),
-                        )
-                          .then(() => notify("Perfil actualizado"))
-                          .catch(() =>
-                            notify("No se pudo actualizar el perfil"),
-                          );
-                      }}
-                      disabled={!name.trim() || !profileTitle.trim()}
+                      onClick={() => void saveProfile()}
+                      disabled={
+                        !name.trim() || !profileTitle.trim() || profileSaving
+                      }
                       className="mac-button-primary focus-ring rounded-lg px-3 py-2.5 text-[10px] font-bold text-white"
                     >
-                      Guardar
+                      {profileSaving ? "Guardando…" : "Guardar"}
                     </button>
                   </div>
                 </section>
@@ -8259,6 +8830,8 @@ export function TaskaApp() {
     people,
     members,
     invitations,
+    projectMembers,
+    projectInvitations,
     notifications,
     timeEntries,
     currentUserId,
@@ -8290,6 +8863,10 @@ export function TaskaApp() {
     removeMember,
     inviteMember,
     revokeInvitation,
+    upsertProjectMember,
+    removeProjectMember,
+    inviteProjectMember,
+    revokeProjectInvitation,
     uploadAttachment,
     deleteAttachment,
     restoreAttachment,
@@ -8363,13 +8940,22 @@ export function TaskaApp() {
 
   useEffect(() => {
     const initialSync = window.setTimeout(() => {
-      setSelectedTaskId(
-        new URLSearchParams(window.location.search).get("task"),
-      );
+      const params = new URLSearchParams(window.location.search);
+      setSelectedTaskId(params.get("task"));
+      const sharedProjectId = params.get("project");
+      if (sharedProjectId) {
+        setProjectId(sharedProjectId);
+        setView("all_tasks");
+      }
       setTaskUrlReady(true);
     }, 0);
-    const onPopState = () =>
-      setSelectedTaskId(new URLSearchParams(window.location.search).get("task"));
+    const onPopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      setSelectedTaskId(params.get("task"));
+      const sharedProjectId = params.get("project");
+      setProjectId(sharedProjectId ?? "todos");
+      if (sharedProjectId) setView("all_tasks");
+    };
     window.addEventListener("popstate", onPopState);
     return () => {
       window.clearTimeout(initialSync);
@@ -8382,8 +8968,10 @@ export function TaskaApp() {
     const url = new URL(window.location.href);
     if (selectedTaskId) url.searchParams.set("task", selectedTaskId);
     else url.searchParams.delete("task");
+    if (projectId !== "todos") url.searchParams.set("project", projectId);
+    else url.searchParams.delete("project");
     window.history.replaceState({}, "", url);
-  }, [selectedTaskId, taskUrlReady]);
+  }, [projectId, selectedTaskId, taskUrlReady]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "auto" });
@@ -8761,7 +9349,7 @@ export function TaskaApp() {
         id="main-content"
         className={clsx(
           "min-w-0 flex-1 transition-[margin] duration-200",
-          focusedProject && selectedTask && "lg:mr-[48vw]",
+          selectedTask && "lg:mr-[48vw]",
           showNewTask && "lg:mr-[48vw]",
         )}
         tabIndex={-1}
@@ -8866,6 +9454,20 @@ export function TaskaApp() {
               project={focusedProject}
               tasks={focusedProjectTasks}
               allTasks={focusedProjectAllTasks}
+              people={people}
+              projectMembers={projectMembers}
+              projectInvitations={projectInvitations}
+              currentUserId={currentUserId}
+              canManageSharing={
+                activeWorkspace?.role === "owner" ||
+                activeWorkspace?.role === "admin" ||
+                projectMembers.some(
+                  (member) =>
+                    member.projectId === focusedProject.id &&
+                    member.user.id === currentUserId &&
+                    member.role === "admin",
+                )
+              }
               tab={projectTab}
               selectedTaskId={selectedTaskId}
               onTabChange={setProjectTab}
@@ -8889,6 +9491,11 @@ export function TaskaApp() {
                 void updateTask(taskId, input);
                 notify("Fechas reprogramadas");
               }}
+              onProjectMemberUpsert={upsertProjectMember}
+              onProjectMemberRemove={removeProjectMember}
+              onProjectInvite={inviteProjectMember}
+              onProjectInvitationRevoke={revokeProjectInvitation}
+              notify={notify}
             />
           ) : view === "inbox" ? (
             <InboxView
@@ -9480,7 +10087,7 @@ export function TaskaApp() {
             void deleteTimeEntry(entryId);
             notify("Registro de tiempo eliminado");
           }}
-          embedded={Boolean(focusedProject)}
+          embedded
           notify={notify}
         />
       ))}

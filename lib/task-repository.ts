@@ -13,6 +13,9 @@ import type {
   NewTaskInput,
   Person,
   Project,
+  ProjectInvitation,
+  ProjectMember,
+  ProjectRole,
   Task,
   TaskAttachment,
   TaskComment,
@@ -36,6 +39,16 @@ type RemotePerson = {
   full_name: string | null;
   email: string | null;
   role: string | null;
+  avatar_url: string | null;
+};
+
+type RemoteProjectMember = {
+  project_id: string;
+  user_id: string;
+  role: ProjectRole;
+  notify_on_new_tasks: boolean;
+  joined_at: string;
+  profiles: RemotePerson | RemotePerson[] | null;
 };
 
 type RemoteProject = {
@@ -187,6 +200,8 @@ export type LoadedWorkspace = {
   peopleByWorkspace: Record<string, string[]>;
   members: WorkspaceMember[];
   invitations: TeamInvitation[];
+  projectMembers: ProjectMember[];
+  projectInvitations: ProjectInvitation[];
   notifications: AppNotification[];
   timeEntries: TimeEntry[];
   tasks: Task[];
@@ -235,6 +250,7 @@ function personFromRemote(person: RemotePerson | null, index = 0): Person | null
     name,
     initials: initials(name),
     color: avatarColors[index % avatarColors.length],
+    avatarUrl: person.avatar_url ?? undefined,
     role: person.role || "Equipo creativo",
     email: person.email ?? undefined,
   };
@@ -422,6 +438,8 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     profilesResult,
     tasksResult,
     invitationsResult,
+    projectMembersResult,
+    projectInvitationsResult,
     notificationsResult,
     timeEntriesResult,
   ] = await Promise.all([
@@ -433,7 +451,7 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     supabase
       .from("team_members")
       .select(
-        "team_id, user_id, role, joined_at, hourly_rate, profiles(id, full_name, email, role)",
+        "team_id, user_id, role, joined_at, hourly_rate, profiles(id, full_name, email, role, avatar_url)",
       ),
     supabase
       .from("clients")
@@ -447,18 +465,29 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
       .order("name"),
     supabase
       .from("profiles")
-      .select("id, full_name, email, role")
+      .select("id, full_name, email, role, avatar_url")
       .order("full_name"),
     supabase
       .from("tasks")
       .select(
-        "id, task_number, title, description, brief, closure_summary, lessons_learned, archived_at, archived_by, deleted_at, deleted_by, status, priority, start_date, due_date, due_time, client_name, client_email, client_id, client_category, recurrence_rule, recurrence_interval, recurrence_origin_id, recurrence_generated_at, created_at, resolved_at, updated_at, tags, parent_task_id, projects!tasks_project_id_fkey(id, name, color, team_id, description, archived, client_id, client_category, client:clients(id, team_id, name, email, notes, categories, archived)), client:clients!tasks_client_id_fkey(id, team_id, name, email, notes, categories, archived), task_projects(project:projects(id, name, color, team_id, description, archived, client_id, client_category, client:clients(id, team_id, name, email, notes, categories, archived))), assignee:profiles!tasks_assignee_id_fkey(id, full_name, email, role), comments(id, body, comment_type, visibility, deleted_at, created_at, author:profiles!comments_author_id_fkey(id, full_name, email, role)), attachments:task_attachments(id, task_id, name, size_bytes, mime_type, storage_path, version_group_id, version_number, approval_status, deleted_at, created_at, uploader:profiles!task_attachments_uploaded_by_fkey(id, full_name, email, role)), events:task_events(id, event_type, summary, metadata, created_at, actor:profiles!task_events_actor_id_fkey(id, full_name, email, role))",
+        "id, task_number, title, description, brief, closure_summary, lessons_learned, archived_at, archived_by, deleted_at, deleted_by, status, priority, start_date, due_date, due_time, client_name, client_email, client_id, client_category, recurrence_rule, recurrence_interval, recurrence_origin_id, recurrence_generated_at, created_at, resolved_at, updated_at, tags, parent_task_id, projects!tasks_project_id_fkey(id, name, color, team_id, description, archived, client_id, client_category, client:clients(id, team_id, name, email, notes, categories, archived)), client:clients!tasks_client_id_fkey(id, team_id, name, email, notes, categories, archived), task_projects(project:projects(id, name, color, team_id, description, archived, client_id, client_category, client:clients(id, team_id, name, email, notes, categories, archived))), assignee:profiles!tasks_assignee_id_fkey(id, full_name, email, role, avatar_url), comments(id, body, comment_type, visibility, deleted_at, created_at, author:profiles!comments_author_id_fkey(id, full_name, email, role, avatar_url)), attachments:task_attachments(id, task_id, name, size_bytes, mime_type, storage_path, version_group_id, version_number, approval_status, deleted_at, created_at, uploader:profiles!task_attachments_uploaded_by_fkey(id, full_name, email, role, avatar_url)), events:task_events(id, event_type, summary, metadata, created_at, actor:profiles!task_events_actor_id_fkey(id, full_name, email, role, avatar_url))",
       )
       .order("updated_at", { ascending: false }),
     supabase
       .from("team_invitations")
       .select(
         "id, team_id, email, role, token, created_at, expires_at, accepted_at",
+      )
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("project_members")
+      .select(
+        "project_id, user_id, role, notify_on_new_tasks, joined_at, profiles(id, full_name, email, role, avatar_url)",
+      ),
+    supabase
+      .from("project_invitations")
+      .select(
+        "id, project_id, team_id, email, role, notify_on_new_tasks, token, created_at, expires_at, accepted_at",
       )
       .order("created_at", { ascending: false }),
     supabase
@@ -469,7 +498,7 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     supabase
       .from("time_entries")
       .select(
-        "id, team_id, task_id, description, started_at, ended_at, duration_seconds, billable, hourly_rate, created_at, task:tasks!time_entries_task_id_fkey(task_number, title, project:projects!tasks_project_id_fkey(id, name)), user:profiles!time_entries_user_id_fkey(id, full_name, email, role)",
+        "id, team_id, task_id, description, started_at, ended_at, duration_seconds, billable, hourly_rate, created_at, task:tasks!time_entries_task_id_fkey(task_number, title, project:projects!tasks_project_id_fkey(id, name)), user:profiles!time_entries_user_id_fkey(id, full_name, email, role, avatar_url)",
       )
       .order("started_at", { ascending: false })
       .limit(2000),
@@ -483,6 +512,8 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     profilesResult,
     tasksResult,
     invitationsResult,
+    projectMembersResult,
+    projectInvitationsResult,
     notificationsResult,
     timeEntriesResult,
   ]) {
@@ -544,6 +575,19 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     expires_at: string;
     accepted_at: string | null;
   }[];
+  const remoteProjectMembers = (projectMembersResult.data ?? []) as unknown as RemoteProjectMember[];
+  const remoteProjectInvitations = (projectInvitationsResult.data ?? []) as {
+    id: string;
+    project_id: string;
+    team_id: string;
+    email: string;
+    role: ProjectRole;
+    notify_on_new_tasks: boolean;
+    token: string;
+    created_at: string;
+    expires_at: string;
+    accepted_at: string | null;
+  }[];
   const remoteNotifications = (notificationsResult.data ?? []) as {
     id: string;
     task_id: string | null;
@@ -573,6 +617,28 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
       workspaceId: invitation.team_id,
       email: invitation.email,
       role: invitation.role,
+      token: invitation.token,
+      createdAt: relativeTime(invitation.created_at),
+      expiresAt: invitation.expires_at,
+      acceptedAt: invitation.accepted_at,
+    })),
+    projectMembers: remoteProjectMembers.map((membership, index) => ({
+      projectId: membership.project_id,
+      user:
+        personMap.get(membership.user_id) ??
+        personFromRemote(one(membership.profiles), index) ??
+        fallbackPerson(),
+      role: membership.role,
+      notifyOnNewTasks: membership.notify_on_new_tasks,
+      joinedAt: relativeTime(membership.joined_at),
+    })),
+    projectInvitations: remoteProjectInvitations.map((invitation) => ({
+      id: invitation.id,
+      projectId: invitation.project_id,
+      workspaceId: invitation.team_id,
+      email: invitation.email,
+      role: invitation.role,
+      notifyOnNewTasks: invitation.notify_on_new_tasks,
       token: invitation.token,
       createdAt: relativeTime(invitation.created_at),
       expiresAt: invitation.expires_at,
@@ -1002,14 +1068,92 @@ export async function revokeRemoteInvitation(id: string) {
   if (error) throw error;
 }
 
+export async function upsertRemoteProjectMember(
+  projectId: string,
+  userId: string,
+  role: ProjectRole,
+  notifyOnNewTasks: boolean,
+) {
+  const supabase = createClient();
+  if (!supabase) return;
+  const { error } = await supabase.rpc("upsert_project_member", {
+    candidate_project_id: projectId,
+    candidate_user_id: userId,
+    candidate_role: role,
+    candidate_notify_on_new_tasks: notifyOnNewTasks,
+  });
+  if (error) throw error;
+}
+
+export async function removeRemoteProjectMember(
+  projectId: string,
+  userId: string,
+) {
+  const supabase = createClient();
+  if (!supabase) return;
+  const { error } = await supabase.rpc("remove_project_member", {
+    candidate_project_id: projectId,
+    candidate_user_id: userId,
+  });
+  if (error) throw error;
+}
+
+export async function createRemoteProjectInvitation(
+  workspaceId: string,
+  projectId: string,
+  email: string,
+  role: ProjectRole,
+  notifyOnNewTasks: boolean,
+) {
+  const response = await fetch("/api/invitations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      workspaceId,
+      projectId,
+      email,
+      projectRole: role,
+      notifyOnNewTasks,
+    }),
+  });
+  const result = (await response.json()) as {
+    projectInvitation?: ProjectInvitation;
+    emailed?: boolean;
+    error?: string;
+  };
+  if (!response.ok || !result.projectInvitation) {
+    throw new Error(result.error || "No se pudo crear la invitación.");
+  }
+  return {
+    invitation: result.projectInvitation,
+    emailed: Boolean(result.emailed),
+  };
+}
+
+export async function revokeRemoteProjectInvitation(id: string) {
+  const supabase = createClient();
+  if (!supabase) return;
+  const { error } = await supabase
+    .from("project_invitations")
+    .delete()
+    .eq("id", id);
+  if (error) throw error;
+}
+
 export async function acceptRemoteInvitation(token: string) {
   const supabase = createClient();
   if (!supabase) throw new Error("Supabase no está configurado.");
-  const { data, error } = await supabase.rpc("accept_team_invitation", {
+  const projectResult = await supabase.rpc("accept_project_invitation", {
     invitation_token: token,
   });
-  if (error) throw error;
-  return data as string;
+  if (!projectResult.error) {
+    return { kind: "project" as const, id: projectResult.data as string };
+  }
+  const teamResult = await supabase.rpc("accept_team_invitation", {
+    invitation_token: token,
+  });
+  if (teamResult.error) throw teamResult.error;
+  return { kind: "workspace" as const, id: teamResult.data as string };
 }
 
 export async function addRemoteComment(
@@ -1150,17 +1294,67 @@ export async function markAllRemoteNotificationsRead() {
   if (error) throw error;
 }
 
-export async function updateRemoteProfile(name: string, title: string) {
+export async function updateRemoteProfile(
+  name: string,
+  title: string,
+  avatarFile?: File | null,
+) {
   const supabase = createClient();
-  if (!supabase) return;
+  if (!supabase) return undefined;
   const { data } = await supabase.auth.getUser();
   if (!data.user) throw new Error("No hay una sesión activa.");
+
+  let avatarUrl: string | undefined;
+  if (avatarFile) {
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+    if (!allowedTypes.includes(avatarFile.type)) {
+      throw new Error("Usá una imagen JPG, PNG o WebP.");
+    }
+    if (avatarFile.size > 5 * 1024 * 1024) {
+      throw new Error("La foto de perfil no puede superar los 5 MB.");
+    }
+    const extension =
+      avatarFile.type === "image/png"
+        ? "png"
+        : avatarFile.type === "image/webp"
+          ? "webp"
+          : "jpg";
+    const storagePath = `${data.user.id}/avatar-${Date.now()}.${extension}`;
+    const { error: uploadError } = await supabase.storage
+      .from("profile-avatars")
+      .upload(storagePath, avatarFile, {
+        contentType: avatarFile.type,
+        cacheControl: "31536000",
+        upsert: false,
+      });
+    if (uploadError) throw uploadError;
+    avatarUrl = supabase.storage
+      .from("profile-avatars")
+      .getPublicUrl(storagePath).data.publicUrl;
+  }
+
+  const profileUpdate: {
+    full_name: string;
+    role: string;
+    avatar_url?: string;
+  } = { full_name: name, role: title };
+  if (avatarUrl) profileUpdate.avatar_url = avatarUrl;
   const { error } = await supabase
     .from("profiles")
-    .update({ full_name: name, role: title })
+    .update(profileUpdate)
     .eq("id", data.user.id);
   if (error) throw error;
-  await supabase.auth.updateUser({
-    data: { full_name: name, role: title },
+  const authMetadata: Record<string, string> = {
+    full_name: name,
+    role: title,
+  };
+  if (avatarUrl) {
+    authMetadata.avatar_url = avatarUrl;
+    authMetadata.picture = avatarUrl;
+  }
+  const { error: authError } = await supabase.auth.updateUser({
+    data: authMetadata,
   });
+  if (authError) throw authError;
+  return avatarUrl;
 }

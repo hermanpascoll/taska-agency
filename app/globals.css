@@ -218,6 +218,77 @@ html.dark .mac-titlebar {
   background-color: rgb(10 132 255 / 10%);
 }
 
+.admin-panel-sidebar {
+  background: #d7dae0;
+}
+
+.kanban-column {
+  background: #e7e9ed;
+  border: 1px solid #d9dce2;
+}
+
+.kanban-column-over {
+  background: #d9eaff;
+}
+
+.kanban-card {
+  border-color: #d4d7dd;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(23 32 51 / 8%);
+}
+
+.kanban-card:hover {
+  border-color: #bdc2cb;
+  box-shadow: 0 8px 22px rgb(23 32 51 / 12%);
+}
+
+.kanban-count,
+.kanban-tag {
+  background: #d4d7dd;
+  color: #555d69;
+}
+
+html.dark .admin-panel-sidebar {
+  border-color: #45484f;
+  background: #303238;
+}
+
+html.dark .admin-panel-sidebar button:not([class*="bg-white"]) {
+  color: #d6d8dd;
+}
+
+html.dark .admin-panel-sidebar button:not([class*="bg-white"]):hover {
+  background: #3a3d43;
+  color: #fff;
+}
+
+html.dark .kanban-column {
+  border-color: #393c43;
+  background: #24262a;
+}
+
+html.dark .kanban-column-over {
+  background: #24364b;
+}
+
+html.dark .kanban-card {
+  border-color: #45484f;
+  background: #303237;
+  box-shadow: 0 2px 5px rgb(0 0 0 / 24%);
+}
+
+html.dark .kanban-card:hover {
+  border-color: #5d626c;
+  background: #36393f;
+  box-shadow: 0 10px 26px rgb(0 0 0 / 30%);
+}
+
+html.dark .kanban-count,
+html.dark .kanban-tag {
+  background: #41444b;
+  color: #d2d4d9;
+}
+
 /* Detalle de tarea: composición plana inspirada en herramientas de trabajo
    editorial. Mantiene el foco en el documento y evita tarjetas anidadas. */
 .task-detail-shell {

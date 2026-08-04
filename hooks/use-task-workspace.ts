@@ -18,6 +18,7 @@ import {
   createRemoteClient,
   createRemoteInvitation,
   createRemoteManualTimeEntry,
+  createRemoteProjectInvitation,
   createRemoteProject,
   createRemoteTask,
   createRemoteWorkspace,
@@ -32,7 +33,9 @@ import {
   markAllRemoteNotificationsRead,
   markRemoteNotificationRead,
   removeRemoteMember,
+  removeRemoteProjectMember,
   revokeRemoteInvitation,
+  revokeRemoteProjectInvitation,
   restoreRemoteAttachment,
   restoreRemoteTask,
   startRemoteTimer,
@@ -48,6 +51,7 @@ import {
   updateRemoteTask,
   updateRemoteWorkspace,
   uploadRemoteAttachment,
+  upsertRemoteProjectMember,
 } from "@/lib/task-repository";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { formatTaskDueLabel, nextTaskCode } from "@/lib/task-utils";
@@ -65,6 +69,9 @@ import type {
   NewTaskInput,
   Person,
   Project,
+  ProjectInvitation,
+  ProjectMember,
+  ProjectRole,
   Task,
   TaskAttachment,
   TaskEvent,
@@ -245,6 +252,22 @@ export function useTaskWorkspace() {
   );
   const [invitations, setInvitations] =
     useState<TeamInvitation[]>(supabaseConfigured ? [] : demoInvitations);
+  const [projectMembers, setProjectMembers] = useState<ProjectMember[]>(
+    supabaseConfigured
+      ? []
+      : demoProjects.flatMap((project) =>
+          demoPeople.map((person, index) => ({
+            projectId: project.id,
+            user: person,
+            role: index === 0 ? ("admin" as const) : ("editor" as const),
+            notifyOnNewTasks: true,
+            joinedAt: "Desde el inicio",
+          })),
+        ),
+  );
+  const [projectInvitations, setProjectInvitations] = useState<
+    ProjectInvitation[]
+  >([]);
   const [notifications, setNotifications] =
     useState<AppNotification[]>(supabaseConfigured ? [] : demoNotifications);
   const [allTimeEntries, setAllTimeEntries] =
@@ -286,6 +309,8 @@ export function useTaskWorkspace() {
       setPeopleByWorkspace(workspace.peopleByWorkspace);
       setMembers(workspace.members);
       setInvitations(workspace.invitations);
+      setProjectMembers(workspace.projectMembers);
+      setProjectInvitations(workspace.projectInvitations);
       setNotifications(workspace.notifications);
       setAllTimeEntries(workspace.timeEntries);
       setCurrentUserId(workspace.currentUserId);
@@ -323,6 +348,8 @@ export function useTaskWorkspace() {
             people?: Person[];
             members?: WorkspaceMember[];
             invitations?: TeamInvitation[];
+            projectMembers?: ProjectMember[];
+            projectInvitations?: ProjectInvitation[];
             notifications?: AppNotification[];
             timeEntries?: TimeEntry[];
             peopleByWorkspace?: Record<string, string[]>;
@@ -427,6 +454,12 @@ export function useTaskWorkspace() {
           if (Array.isArray(snapshot.invitations)) {
             setInvitations(snapshot.invitations);
           }
+          if (Array.isArray(snapshot.projectMembers)) {
+            setProjectMembers(snapshot.projectMembers);
+          }
+          if (Array.isArray(snapshot.projectInvitations)) {
+            setProjectInvitations(snapshot.projectInvitations);
+          }
           if (Array.isArray(snapshot.notifications)) {
             setNotifications(snapshot.notifications);
           }
@@ -481,6 +514,8 @@ export function useTaskWorkspace() {
         people: allPeople,
         members,
         invitations,
+        projectMembers,
+        projectInvitations,
         notifications,
         timeEntries: allTimeEntries,
         peopleByWorkspace,
@@ -497,6 +532,8 @@ export function useTaskWorkspace() {
     allTimeEntries,
     demoReady,
     invitations,
+    projectInvitations,
+    projectMembers,
     members,
     mode,
     notifications,
@@ -1088,9 +1125,22 @@ export function useTaskWorkspace() {
         archived: false,
       };
       setAllProjects((current) => [...current, project]);
+      const creator = allPeople.find((person) => person.id === currentUserId);
+      if (creator) {
+        setProjectMembers((current) => [
+          ...current,
+          {
+            projectId: project.id,
+            user: creator,
+            role: "admin",
+            notifyOnNewTasks: true,
+            joinedAt: "Ahora",
+          },
+        ]);
+      }
       return project;
     },
-    [allClients, mode, refresh],
+    [allClients, allPeople, currentUserId, mode, refresh],
   );
 
   const updateProject = useCallback(
@@ -1166,6 +1216,12 @@ export function useTaskWorkspace() {
     async (projectId: string) => {
       setAllProjects((current) =>
         current.filter((project) => project.id !== projectId),
+      );
+      setProjectMembers((current) =>
+        current.filter((member) => member.projectId !== projectId),
+      );
+      setProjectInvitations((current) =>
+        current.filter((invitation) => invitation.projectId !== projectId),
       );
       const deletedTaskIds = new Set(
         allTasks
@@ -1543,6 +1599,131 @@ export function useTaskWorkspace() {
     [mode, refresh],
   );
 
+  const upsertProjectMember = useCallback(
+    async (
+      projectId: string,
+      userId: string,
+      role: ProjectRole,
+      notifyOnNewTasks: boolean,
+    ) => {
+      const user = allPeople.find((person) => person.id === userId);
+      if (!user) throw new Error("El usuario no pertenece a este espacio.");
+      setProjectMembers((current) => {
+        const existing = current.some(
+          (member) =>
+            member.projectId === projectId && member.user.id === userId,
+        );
+        if (existing) {
+          return current.map((member) =>
+            member.projectId === projectId && member.user.id === userId
+              ? { ...member, role, notifyOnNewTasks }
+              : member,
+          );
+        }
+        return [
+          ...current,
+          {
+            projectId,
+            user,
+            role,
+            notifyOnNewTasks,
+            joinedAt: "Ahora",
+          },
+        ];
+      });
+      if (mode === "supabase") {
+        try {
+          await upsertRemoteProjectMember(
+            projectId,
+            userId,
+            role,
+            notifyOnNewTasks,
+          );
+          await refresh();
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [allPeople, mode, refresh],
+  );
+
+  const removeProjectMember = useCallback(
+    async (projectId: string, userId: string) => {
+      setProjectMembers((current) =>
+        current.filter(
+          (member) =>
+            member.projectId !== projectId || member.user.id !== userId,
+        ),
+      );
+      if (mode === "supabase") {
+        try {
+          await removeRemoteProjectMember(projectId, userId);
+          await refresh();
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [mode, refresh],
+  );
+
+  const inviteProjectMember = useCallback(
+    async (
+      projectId: string,
+      email: string,
+      role: ProjectRole,
+      notifyOnNewTasks: boolean,
+    ): Promise<{ invitation: ProjectInvitation; emailed: boolean }> => {
+      if (mode === "supabase") {
+        const result = await createRemoteProjectInvitation(
+          activeWorkspaceId,
+          projectId,
+          email,
+          role,
+          notifyOnNewTasks,
+        );
+        await refresh();
+        return result;
+      }
+      const invitation: ProjectInvitation = {
+        id: localId("project-invite"),
+        projectId,
+        workspaceId: activeWorkspaceId,
+        email: email.toLowerCase(),
+        role,
+        notifyOnNewTasks,
+        token: localId("token"),
+        createdAt: "Ahora",
+        expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+        acceptedAt: null,
+      };
+      setProjectInvitations((current) => [invitation, ...current]);
+      return { invitation, emailed: false };
+    },
+    [activeWorkspaceId, mode, refresh],
+  );
+
+  const revokeProjectInvitation = useCallback(
+    async (id: string) => {
+      setProjectInvitations((current) =>
+        current.filter((invitation) => invitation.id !== id),
+      );
+      if (mode === "supabase") {
+        try {
+          await revokeRemoteProjectInvitation(id);
+          await refresh();
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [mode, refresh],
+  );
+
   const uploadAttachment = useCallback(
     async (task: Task, file: File) => {
       if (file.size > 10 * 1024 * 1024) {
@@ -1778,7 +1959,18 @@ export function useTaskWorkspace() {
   }, [mode]);
 
   const updateProfile = useCallback(
-    async (name: string, title: string) => {
+    async (name: string, title: string, avatarFile?: File | null) => {
+      let avatarUrl: string | undefined;
+      try {
+        if (mode === "supabase") {
+          avatarUrl = await updateRemoteProfile(name, title, avatarFile);
+        } else if (avatarFile) {
+          avatarUrl = await readFileAsDataUrl(avatarFile);
+        }
+      } catch (error) {
+        if (mode === "supabase") await refresh();
+        throw error;
+      }
       setAllPeople((current) =>
         current.map((person) =>
           person.id === currentUserId
@@ -1786,6 +1978,7 @@ export function useTaskWorkspace() {
                 ...person,
                 name,
                 role: title,
+                avatarUrl: avatarUrl ?? person.avatarUrl,
                 initials: name
                   .split(" ")
                   .filter(Boolean)
@@ -1797,14 +1990,6 @@ export function useTaskWorkspace() {
             : person,
         ),
       );
-      if (mode === "supabase") {
-        try {
-          await updateRemoteProfile(name, title);
-        } catch (error) {
-          await refresh();
-          throw error;
-        }
-      }
     },
     [currentUserId, mode, refresh],
   );
@@ -2064,6 +2249,18 @@ export function useTaskWorkspace() {
     setAllPeople(demoPeople);
     setMembers(demoMembers);
     setInvitations(demoInvitations);
+    setProjectMembers(
+      demoProjects.flatMap((project) =>
+        demoPeople.map((person, index) => ({
+          projectId: project.id,
+          user: person,
+          role: index === 0 ? ("admin" as const) : ("editor" as const),
+          notifyOnNewTasks: true,
+          joinedAt: "Desde el inicio",
+        })),
+      ),
+    );
+    setProjectInvitations([]);
     setNotifications(demoNotifications);
     setAllTimeEntries(demoTimeEntries);
     setPeopleByWorkspace({
@@ -2081,6 +2278,8 @@ export function useTaskWorkspace() {
     people,
     members: workspaceMembers,
     invitations: workspaceInvitations,
+    projectMembers,
+    projectInvitations,
     notifications,
     timeEntries,
     currentUserId,
@@ -2112,6 +2311,10 @@ export function useTaskWorkspace() {
     removeMember,
     inviteMember,
     revokeInvitation,
+    upsertProjectMember,
+    removeProjectMember,
+    inviteProjectMember,
+    revokeProjectInvitation,
     uploadAttachment,
     deleteAttachment,
     restoreAttachment,

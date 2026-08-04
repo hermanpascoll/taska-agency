@@ -401,7 +401,7 @@ export function AdminPanel({
         </header>
 
         <div className="grid min-h-0 flex-1 lg:grid-cols-[240px_minmax(0,1fr)]">
-          <aside className="border-b border-black/[0.06] bg-[#e9ebef]/80 p-4 lg:border-b-0 lg:border-r lg:p-5">
+          <aside className="admin-panel-sidebar border-b border-black/[0.08] p-4 lg:border-b-0 lg:border-r lg:p-5">
             <div className="grid grid-cols-2 gap-2 lg:grid-cols-1">
               <button
                 onClick={() => setTab("users")}

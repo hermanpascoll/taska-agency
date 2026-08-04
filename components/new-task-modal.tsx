@@ -70,11 +70,20 @@ function draftId() {
 function Avatar({ person }: { person: Person | null }) {
   return person ? (
     <span
-      className="grid size-8 shrink-0 place-items-center rounded-full text-[11px] font-bold text-white"
+      className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-full text-[11px] font-bold text-white"
       style={{ background: person.color }}
       title={person.name}
     >
-      {person.initials}
+      {person.avatarUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={person.avatarUrl}
+          alt={person.name}
+          className="h-full w-full object-cover"
+        />
+      ) : (
+        person.initials
+      )}
     </span>
   ) : (
     <span className="grid size-8 shrink-0 place-items-center rounded-full border border-dashed border-slate-400 text-slate-400">
