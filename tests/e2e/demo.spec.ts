@@ -28,7 +28,7 @@ test("crea una tarea y conserva el cambio al recargar", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: /Buenos días/i }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Nueva tarea" }).click();
+  await page.getByRole("button", { name: "Crear", exact: true }).click();
   await page.getByLabel("Nombre de la tarea").fill("Revisar home Apple");
   await page
     .getByLabel("Descripción", { exact: true })
@@ -58,7 +58,7 @@ test("crea una tarea y conserva el cambio al recargar", async ({ page }) => {
 
 test("crea la tarea dentro del proyecto seleccionado", async ({ page }) => {
   await page.getByRole("button", { name: "Marca Sur", exact: true }).click();
-  await page.getByRole("button", { name: "Nueva tarea" }).click();
+  await page.getByRole("button", { name: "Crear", exact: true }).click();
 
   await expect(page.getByLabel("Proyecto principal")).toHaveValue(
     "marca-sur",
@@ -185,7 +185,7 @@ test("ofrece un detalle de tarea con flujo tipo Asana y timer integrado", async 
   await page.getByRole("button", { name: "Todas las tareas" }).click();
   await page
     .getByRole("button", {
-      name: /AG-142 Lanzamiento Aura Adaptar campaña/,
+      name: "Adaptar campaña de lanzamiento a stories",
     })
     .click();
 
@@ -207,7 +207,7 @@ test("ofrece un detalle de tarea con flujo tipo Asana y timer integrado", async 
     detail.getByRole("heading", { name: /Subtareas/ }),
   ).toBeVisible();
   await expect(
-    detail.getByRole("heading", { name: /Adjuntos/ }),
+    detail.getByRole("tab", { name: /Adjuntos/ }),
   ).toBeVisible();
 
   await detail
@@ -249,6 +249,46 @@ test("ofrece un detalle de tarea con flujo tipo Asana y timer integrado", async 
   await expect(detail.getByTestId("process-activity-history")).toBeVisible();
 });
 
+test("expande subtareas y unifica el detalle en modo oscuro", async ({
+  page,
+}) => {
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await expect(
+    page.getByRole("button", { name: "Nueva tarea", exact: true }),
+  ).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Todas las tareas" }).click();
+  await page
+    .getByRole("button", {
+      name: "Expandir subtareas de Adaptar campaña de lanzamiento a stories",
+    })
+    .click();
+  await expect(
+    page.getByRole("heading", {
+      name: "Exportar versión sin precio",
+      level: 3,
+    }),
+  ).toBeVisible();
+
+  await page
+    .getByRole("button", {
+      name: "Adaptar campaña de lanzamiento a stories",
+      exact: true,
+    })
+    .click();
+  const detail = page.getByTestId("task-detail");
+  const coreFields = detail.getByTestId("task-core-fields");
+  await expect(coreFields.getByLabel("Estado", { exact: true })).toBeVisible();
+  await expect(coreFields.getByLabel("Responsable", { exact: true })).toBeVisible();
+  await expect(coreFields.getByText("Planificación", { exact: true })).toBeVisible();
+  await expect(detail.getByText("Tiempo, proceso e historial")).toBeHidden();
+
+  await detail.getByRole("tab", { name: "Toda la actividad" }).click();
+  await expect(detail.getByTestId("process-activity-history")).toBeVisible();
+  await detail.getByRole("tab", { name: /Adjuntos/ }).click();
+  await expect(detail.getByText("Archivos de la tarea")).toBeVisible();
+});
+
 test("embebe una imagen en la descripción al crear la tarea", async ({
   page,
 }) => {
@@ -257,7 +297,7 @@ test("embebe una imagen en la descripción al crear la tarea", async ({
     "base64",
   );
 
-  await page.getByRole("button", { name: "Nueva tarea" }).click();
+  await page.getByRole("button", { name: "Crear", exact: true }).click();
   await page
     .getByLabel("Nombre de la tarea")
     .fill("Revisar visual embebido");
@@ -341,7 +381,7 @@ test("adjunta varios archivos desde la descripción de la tarea", async ({
   await page.getByRole("button", { name: "Todas las tareas" }).click();
   await page
     .getByRole("button", {
-      name: /AG-147 Verano Brava Cerrar copies/,
+      name: "Cerrar copies de campaña de invierno",
     })
     .click();
 
@@ -390,7 +430,7 @@ test("reagenda una tarea recurrente con sus subtareas", async ({ page }) => {
   await page.getByRole("button", { name: "Todas las tareas" }).click();
   await page
     .getByRole("button", {
-      name: /AG-142 Lanzamiento Aura Adaptar campaña/,
+      name: "Adaptar campaña de lanzamiento a stories",
     })
     .click();
   await expect(page.getByLabel("Repetición de la tarea")).toHaveValue(
@@ -522,7 +562,7 @@ test("crea clientes y vincula una tarea a varios proyectos", async ({
     page.getByRole("button", { name: "Proyecto Cliente E2E", exact: true }),
   ).toBeVisible();
 
-  await page.getByRole("button", { name: "Nueva tarea" }).click();
+  await page.getByRole("button", { name: "Crear", exact: true }).click();
   await page.getByLabel("Nombre de la tarea").fill("Tarea multiproyecto E2E");
   await page
     .getByLabel("Proyecto principal")
@@ -571,7 +611,7 @@ test("registra tiempo y exporta la auditoría con permisos", async ({ page }) =>
   await page.getByRole("button", { name: "Todas las tareas" }).click();
   await page
     .getByRole("button", {
-      name: /AG-142 Lanzamiento Aura Adaptar campaña/,
+      name: "Adaptar campaña de lanzamiento a stories",
     })
     .click();
   await page
@@ -630,7 +670,7 @@ test("resume y controla varios timers activos desde el encabezado", async ({
 
   await page
     .getByRole("button", {
-      name: /AG-140 Marca Sur Entregar propuesta/,
+      name: "Entregar propuesta de rebranding",
     })
     .click();
   await page
@@ -676,7 +716,7 @@ test("resume y controla varios timers activos desde el encabezado", async ({
 test("crea, documenta, archiva y restaura un expediente de proceso", async ({
   page,
 }) => {
-  await page.getByRole("button", { name: "Nueva tarea" }).click();
+  await page.getByRole("button", { name: "Crear", exact: true }).click();
   await page
     .locator("summary")
     .filter({ hasText: "Usar una plantilla de proceso" })

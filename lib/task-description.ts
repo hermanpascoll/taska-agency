@@ -11,7 +11,11 @@ export function parseTaskDescription(
   attachments: TaskAttachment[] = [],
 ): TaskDescriptionBlock[] {
   const blocks: TaskDescriptionBlock[] = [];
-  const referenced = new Set<string>();
+  const availableAttachments = new Set(
+    attachments
+      .filter((attachment) => !attachment.deletedAt)
+      .map((attachment) => attachment.id),
+  );
   let cursor = 0;
 
   for (const match of description.matchAll(attachmentToken)) {
@@ -19,9 +23,11 @@ export function parseTaskDescription(
     const text = description.slice(cursor, index).replace(/^\n\n|\n\n$/g, "");
     if (text) blocks.push({ type: "text", text });
     const attachmentId = match[1];
-    if (attachmentId) {
+    if (
+      attachmentId &&
+      (availableAttachments.size === 0 || availableAttachments.has(attachmentId))
+    ) {
       blocks.push({ type: "attachment", attachmentId });
-      referenced.add(attachmentId);
     }
     cursor = index + match[0].length;
   }
@@ -29,12 +35,6 @@ export function parseTaskDescription(
   const trailingText = description.slice(cursor).replace(/^\n\n|\n\n$/g, "");
   if (trailingText || blocks.length === 0) {
     blocks.push({ type: "text", text: trailingText });
-  }
-
-  for (const attachment of attachments) {
-    if (!attachment.deletedAt && !referenced.has(attachment.id)) {
-      blocks.push({ type: "attachment", attachmentId: attachment.id });
-    }
   }
 
   return blocks;

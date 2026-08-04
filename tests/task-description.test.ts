@@ -43,10 +43,9 @@ describe("documento enriquecido de la tarea", () => {
     );
   });
 
-  it("integra adjuntos anteriores que todavía no tenían posición", () => {
+  it("mantiene los adjuntos comunes fuera del documento hasta que se insertan", () => {
     expect(parseTaskDescription("Brief existente", [attachment])).toEqual([
       { type: "text", text: "Brief existente" },
-      { type: "attachment", attachmentId: "image-1" },
     ]);
     expect(
       appendDescriptionAttachments("Brief existente", ["image-1"]),

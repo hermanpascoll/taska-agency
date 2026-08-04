@@ -87,7 +87,7 @@ const defaultSettings: AppSettings = {
   compactMode: false,
   showCompleted: true,
   accentColor: "#0A84FF",
-  theme: "system",
+  theme: "dark",
   warnTimerOverlaps: true,
   staleTimerHours: 8,
 };
@@ -101,7 +101,7 @@ function loadStoredSettings(): AppSettings {
       theme:
         storedTheme === "dark" || storedTheme === "light"
           ? storedTheme
-          : "system",
+          : "dark",
     };
   } catch {
     return defaultSettings;

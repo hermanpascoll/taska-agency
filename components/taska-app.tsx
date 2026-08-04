@@ -2262,7 +2262,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
 
 function TaskList({
   tasks,
-  parentTasks,
+  allTasks = tasks,
   onSelect,
   onComplete,
   compact = false,
@@ -2270,49 +2270,54 @@ function TaskList({
   selectedTaskId = null,
 }: {
   tasks: Task[];
-  parentTasks: Map<string, Task>;
+  allTasks?: Task[];
   onSelect: (task: Task) => void;
   onComplete: (task: Task) => void;
   compact?: boolean;
   projectMode?: boolean;
   selectedTaskId?: string | null;
 }) {
-  return (
-    <div
-      className={clsx(
-        "overflow-hidden border-[#e5e7ed] bg-white",
-        projectMode
-          ? "border-y"
-          : "rounded-2xl border shadow-[0_1px_2px_rgba(25,32,50,0.03)]",
-      )}
-      data-testid={projectMode ? "project-task-list" : undefined}
-    >
-      <div className="hidden grid-cols-[minmax(300px,1.7fr)_minmax(130px,.7fr)_108px_122px_54px] items-center border-b border-slate-100 bg-[#fafbfc] px-5 py-3 text-[9px] font-bold uppercase tracking-[0.11em] text-slate-400 md:grid">
-        <span>{projectMode ? "Nombre" : "Tarea"}</span>
-        <span>Responsable</span>
-        <span>Prioridad</span>
-        <span>Fecha de entrega</span>
-        <span />
-      </div>
+  const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const listedTaskIds = new Set(tasks.map((task) => task.id));
+  const rootRows = tasks.filter(
+    (task) => !task.parentTaskId || !listedTaskIds.has(task.parentTaskId),
+  );
 
-      {tasks.map((task) => (
+  function directSubtasks(taskId: string) {
+    return allTasks.filter((task) => task.parentTaskId === taskId);
+  }
+
+  function toggleExpanded(taskId: string) {
+    setExpandedTaskIds((current) => {
+      const next = new Set(current);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  }
+
+  function renderTaskRow(task: Task, depth = 0) {
+    const children = directSubtasks(task.id);
+    const expanded = expandedTaskIds.has(task.id);
+    const selected = projectMode && selectedTaskId === task.id;
+
+    return (
+      <div key={task.id}>
         <article
-          key={task.id}
           className={clsx(
             "group border-b border-slate-100 last:border-b-0",
-            projectMode &&
-              selectedTaskId === task.id &&
-              "task-row-selected",
+            selected && "task-row-selected",
           )}
-          data-selected={
-            projectMode && selectedTaskId === task.id ? "true" : undefined
-          }
+          data-selected={selected ? "true" : undefined}
+          data-task-depth={depth}
         >
           <div
             onClick={(event) => {
-              const interactiveTarget = (
-                event.target as HTMLElement
-              ).closest("button, a, input, select, textarea, label");
+              const interactiveTarget = (event.target as HTMLElement).closest(
+                "button, a, input, select, textarea, label",
+              );
               if (!interactiveTarget) onSelect(task);
             }}
             className={clsx(
@@ -2320,7 +2325,31 @@ function TaskList({
               compact || projectMode ? "py-2" : "py-3.5",
             )}
           >
-            <div className="flex min-w-0 items-center gap-3">
+            <div
+              className="flex min-w-0 items-center gap-2"
+              style={{ paddingLeft: `${depth * 34}px` }}
+            >
+              {children.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    toggleExpanded(task.id);
+                  }}
+                  className="focus-ring grid size-6 shrink-0 place-items-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  aria-label={`${expanded ? "Contraer" : "Expandir"} subtareas de ${task.title}`}
+                  aria-expanded={expanded}
+                >
+                  <ChevronRight
+                    className={clsx(
+                      "size-4 transition-transform",
+                      expanded && "rotate-90",
+                    )}
+                  />
+                </button>
+              ) : (
+                <span className="size-6 shrink-0" aria-hidden="true" />
+              )}
               <button
                 onClick={(event) => {
                   event.stopPropagation();
@@ -2344,39 +2373,11 @@ function TaskList({
                 onClick={() => onSelect(task)}
                 className="focus-ring min-w-0 rounded-md text-left"
               >
-                <div className="flex items-center gap-2">
-                  {task.parentTaskId && (
-                    <>
-                      <GitBranch className="size-3 shrink-0 text-[#0a84ff]" />
-                      <span className="max-w-32 truncate text-[10px] font-medium text-[#0879ea]">
-                        Subtarea de{" "}
-                        {parentTasks.get(task.parentTaskId)?.title ??
-                          "otra tarea"}
-                      </span>
-                      <span className="text-slate-300">·</span>
-                    </>
-                  )}
-                  <span className="text-[10px] font-bold text-slate-400">
-                    {task.code}
-                  </span>
-                  <span
-                    className="size-1.5 rounded-full"
-                    style={{ background: task.project.color }}
-                  />
-                  <span className="truncate text-[10px] font-medium text-slate-400">
-                    {task.project.name}
-                  </span>
-                  {task.projects.length > 1 && (
-                    <span className="shrink-0 rounded-full bg-[#0a84ff]/10 px-1.5 py-0.5 text-[8px] font-bold text-[#0879ea]">
-                      +{task.projects.length - 1}
-                    </span>
-                  )}
-                </div>
                 <h3
                   className={clsx(
-                    "mt-1 truncate text-[13px] font-semibold text-slate-800 transition group-hover:text-[#5545e2]",
+                    "truncate text-[13px] font-semibold text-slate-800 transition group-hover:text-[#8278ff]",
                     task.status === "resuelto" &&
-                      "text-slate-400 line-through decoration-slate-300",
+                      "text-slate-400 line-through decoration-slate-500",
                   )}
                 >
                   {task.title}
@@ -2393,9 +2394,8 @@ function TaskList({
             <span
               className={clsx(
                 "flex items-center gap-1.5 text-[11px] font-medium",
-                task.dueLabel.startsWith("Hoy") &&
-                  task.status !== "resuelto"
-                  ? "text-rose-600"
+                task.dueLabel.startsWith("Hoy") && task.status !== "resuelto"
+                  ? "text-rose-500"
                   : "text-slate-500",
               )}
             >
@@ -2404,60 +2404,75 @@ function TaskList({
             </span>
             <button
               onClick={() => onSelect(task)}
-              className="focus-ring justify-self-end rounded-lg p-2 text-slate-300 opacity-0 transition hover:bg-slate-100 hover:text-slate-600 group-hover:opacity-100 focus:opacity-100"
+              className="focus-ring justify-self-end rounded-lg p-2 text-slate-400 opacity-0 transition hover:bg-slate-100 hover:text-slate-700 group-hover:opacity-100 focus:opacity-100"
               aria-label={`Abrir ${task.title}`}
             >
               <MoreHorizontal className="size-4" />
             </button>
           </div>
 
-          <button
-            onClick={() => onSelect(task)}
-            className="focus-ring block w-full p-4 text-left md:hidden"
-          >
-            <div className="flex items-start gap-3">
-              <span
-                className="mt-1 size-2 shrink-0 rounded-full"
-                style={{ background: statusMeta[task.status].dot }}
-              />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-[10px] font-bold text-slate-400">
-                    {task.code} · {task.project.name}
-                    {task.projects.length > 1
-                      ? ` +${task.projects.length - 1}`
-                      : ""}
-                  </span>
-                  <Avatar person={task.assignee} size="sm" />
-                </div>
-                {task.parentTaskId && (
-                  <span className="mt-1 flex items-center gap-1 text-[10px] font-medium text-[#0879ea]">
-                    <GitBranch className="size-3" />
-                    Subtarea de{" "}
-                    {parentTasks.get(task.parentTaskId)?.title ?? "otra tarea"}
-                  </span>
-                )}
-                <h3 className="mt-1 text-sm font-semibold leading-snug text-slate-800">
-                  {task.title}
-                </h3>
-                <div className="mt-3 flex items-center gap-2">
-                  <PriorityBadge priority={task.priority} />
-                  <span className="flex items-center gap-1 text-[10px] text-slate-500">
-                    <CalendarDays className="size-3" />
-                    {task.dueLabel}
-                  </span>
-                  {task.comments.length > 0 && (
-                    <span className="ml-auto flex items-center gap-1 text-[10px] text-slate-400">
-                      <MessageSquare className="size-3" />
-                      {task.comments.length}
-                    </span>
+          <div className="flex items-start gap-2 p-3 md:hidden">
+            {children.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => toggleExpanded(task.id)}
+                className="focus-ring mt-0.5 grid size-7 shrink-0 place-items-center rounded-md text-slate-400"
+                aria-label={`${expanded ? "Contraer" : "Expandir"} subtareas de ${task.title}`}
+                aria-expanded={expanded}
+              >
+                <ChevronRight
+                  className={clsx(
+                    "size-4 transition-transform",
+                    expanded && "rotate-90",
                   )}
-                </div>
-              </div>
-            </div>
-          </button>
+                />
+              </button>
+            ) : (
+              <span className="size-7 shrink-0" />
+            )}
+            <button
+              onClick={() => onSelect(task)}
+              className="focus-ring min-w-0 flex-1 rounded-md text-left"
+              style={{ paddingLeft: `${depth * 18}px` }}
+            >
+              <h3
+                className={clsx(
+                  "truncate text-sm font-semibold text-slate-800",
+                  task.status === "resuelto" && "text-slate-400 line-through",
+                )}
+              >
+                {task.title}
+              </h3>
+              <p className="mt-1 text-[10px] text-slate-500">
+                {task.assignee?.name ?? "Sin responsable"} · {task.dueLabel}
+              </p>
+            </button>
+          </div>
         </article>
-      ))}
+        {expanded && children.map((child) => renderTaskRow(child, depth + 1))}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={clsx(
+        "overflow-hidden border-[#e5e7ed] bg-white",
+        projectMode
+          ? "border-y"
+          : "rounded-2xl border shadow-[0_1px_2px_rgba(25,32,50,0.03)]",
+      )}
+      data-testid={projectMode ? "project-task-list" : undefined}
+    >
+      <div className="hidden grid-cols-[minmax(300px,1.7fr)_minmax(130px,.7fr)_108px_122px_54px] items-center border-b border-slate-100 bg-[#fafbfc] px-5 py-3 text-[9px] font-bold uppercase tracking-[0.11em] text-slate-400 md:grid">
+        <span>{projectMode ? "Nombre" : "Tarea"}</span>
+        <span>Responsable</span>
+        <span>Prioridad</span>
+        <span>Fecha de entrega</span>
+        <span />
+      </div>
+
+      {rootRows.map((task) => renderTaskRow(task))}
     </div>
   );
 }
@@ -2465,7 +2480,7 @@ function TaskList({
 function ProjectWorkspaceView({
   project,
   tasks,
-  parentTasks,
+  allTasks,
   tab,
   selectedTaskId,
   onTabChange,
@@ -2477,7 +2492,7 @@ function ProjectWorkspaceView({
 }: {
   project: Project;
   tasks: Task[];
-  parentTasks: Map<string, Task>;
+  allTasks: Task[];
   tab: ProjectTab;
   selectedTaskId: string | null;
   onTabChange: (tab: ProjectTab) => void;
@@ -2633,7 +2648,7 @@ function ProjectWorkspaceView({
             </h2>
             <TaskList
               tasks={tasks}
-              parentTasks={parentTasks}
+              allTasks={allTasks}
               projectMode
               selectedTaskId={selectedTaskId}
               onSelect={onSelect}
@@ -2695,7 +2710,7 @@ function ProjectWorkspaceView({
             </div>
             <TaskList
               tasks={tasks}
-              parentTasks={parentTasks}
+              allTasks={allTasks}
               projectMode
               selectedTaskId={selectedTaskId}
               onSelect={onSelect}
@@ -3693,7 +3708,9 @@ function TaskDrawer({
   const [commentVisibility, setCommentVisibility] =
     useState<CommentVisibility>("team");
   const [commentComposerOpen, setCommentComposerOpen] = useState(false);
-  const [activityTab, setActivityTab] = useState<"comments" | "all">(
+  const [activityTab, setActivityTab] = useState<
+    "comments" | "all" | "attachments"
+  >(
     "comments",
   );
   const [activityNewestFirst, setActivityNewestFirst] = useState(false);
@@ -3734,10 +3751,7 @@ function TaskDrawer({
     ? Math.max(
         1,
         Math.ceil(
-          ((task.resolvedAt
-            ? new Date(task.resolvedAt)
-            : new Date()
-          ).getTime() -
+          ((task.resolvedAt ? new Date(task.resolvedAt) : new Date()).getTime() -
             new Date(activityStartedAt).getTime()) /
             86_400_000,
         ),
@@ -3886,15 +3900,36 @@ function TaskDrawer({
             {collaborators.map((person) => (
               <span
                 key={person.id}
-                className="rounded-full border-2 border-white"
-                title={person.name}
+                className="group/collaborator relative rounded-full border-2 border-white"
               >
                 <Avatar person={person} size="sm" />
+                <span
+                  role="tooltip"
+                  className="pointer-events-none absolute left-1/2 top-[calc(100%+8px)] z-30 -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-950 px-2 py-1 text-[9px] font-semibold text-white opacity-0 shadow-lg transition group-hover/collaborator:opacity-100 group-focus-within/collaborator:opacity-100"
+                >
+                  {person.name}
+                </span>
               </span>
             ))}
             {involvedPeople.size > collaborators.length && (
-              <span className="grid size-7 place-items-center rounded-full border-2 border-white bg-slate-100 text-[9px] font-semibold text-slate-500">
+              <span
+                className="group/collaborator relative grid size-7 place-items-center rounded-full border-2 border-white bg-slate-100 text-[9px] font-semibold text-slate-500"
+                tabIndex={0}
+              >
                 +{involvedPeople.size - collaborators.length}
+                <span
+                  role="tooltip"
+                  className="pointer-events-none absolute right-0 top-[calc(100%+8px)] z-30 w-max max-w-64 rounded-md bg-slate-950 px-2 py-1 text-[9px] font-semibold text-white opacity-0 shadow-lg transition group-hover/collaborator:opacity-100 group-focus/collaborator:opacity-100"
+                >
+                  {people
+                    .filter(
+                      (person) =>
+                        involvedPeople.has(person.id) &&
+                        !collaborators.some((item) => item.id === person.id),
+                    )
+                    .map((person) => person.name)
+                    .join(", ")}
+                </span>
               </span>
             )}
             <button
@@ -4061,7 +4096,172 @@ function TaskDrawer({
               aria-label="Título de la tarea"
             />
           )}
-          <div className="flex items-center gap-2">
+          <section
+            className="task-core-fields grid gap-2 border-b border-slate-200 pb-6 sm:grid-cols-3"
+            aria-label="Datos principales de la tarea"
+            data-testid="task-core-fields"
+          >
+            <label className="group/field rounded-lg px-3 py-2 transition hover:bg-slate-50">
+              <span className="mb-1.5 flex items-center gap-2 text-[10px] font-semibold text-slate-400">
+                <Circle className="size-3.5" />
+                Estado
+              </span>
+              <select
+                value={task.status}
+                onChange={(event) =>
+                  onTaskUpdate({ status: event.target.value as TaskStatus })
+                }
+                className="focus-ring w-full border-0 bg-transparent p-0 text-[12px] font-semibold text-slate-700"
+                aria-label="Estado"
+              >
+                {(Object.keys(statusMeta) as TaskStatus[]).map((status) => (
+                  <option value={status} key={status}>
+                    {statusMeta[status].label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="group/field rounded-lg px-3 py-2 transition hover:bg-slate-50">
+              <span className="mb-1.5 flex items-center gap-2 text-[10px] font-semibold text-slate-400">
+                <UserRound className="size-3.5" />
+                Responsable
+              </span>
+              <span className="flex items-center gap-2">
+                <Avatar person={task.assignee} size="sm" />
+                <select
+                  value={task.assignee?.id ?? ""}
+                  onChange={(event) =>
+                    onTaskUpdate({ assigneeId: event.target.value || null })
+                  }
+                  className="focus-ring min-w-0 flex-1 border-0 bg-transparent p-0 text-[12px] font-semibold text-slate-700"
+                  aria-label="Responsable"
+                >
+                  <option value="">Sin responsable</option>
+                  {people.map((person) => (
+                    <option value={person.id} key={person.id}>
+                      {person.name}
+                    </option>
+                  ))}
+                </select>
+              </span>
+            </label>
+
+            <details className="group/schedule relative rounded-lg transition hover:bg-slate-50">
+              <summary className="focus-ring flex h-full cursor-pointer list-none items-center gap-3 rounded-lg px-3 py-2">
+                <span className="grid size-8 shrink-0 place-items-center rounded-full border border-slate-300 text-slate-500">
+                  <CalendarDays className="size-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[10px] font-semibold text-slate-400">
+                    Planificación
+                  </span>
+                  <span className="mt-1 block truncate text-[12px] font-semibold text-slate-700">
+                    {task.dueLabel || "Sin fecha"}
+                    {(task.recurrenceRule ?? "none") !== "none" &&
+                      ` · ${recurrenceLabels[task.recurrenceRule ?? "none"]}`}
+                  </span>
+                </span>
+                <ChevronDown className="size-4 text-slate-400 transition group-open/schedule:rotate-180" />
+              </summary>
+              <div className="absolute right-0 top-[calc(100%+6px)] z-40 w-[min(360px,calc(100vw-48px))] rounded-xl border border-slate-200 bg-white p-4 shadow-2xl">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="text-[10px] font-semibold text-slate-500">
+                    Inicio
+                    <input
+                      type="date"
+                      value={task.startDate ?? ""}
+                      max={task.dueDate ?? undefined}
+                      onChange={(event) => {
+                        const startDate = event.target.value || null;
+                        onTaskUpdate({
+                          startDate,
+                          ...(startDate && task.dueDate && startDate > task.dueDate
+                            ? { dueDate: startDate }
+                            : {}),
+                        });
+                      }}
+                      className="focus-ring mt-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-[11px] text-slate-700"
+                      aria-label="Fecha de inicio"
+                    />
+                  </label>
+                  <label className="text-[10px] font-semibold text-slate-500">
+                    Vencimiento
+                    <input
+                      type="date"
+                      value={task.dueDate ?? ""}
+                      min={task.startDate ?? undefined}
+                      onChange={(event) =>
+                        onTaskUpdate({ dueDate: event.target.value || null })
+                      }
+                      className="focus-ring mt-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-[11px] text-slate-700"
+                      aria-label="Fecha de vencimiento"
+                    />
+                  </label>
+                  <label className="text-[10px] font-semibold text-slate-500">
+                    Hora
+                    <input
+                      type="time"
+                      value={task.dueTime ?? ""}
+                      onChange={(event) =>
+                        onTaskUpdate({ dueTime: event.target.value || null })
+                      }
+                      className="focus-ring mt-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-[11px] text-slate-700"
+                      aria-label="Hora de vencimiento"
+                    />
+                  </label>
+                  {!task.parentTaskId && (
+                    <label className="text-[10px] font-semibold text-slate-500">
+                      Repetición
+                      <select
+                        value={task.recurrenceRule ?? "none"}
+                        onChange={(event) =>
+                          onTaskUpdate({
+                            recurrenceRule: event.target.value as TaskRecurrence,
+                          })
+                        }
+                        className="focus-ring mt-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-[11px] text-slate-700"
+                        aria-label="Repetición de la tarea"
+                      >
+                        {(Object.keys(recurrenceLabels) as TaskRecurrence[]).map(
+                          (rule) => (
+                            <option key={rule} value={rule}>
+                              {recurrenceLabels[rule]}
+                            </option>
+                          ),
+                        )}
+                      </select>
+                    </label>
+                  )}
+                </div>
+                {!task.parentTaskId &&
+                  (task.recurrenceRule ?? "none") !== "none" && (
+                    <label className="mt-3 flex items-center gap-2 text-[10px] font-semibold text-slate-500">
+                      Repetir cada
+                      <input
+                        type="number"
+                        min={1}
+                        max={52}
+                        value={task.recurrenceInterval ?? 1}
+                        onChange={(event) =>
+                          onTaskUpdate({
+                            recurrenceInterval: Math.max(
+                              1,
+                              Number(event.target.value) || 1,
+                            ),
+                          })
+                        }
+                        className="focus-ring h-8 w-16 rounded-lg border border-slate-200 bg-white px-2 text-center text-[11px] text-slate-700"
+                        aria-label="Intervalo de repetición"
+                      />
+                      períodos
+                    </label>
+                  )}
+              </div>
+            </details>
+          </section>
+
+          <div className="hidden items-center gap-2">
             {parentTask && (
               <>
                 <button
@@ -4090,9 +4290,9 @@ function TaskDrawer({
               )}
             </span>
           </div>
-          <TaskLastEdited task={task} />
+          <div className="hidden"><TaskLastEdited task={task} /></div>
 
-          <details className="group mt-5 border-b border-slate-200 pb-6" open>
+          <details className="hidden" open>
             <summary className="focus-ring flex cursor-pointer list-none items-center gap-2 rounded-lg py-2 text-[12px] font-semibold text-slate-700 hover:text-[#0879ea]">
               <ChevronDown className="size-4 transition group-open:rotate-180" />
               Detalles
@@ -4393,7 +4593,7 @@ function TaskDrawer({
                 )
               }
             />
-            <label className="mt-4 block">
+            <label className="hidden">
               <span className="mb-2 flex items-center gap-2 text-[10px] font-semibold text-slate-500">
                 <Tags className="size-3.5" />
                 Etiquetas
@@ -4424,7 +4624,7 @@ function TaskDrawer({
             </label>
           </section>
 
-          <div className="task-detail-timer mt-8">
+          <div className="hidden">
           <details className="task-detail-timer-panel group/audit overflow-hidden rounded-xl border border-slate-200 bg-white">
             <summary className="focus-ring flex cursor-pointer list-none items-center gap-3 px-4 py-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 hover:text-[#0879ea]">
               <Activity className="size-4 text-violet-500" />
@@ -4529,7 +4729,7 @@ function TaskDrawer({
           </details>
           </div>
 
-          <section className="task-detail-attachments mt-8">
+          <section className="hidden">
             <div className="flex items-center justify-between">
               <h3 className="flex items-center gap-2 text-[15px] font-bold text-slate-800">
                 <Paperclip className="size-4 text-slate-400" />
@@ -4800,6 +5000,23 @@ function TaskDrawer({
                 >
                   Toda la actividad
                 </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={activityTab === "attachments"}
+                  onClick={() => setActivityTab("attachments")}
+                  className={clsx(
+                    "focus-ring -mb-px flex items-center gap-1.5 border-b-2 px-0.5 py-3 text-[12px] font-semibold",
+                    activityTab === "attachments"
+                      ? "border-slate-700 text-slate-800"
+                      : "border-transparent text-slate-400 hover:text-slate-700",
+                  )}
+                >
+                  Adjuntos
+                  <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[8px] text-slate-500">
+                    {task.attachments.filter((item) => !item.deletedAt).length}
+                  </span>
+                </button>
               </div>
               <button
                 type="button"
@@ -4817,7 +5034,123 @@ function TaskDrawer({
 
             {activityTab === "all" ? (
               <div className="py-4" role="tabpanel">
-                <ActivityHistory task={task} subtasks={subtasks} />
+                <ActivityHistory
+                  task={task}
+                  subtasks={subtasks}
+                  defaultExpanded
+                />
+                <TaskTimerSection
+                  task={task}
+                  entries={timeEntries}
+                  activeEntry={activeTimeEntry}
+                  currency={currency}
+                  canTrack={canTrackTime}
+                  canAudit={canAuditTime}
+                  currentUserId={currentUserId}
+                  onStart={onTimerStart}
+                  onStop={onTimerStop}
+                  onManualCreate={onManualTimeCreate}
+                  onDelete={onTimeEntryDelete}
+                />
+              </div>
+            ) : activityTab === "attachments" ? (
+              <div className="py-5" role="tabpanel">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-[13px] font-bold text-slate-800">
+                      Archivos de la tarea
+                    </h3>
+                    <p className="mt-1 text-[9px] text-slate-400">
+                      Las imágenes insertadas en la descripción también se conservan acá.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => attachmentInput.current?.click()}
+                    className="focus-ring flex items-center gap-1.5 rounded-lg bg-[#0a84ff]/10 px-3 py-2 text-[10px] font-semibold text-[#5aa7ff] hover:bg-[#0a84ff]/15"
+                  >
+                    <Plus className="size-3.5" />
+                    Adjuntar
+                  </button>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {task.attachments.map((attachment) => (
+                    <article
+                      key={attachment.id}
+                      className={clsx(
+                        "group/attachment flex min-w-0 items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/50 p-3 transition hover:border-slate-300 hover:bg-slate-50",
+                        attachment.deletedAt && "opacity-55",
+                      )}
+                    >
+                      <span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-lg bg-white text-[#0a84ff] shadow-sm">
+                        <FileText className="size-4" />
+                      </span>
+                      <button
+                        type="button"
+                        disabled={Boolean(attachment.deletedAt)}
+                        onClick={() => onAttachmentOpen(attachment)}
+                        className="focus-ring min-w-0 flex-1 rounded-md text-left"
+                      >
+                        <span className="block truncate text-[11px] font-semibold text-slate-700">
+                          {attachment.name}
+                        </span>
+                        <span className="mt-0.5 block text-[9px] text-slate-400">
+                          v{attachment.versionNumber ?? 1} · {formatBytes(attachment.size)} · {attachment.uploader.name}
+                        </span>
+                      </button>
+                      {attachment.deletedAt ? (
+                        <button
+                          type="button"
+                          onClick={() => onAttachmentRestore(attachment)}
+                          className="focus-ring rounded-md px-2 py-1 text-[9px] font-semibold text-[#5aa7ff]"
+                        >
+                          Restaurar
+                        </button>
+                      ) : (
+                        <>
+                          <select
+                            value={attachment.approvalStatus ?? "draft"}
+                            onChange={(event) =>
+                              onAttachmentStatus(
+                                attachment,
+                                event.target.value as AttachmentApprovalStatus,
+                              )
+                            }
+                            className="focus-ring max-w-28 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[9px] font-semibold text-slate-600"
+                            aria-label={`Estado de aprobación de ${attachment.name}`}
+                          >
+                            {(
+                              Object.keys(
+                                attachmentStatusLabels,
+                              ) as AttachmentApprovalStatus[]
+                            ).map((status) => (
+                              <option key={status} value={status}>
+                                {attachmentStatusLabels[status]}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => onAttachmentDelete(attachment)}
+                            className="focus-ring rounded-md p-1.5 text-slate-400 opacity-0 hover:bg-rose-500/10 hover:text-rose-500 group-hover/attachment:opacity-100 focus:opacity-100"
+                            aria-label={`Retirar ${attachment.name}`}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </>
+                      )}
+                    </article>
+                  ))}
+                  {task.attachments.length === 0 && (
+                    <button
+                      type="button"
+                      onClick={() => attachmentInput.current?.click()}
+                      className="focus-ring col-span-full rounded-xl border border-dashed border-slate-300 p-8 text-center text-[10px] text-slate-400 hover:border-[#0a84ff]/50 hover:text-[#5aa7ff]"
+                    >
+                      Todavía no hay archivos. Hacé clic para adjuntar.
+                    </button>
+                  )}
+                </div>
               </div>
             ) : (
               <div className="space-y-6 py-6" role="tabpanel">
@@ -8081,10 +8414,6 @@ export function TaskaApp() {
       topLevelTasks.filter((task) => task.archivedAt || task.deletedAt),
     [topLevelTasks],
   );
-  const parentTasks = useMemo(
-    () => new Map(tasks.map((task) => [task.id, task])),
-    [tasks],
-  );
   const selectedTask =
     tasks.find((task) => task.id === selectedTaskId) ?? null;
   const focusedProject =
@@ -8099,6 +8428,15 @@ export function TaskaApp() {
           )
         : [],
     [activeTopLevelTasks, focusedProject],
+  );
+  const focusedProjectAllTasks = useMemo(
+    () =>
+      focusedProject
+        ? activeTasks.filter((task) =>
+            task.projects.some((project) => project.id === focusedProject.id),
+          )
+        : [],
+    [activeTasks, focusedProject],
   );
   const selectedActiveTimeEntry = selectedTask
     ? (activeTimeEntries.find((entry) => entry.taskId === selectedTask.id) ??
@@ -8480,18 +8818,6 @@ export function TaskaApp() {
                 />
               )}
             </div>
-            <button
-              onClick={() => openNewTask()}
-              className="mac-button-primary focus-ring flex items-center gap-2 rounded-lg px-3.5 py-2.5 text-[11px] font-bold text-white sm:px-4"
-              aria-label="Nueva tarea"
-            >
-              <Plus className="size-4 stroke-[2.5]" />
-              <span
-                className="hidden xs:inline sm:inline"
-              >
-                Nueva tarea
-              </span>
-            </button>
           </div>
         </header>
 
@@ -8506,7 +8832,7 @@ export function TaskaApp() {
             <ProjectWorkspaceView
               project={focusedProject}
               tasks={focusedProjectTasks}
-              parentTasks={parentTasks}
+              allTasks={focusedProjectAllTasks}
               tab={projectTab}
               selectedTaskId={selectedTaskId}
               onTabChange={setProjectTab}
@@ -8891,7 +9217,7 @@ export function TaskaApp() {
               ) : (
                 <TaskList
                   tasks={filteredTasks}
-                  parentTasks={parentTasks}
+                  allTasks={activeTasks}
                   compact={settings.compactMode}
                   onSelect={(task) => setSelectedTaskId(task.id)}
                   onComplete={(task) => {
