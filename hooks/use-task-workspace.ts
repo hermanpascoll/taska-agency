@@ -447,6 +447,7 @@ export function useTaskWorkspace() {
             setMembers(
               snapshot.members.map((member) => ({
                 ...member,
+                projectLimited: member.projectLimited ?? false,
                 hourlyRate: Number(member.hourlyRate ?? 0),
               })),
             );
@@ -1394,6 +1395,7 @@ export function useTaskWorkspace() {
           workspaceId: workspace.id,
           user: currentPerson,
           role: "owner",
+          projectLimited: false,
           joinedAt: "Ahora",
           hourlyRate: 0,
         },

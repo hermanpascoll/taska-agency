@@ -746,6 +746,11 @@ export function AdminPanel({
                                 <span className="min-w-0 flex-1 truncate text-[10px] font-semibold text-slate-600">
                                   {membership.workspaceName}
                                 </span>
+                                {membership.projectLimited && (
+                                  <span className="shrink-0 rounded-full bg-amber-100 px-2 py-1 text-[8px] font-bold text-amber-700">
+                                    Sólo proyectos invitados
+                                  </span>
+                                )}
                                 <select
                                   value={membership.role}
                                   disabled={saving}
@@ -1084,6 +1089,11 @@ export function AdminPanel({
                         <p className="truncate text-[9px] text-slate-400">
                           {member.email} · {member.title}
                         </p>
+                        {member.projectLimited && (
+                          <p className="mt-1 text-[8px] font-bold text-amber-600">
+                            Acceso limitado a proyectos invitados
+                          </p>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         <select

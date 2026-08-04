@@ -189,6 +189,7 @@ export function TaskRichTextEditor({
   onOpen,
   onCreateSubtask,
   updateDelay = 450,
+  editable = true,
 }: {
   task: TaskDocument;
   onUpdate: (description: string) => void;
@@ -196,6 +197,7 @@ export function TaskRichTextEditor({
   onOpen: (attachment: TaskAttachment) => void;
   onCreateSubtask?: (title: string) => void;
   updateDelay?: number;
+  editable?: boolean;
 }) {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -283,6 +285,7 @@ export function TaskRichTextEditor({
 
   const editor = useEditor({
     immediatelyRender: false,
+    editable,
     extensions,
     content: "<p></p>",
     editorProps: {
@@ -331,6 +334,10 @@ export function TaskRichTextEditor({
       dirtyRef.current = false;
     },
   });
+
+  useEffect(() => {
+    editor?.setEditable(editable);
+  }, [editable, editor]);
 
   useEffect(() => {
     if (!editor) return;
@@ -407,7 +414,7 @@ export function TaskRichTextEditor({
       data-testid="task-description-document"
       className="task-rich-editor mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white"
     >
-      <div className="task-document-toolbar flex flex-wrap items-center gap-0.5 border-b border-slate-200 bg-slate-50/90 px-2 py-1.5">
+      {editable && <div className="task-document-toolbar flex flex-wrap items-center gap-0.5 border-b border-slate-200 bg-slate-50/90 px-2 py-1.5">
         <ToolbarButton label="Deshacer" disabled={!toolbar?.canUndo} onClick={() => editor?.chain().focus().undo().run()}>
           <Undo2 className="size-4" />
         </ToolbarButton>
@@ -481,12 +488,12 @@ export function TaskRichTextEditor({
             event.target.value = "";
           }}
         />
-      </div>
+      </div>}
       <EditorContent editor={editor} />
-      <div className="flex min-h-8 items-center justify-between gap-3 border-t border-slate-200 bg-slate-50/70 px-3 py-1.5 text-[10px] text-slate-500">
+      {editable && <div className="flex min-h-8 items-center justify-between gap-3 border-t border-slate-200 bg-slate-50/70 px-3 py-1.5 text-[10px] text-slate-500">
         <span>{uploading ? "Insertando imagen…" : "Pegá o arrastrá imágenes directamente en el texto"}</span>
         {uploadError && <span className="font-semibold text-rose-500">{uploadError}</span>}
-      </div>
+      </div>}
     </div>
   );
 }

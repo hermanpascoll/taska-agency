@@ -1889,6 +1889,8 @@ function Sidebar({
   onTimeReports,
   canViewTimeReports,
   isPlatformAdmin,
+  isProjectLimited,
+  canCreateTasks,
 }: {
   view: View;
   onViewChange: (view: View) => void;
@@ -1913,6 +1915,8 @@ function Sidebar({
   onTimeReports: () => void;
   canViewTimeReports: boolean;
   isPlatformAdmin: boolean;
+  isProjectLimited: boolean;
+  canCreateTasks: boolean;
 }) {
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -1952,17 +1956,23 @@ function Sidebar({
         )}
       >
         <div className="asana-sidebar-top flex h-[56px] items-center justify-between px-1">
-          <button
-            className="asana-create-button focus-ring flex items-center gap-2 rounded-lg"
-            onClick={onCreateTask}
-          >
-            <span className="grid size-6 place-items-center rounded-full bg-[#f06a6a] text-white">
-              <Plus className="size-4 stroke-[2.5]" />
+          {canCreateTasks ? (
+            <button
+              className="asana-create-button focus-ring flex items-center gap-2 rounded-lg"
+              onClick={onCreateTask}
+            >
+              <span className="grid size-6 place-items-center rounded-full bg-[#f06a6a] text-white">
+                <Plus className="size-4 stroke-[2.5]" />
+              </span>
+              <span className="text-[12px] font-semibold text-slate-700">
+                Crear
+              </span>
+            </button>
+          ) : (
+            <span className="px-2 text-[10px] font-semibold text-slate-500">
+              Acceso de lectura
             </span>
-            <span className="text-[12px] font-semibold text-slate-700">
-              Crear
-            </span>
-          </button>
+          )}
           <button
             onClick={onClose}
             className="focus-ring rounded-lg p-2 text-slate-500 hover:bg-black/5 hover:text-slate-800 lg:hidden"
@@ -2014,16 +2024,18 @@ function Sidebar({
                   )}
                 </button>
               ))}
-              <button
-                onClick={() => {
-                  setWorkspaceOpen(false);
-                  onCreateWorkspace();
-                }}
-                className="focus-ring mt-1 flex w-full items-center gap-2 rounded-lg border-t border-black/5 px-3 py-2.5 text-left text-[11px] font-semibold text-[#0879ea] hover:bg-slate-100"
-              >
-                <Plus className="size-3.5" />
-                Nuevo espacio
-              </button>
+              {!isProjectLimited && (
+                <button
+                  onClick={() => {
+                    setWorkspaceOpen(false);
+                    onCreateWorkspace();
+                  }}
+                  className="focus-ring mt-1 flex w-full items-center gap-2 rounded-lg border-t border-black/5 px-3 py-2.5 text-left text-[11px] font-semibold text-[#0879ea] hover:bg-slate-100"
+                >
+                  <Plus className="size-3.5" />
+                  Nuevo espacio
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -2058,10 +2070,12 @@ function Sidebar({
               </button>
             );
           })}
-          <p className="mb-2 mt-5 px-3 text-[9px] font-bold uppercase tracking-[0.16em] text-slate-400">
-            Información estratégica
-          </p>
-          {insights.map((item) => {
+          {!isProjectLimited && (
+            <p className="mb-2 mt-5 px-3 text-[9px] font-bold uppercase tracking-[0.16em] text-slate-400">
+              Información estratégica
+            </p>
+          )}
+          {!isProjectLimited && insights.map((item) => {
             const Icon = item.icon;
             const active = view === item.id;
             return (
@@ -2080,7 +2094,7 @@ function Sidebar({
               </button>
             );
           })}
-          <button
+          {!isProjectLimited && <button
             onClick={() => select("archive")}
             className={clsx(
               "focus-ring mt-1 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition",
@@ -2089,7 +2103,7 @@ function Sidebar({
           >
             <Archive className="size-[17px]" />
             Archivo de procesos
-          </button>
+          </button>}
           {canViewTimeReports && (
             <button
               onClick={() => {
@@ -2102,7 +2116,7 @@ function Sidebar({
               Reportes de tiempo
             </button>
           )}
-          <button
+          {!isProjectLimited && <button
             onClick={() => {
               onClients();
               onClose();
@@ -2111,7 +2125,7 @@ function Sidebar({
           >
             <ContactRound className="size-[17px] text-[#0a84ff]" />
             Clientes
-          </button>
+          </button>}
         </nav>
 
         <div className="my-5 h-px bg-black/[0.06]" />
@@ -2121,13 +2135,15 @@ function Sidebar({
             <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-slate-500">
               Campañas
             </p>
-            <button
-              onClick={onCreateProject}
-              className="focus-ring rounded-md p-1 text-slate-400 hover:bg-black/5 hover:text-slate-800"
-              aria-label="Crear proyecto"
-            >
-              <Plus className="size-3.5" />
-            </button>
+            {!isProjectLimited && (
+              <button
+                onClick={onCreateProject}
+                className="focus-ring rounded-md p-1 text-slate-400 hover:bg-black/5 hover:text-slate-800"
+                aria-label="Crear proyecto"
+              >
+                <Plus className="size-3.5" />
+              </button>
+            )}
           </div>
           <div className="space-y-0.5">
             {projects.map((project) => (
@@ -2155,13 +2171,15 @@ function Sidebar({
                   )}
                   <span className="truncate">{project.name}</span>
                 </button>
-                <button
-                  onClick={() => onProjectSettings(project.id)}
-                  className="focus-ring mr-1 rounded-md p-1.5 text-slate-400 opacity-0 hover:bg-white group-hover:opacity-100 focus:opacity-100"
-                  aria-label={`Configurar ${project.name}`}
-                >
-                  <MoreHorizontal className="size-3.5" />
-                </button>
+                {!isProjectLimited && (
+                  <button
+                    onClick={() => onProjectSettings(project.id)}
+                    className="focus-ring mr-1 rounded-md p-1.5 text-slate-400 opacity-0 hover:bg-white group-hover:opacity-100 focus:opacity-100"
+                    aria-label={`Configurar ${project.name}`}
+                  >
+                    <MoreHorizontal className="size-3.5" />
+                  </button>
+                )}
               </div>
             ))}
             {projects.length === 0 && (
@@ -2291,6 +2309,7 @@ function TaskList({
   compact = false,
   projectMode = false,
   selectedTaskId = null,
+  readOnly = false,
 }: {
   tasks: Task[];
   allTasks?: Task[];
@@ -2299,6 +2318,7 @@ function TaskList({
   compact?: boolean;
   projectMode?: boolean;
   selectedTaskId?: string | null;
+  readOnly?: boolean;
 }) {
   const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(
     () => new Set(),
@@ -2374,6 +2394,7 @@ function TaskList({
                 <span className="size-6 shrink-0" aria-hidden="true" />
               )}
               <button
+                disabled={readOnly}
                 onClick={(event) => {
                   event.stopPropagation();
                   onComplete(task);
@@ -2383,6 +2404,7 @@ function TaskList({
                   task.status === "resuelto"
                     ? "border-emerald-500 bg-emerald-500 text-white"
                     : "border-slate-300 text-transparent hover:border-emerald-500 hover:text-emerald-500",
+                  readOnly && "cursor-default opacity-60 hover:border-slate-300 hover:text-transparent",
                 )}
                 aria-label={
                   task.status === "resuelto"
@@ -2509,6 +2531,7 @@ function ProjectWorkspaceView({
   projectInvitations,
   currentUserId,
   canManageSharing,
+  canEditProject,
   tab,
   selectedTaskId,
   onTabChange,
@@ -2531,6 +2554,7 @@ function ProjectWorkspaceView({
   projectInvitations: ProjectInvitation[];
   currentUserId: string;
   canManageSharing: boolean;
+  canEditProject: boolean;
   tab: ProjectTab;
   selectedTaskId: string | null;
   onTabChange: (tab: ProjectTab) => void;
@@ -2637,14 +2661,16 @@ function ProjectWorkspaceView({
               Proyecto activo · {tasks.length} tareas
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onCreate}
-            className="mac-button-primary focus-ring ml-auto flex items-center gap-1.5 rounded-lg px-3 py-2 text-[10px] font-bold text-white"
-          >
-            <Plus className="size-3.5" />
-            Agregar tarea
-          </button>
+          {canEditProject && (
+            <button
+              type="button"
+              onClick={onCreate}
+              className="mac-button-primary focus-ring ml-auto flex items-center gap-1.5 rounded-lg px-3 py-2 text-[10px] font-bold text-white"
+            >
+              <Plus className="size-3.5" />
+              Agregar tarea
+            </button>
+          )}
           <div className="hidden -space-x-2 sm:flex" aria-label="Miembros del proyecto">
             {visibleProjectMembers.slice(0, 3).map((member) => (
               <span
@@ -2730,6 +2756,7 @@ function ProjectWorkspaceView({
               tasks={tasks}
               allTasks={allTasks}
               projectMode
+              readOnly={!canEditProject}
               selectedTaskId={selectedTaskId}
               onSelect={onSelect}
               onComplete={onComplete}
@@ -2743,6 +2770,7 @@ function ProjectWorkspaceView({
           <div className="px-5 sm:px-7">
             <KanbanBoard
               tasks={tasks}
+              readOnly={!canEditProject}
               onSelect={onSelect}
               onCreate={() => onCreate()}
               onMove={onMove}
@@ -2775,15 +2803,17 @@ function ProjectWorkspaceView({
         ) : (
           <>
             <div className="mb-4 flex items-center px-5 sm:px-7">
-              <button
-                type="button"
-                onClick={onCreate}
-                className="focus-ring flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
-              >
-                <Plus className="size-3.5" />
-                Agregar tarea
-                <ChevronDown className="size-3 text-slate-400" />
-              </button>
+              {canEditProject && (
+                <button
+                  type="button"
+                  onClick={onCreate}
+                  className="focus-ring flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+                >
+                  <Plus className="size-3.5" />
+                  Agregar tarea
+                  <ChevronDown className="size-3 text-slate-400" />
+                </button>
+              )}
               <span className="ml-auto text-[9px] text-slate-400">
                 {completed}/{tasks.length} completadas
               </span>
@@ -2792,18 +2822,21 @@ function ProjectWorkspaceView({
               tasks={tasks}
               allTasks={allTasks}
               projectMode
+              readOnly={!canEditProject}
               selectedTaskId={selectedTaskId}
               onSelect={onSelect}
               onComplete={onComplete}
             />
-            <button
-              type="button"
-              onClick={onCreate}
-              className="focus-ring mx-5 mt-3 flex items-center gap-2 rounded-lg px-3 py-2 text-[10px] font-semibold text-slate-400 hover:bg-slate-50 hover:text-slate-700 sm:mx-7"
-            >
-              <Plus className="size-3.5" />
-              Agregar tarea…
-            </button>
+            {canEditProject && (
+              <button
+                type="button"
+                onClick={onCreate}
+                className="focus-ring mx-5 mt-3 flex items-center gap-2 rounded-lg px-3 py-2 text-[10px] font-semibold text-slate-400 hover:bg-slate-50 hover:text-slate-700 sm:mx-7"
+              >
+                <Plus className="size-3.5" />
+                Agregar tarea…
+              </button>
+            )}
           </>
         )}
       </div>
@@ -3650,11 +3683,13 @@ function KanbanBoard({
   onSelect,
   onMove,
   onCreate,
+  readOnly = false,
 }: {
   tasks: Task[];
   onSelect: (task: Task) => void;
   onMove: (taskId: string, status: TaskStatus) => void;
   onCreate: (status: TaskStatus) => void;
+  readOnly?: boolean;
 }) {
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [overStatus, setOverStatus] = useState<TaskStatus | null>(null);
@@ -3698,14 +3733,16 @@ function KanbanBoard({
                     Alta carga
                   </span>
                 )}
-                <button
-                  onClick={() => onCreate(status)}
-                  className="focus-ring ml-auto flex items-center gap-1 rounded-md px-2 py-1 text-[9px] font-semibold text-slate-400 hover:bg-slate-200 hover:text-slate-700"
-                  aria-label={`Agregar en ${meta.label}`}
-                >
-                  <Plus className="size-3.5" />
-                  Agregar
-                </button>
+                {!readOnly && (
+                  <button
+                    onClick={() => onCreate(status)}
+                    className="focus-ring ml-auto flex items-center gap-1 rounded-md px-2 py-1 text-[9px] font-semibold text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+                    aria-label={`Agregar en ${meta.label}`}
+                  >
+                    <Plus className="size-3.5" />
+                    Agregar
+                  </button>
+                )}
                 {columnTasks.length === 0 && (
                   <button
                     onClick={() =>
@@ -3731,6 +3768,7 @@ function KanbanBoard({
               <div
                 data-testid={`kanban-column-${status}`}
                 onDragOver={(event) => {
+                  if (readOnly) return;
                   event.preventDefault();
                   event.dataTransfer.dropEffect = "move";
                   setOverStatus(status);
@@ -3741,6 +3779,7 @@ function KanbanBoard({
                   }
                 }}
                 onDrop={(event) => {
+                  if (readOnly) return;
                   event.preventDefault();
                   const taskId =
                     event.dataTransfer.getData("text/task-id") || draggedTaskId;
@@ -3763,9 +3802,10 @@ function KanbanBoard({
                 {columnTasks.map((task) => (
                   <article
                     key={task.id}
-                    draggable
+                    draggable={!readOnly}
                     data-testid={`kanban-card-${task.id}`}
                     onDragStart={(event) => {
+                      if (readOnly) return;
                       setDraggedTaskId(task.id);
                       event.dataTransfer.effectAllowed = "move";
                       event.dataTransfer.setData("text/task-id", task.id);
@@ -3825,7 +3865,7 @@ function KanbanBoard({
                         )}
                       </div>
                     </button>
-                    <label className="mt-3 block border-t border-slate-100 pt-2">
+                    {!readOnly && <label className="mt-3 block border-t border-slate-100 pt-2">
                       <span className="sr-only">Cambiar estado</span>
                       <select
                         value={task.status}
@@ -3840,10 +3880,10 @@ function KanbanBoard({
                           </option>
                         ))}
                       </select>
-                    </label>
+                    </label>}
                   </article>
                 ))}
-                {columnTasks.length === 0 && (
+                {columnTasks.length === 0 && !readOnly && (
                   <button
                     onClick={() => onCreate(status)}
                     className="focus-ring grid min-h-20 w-full place-items-center rounded-lg border border-dashed border-slate-300 text-[10px] text-slate-400 hover:border-[#0a84ff]/35 hover:bg-[#0a84ff]/5 hover:text-[#0879ea]"
@@ -3854,7 +3894,7 @@ function KanbanBoard({
                     </span>
                   </button>
                 )}
-                {columnTasks.length > 0 && (
+                {columnTasks.length > 0 && !readOnly && (
                   <button
                     onClick={() => onCreate(status)}
                     className="focus-ring flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-[9px] font-semibold text-slate-400 hover:border-[#0a84ff]/35 hover:text-[#0879ea]"
@@ -4124,6 +4164,8 @@ function TaskDrawer({
   currency,
   canTrackTime,
   canAuditTime,
+  canEditTask,
+  canCommentTask,
   onClose,
   onTaskUpdate,
   onTaskArchive,
@@ -4158,6 +4200,8 @@ function TaskDrawer({
   currency: string;
   canTrackTime: boolean;
   canAuditTime: boolean;
+  canEditTask: boolean;
+  canCommentTask: boolean;
   onClose: () => void;
   onTaskUpdate: (input: UpdateTaskInput) => void;
   onTaskArchive: () => void;
@@ -4342,6 +4386,7 @@ function TaskDrawer({
       >
         <header className="task-detail-toolbar relative flex min-h-16 shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 sm:gap-3 sm:px-5">
           <button
+            disabled={!canEditTask}
             onClick={() =>
               onTaskUpdate({
                 status:
@@ -4353,6 +4398,7 @@ function TaskDrawer({
               task.status === "resuelto"
                 ? "border-emerald-500 bg-emerald-500 text-white"
                 : "border-slate-300 text-slate-600 hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-700",
+              !canEditTask && "cursor-default opacity-60",
             )}
           >
             <CheckCircle2 className="size-4" />
@@ -4363,6 +4409,7 @@ function TaskDrawer({
 
           {!embedded && (
             <input
+              readOnly={!canEditTask}
               key={`${task.id}-toolbar-title`}
               defaultValue={task.title}
               onBlur={(event) => {
@@ -4533,7 +4580,7 @@ function TaskDrawer({
               </button>
               {moreMenuOpen && (
                 <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">
-                  {!task.parentTaskId && (
+              {canEditTask && !task.parentTaskId && (
                     <button
                       type="button"
                       onClick={onTaskArchive}
@@ -4543,14 +4590,14 @@ function TaskDrawer({
                       Archivar expediente
                     </button>
                   )}
-                  <button
+                  {canEditTask && <button
                     type="button"
                     onClick={onTaskDelete}
                     className="focus-ring flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-[10px] font-semibold text-rose-600 hover:bg-rose-50"
                   >
                     <Trash2 className="size-4" />
                     Eliminar tarea
-                  </button>
+                  </button>}
                 </div>
               )}
             </div>
@@ -4568,6 +4615,7 @@ function TaskDrawer({
           {embedded && (
             <input
               key={`${task.id}-panel-title`}
+              readOnly={!canEditTask}
               defaultValue={task.title}
               onBlur={(event) => {
                 const title = event.target.value.trim();
@@ -4590,6 +4638,7 @@ function TaskDrawer({
                 Estado
               </span>
               <select
+                disabled={!canEditTask}
                 value={task.status}
                 onChange={(event) =>
                   onTaskUpdate({ status: event.target.value as TaskStatus })
@@ -4613,6 +4662,7 @@ function TaskDrawer({
               <span className="flex items-center gap-2">
                 <Avatar person={task.assignee} size="sm" />
                 <select
+                  disabled={!canEditTask}
                   value={task.assignee?.id ?? ""}
                   onChange={(event) =>
                     onTaskUpdate({ assigneeId: event.target.value || null })
@@ -4652,6 +4702,7 @@ function TaskDrawer({
                   <label className="text-[10px] font-semibold text-slate-500">
                     Inicio
                     <input
+                      disabled={!canEditTask}
                       type="date"
                       value={task.startDate ?? ""}
                       max={task.dueDate ?? undefined}
@@ -4671,6 +4722,7 @@ function TaskDrawer({
                   <label className="text-[10px] font-semibold text-slate-500">
                     Vencimiento
                     <input
+                      disabled={!canEditTask}
                       type="date"
                       value={task.dueDate ?? ""}
                       min={task.startDate ?? undefined}
@@ -4684,6 +4736,7 @@ function TaskDrawer({
                   <label className="text-[10px] font-semibold text-slate-500">
                     Hora
                     <input
+                      disabled={!canEditTask}
                       type="time"
                       value={task.dueTime ?? ""}
                       onChange={(event) =>
@@ -4697,6 +4750,7 @@ function TaskDrawer({
                     <label className="text-[10px] font-semibold text-slate-500">
                       Repetición
                       <select
+                        disabled={!canEditTask}
                         value={task.recurrenceRule ?? "none"}
                         onChange={(event) =>
                           onTaskUpdate({
@@ -4722,6 +4776,7 @@ function TaskDrawer({
                     <label className="mt-3 flex items-center gap-2 text-[10px] font-semibold text-slate-500">
                       Repetir cada
                       <input
+                        disabled={!canEditTask}
                         type="number"
                         min={1}
                         max={52}
@@ -5066,6 +5121,7 @@ function TaskDrawer({
             </h3>
             <TaskRichTextEditor
               task={task}
+              editable={canEditTask}
               onUpdate={(description) => onTaskUpdate({ description })}
               onUpload={onAttachmentUpload}
               onOpen={onAttachmentOpen}
@@ -5346,20 +5402,22 @@ function TaskDrawer({
                   {subtasks.length}
                 </span>
               </h3>
-              <button
-                type="button"
-                onClick={() =>
-                  document
-                    .querySelector<HTMLInputElement>(
-                      'input[aria-label="Nombre de la subtarea"]',
-                    )
-                    ?.focus()
-                }
-                className="focus-ring grid size-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                aria-label="Agregar subtarea"
-              >
-                <Plus className="size-4" />
-              </button>
+              {canEditTask && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    document
+                      .querySelector<HTMLInputElement>(
+                        'input[aria-label="Nombre de la subtarea"]',
+                      )
+                      ?.focus()
+                  }
+                  className="focus-ring grid size-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  aria-label="Agregar subtarea"
+                >
+                  <Plus className="size-4" />
+                </button>
+              )}
             </div>
             <div className="mt-3 divide-y divide-slate-200 border-y border-slate-200">
               {subtasks.map((subtask) => (
@@ -5368,6 +5426,7 @@ function TaskDrawer({
                   className="flex items-center gap-3 px-2 py-3 transition hover:bg-slate-50"
                 >
                   <button
+                    disabled={!canEditTask}
                     onClick={() =>
                       onSubtaskUpdate(subtask.id, {
                         status:
@@ -5419,7 +5478,7 @@ function TaskDrawer({
                 </p>
               )}
             </div>
-            <form
+            {canEditTask && <form
               onSubmit={submitSubtask}
               className="mt-2 grid gap-2 sm:grid-cols-[1fr_170px_auto]"
             >
@@ -5449,7 +5508,7 @@ function TaskDrawer({
               >
                 Agregar
               </button>
-            </form>
+            </form>}
           </section>
 
           <section className="task-detail-activity mt-10 border-t border-slate-200 pt-2">
@@ -5547,14 +5606,14 @@ function TaskDrawer({
                       Las imágenes insertadas en la descripción también se conservan acá.
                     </p>
                   </div>
-                  <button
+                  {canCommentTask && <button
                     type="button"
                     onClick={() => attachmentInput.current?.click()}
                     className="focus-ring flex items-center gap-1.5 rounded-lg bg-[#0a84ff]/10 px-3 py-2 text-[10px] font-semibold text-[#5aa7ff] hover:bg-[#0a84ff]/15"
                   >
                     <Plus className="size-3.5" />
                     Adjuntar
-                  </button>
+                  </button>}
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2">
                   {task.attachments.map((attachment) => (
@@ -5624,7 +5683,7 @@ function TaskDrawer({
                       )}
                     </article>
                   ))}
-                  {task.attachments.length === 0 && (
+                  {task.attachments.length === 0 && canCommentTask && (
                     <button
                       type="button"
                       onClick={() => attachmentInput.current?.click()}
@@ -5692,7 +5751,7 @@ function TaskDrawer({
           </section>
         </div>
 
-        <form
+        {canCommentTask ? <form
           onSubmit={submitComment}
           className="task-detail-comment-composer shrink-0 border-t border-slate-200 bg-white px-4 py-3 sm:px-8"
         >
@@ -5781,7 +5840,11 @@ function TaskDrawer({
               )}
             </div>
           </div>
-        </form>
+        </form> : (
+          <div className="shrink-0 border-t border-slate-200 bg-slate-50 px-6 py-3 text-center text-[10px] font-semibold text-slate-500">
+            Acceso de solo lectura
+          </div>
+        )}
       </aside>
     </div>
   );
@@ -8986,8 +9049,46 @@ export function TaskaApp() {
   const currentMembership =
     members.find((member) => member.user.id === currentUserId) ?? null;
   const canAuditTime = canAuditTimeReports(activeWorkspace?.role);
-  const canTrackTime =
-    (currentMembership?.role ?? activeWorkspace?.role) !== "viewer";
+  const isProjectLimited = currentMembership?.projectLimited ?? false;
+  const editableProjectIds = useMemo(() => {
+    if (!isProjectLimited) {
+      return new Set(
+        (currentMembership?.role ?? activeWorkspace?.role) === "viewer"
+          ? []
+          : projects.map((project) => project.id),
+      );
+    }
+    return new Set(
+      projectMembers
+        .filter(
+          (member) =>
+            member.user.id === currentUserId &&
+            (member.role === "admin" || member.role === "editor"),
+        )
+        .map((member) => member.projectId),
+    );
+  }, [activeWorkspace?.role, currentMembership?.role, currentUserId, isProjectLimited, projectMembers, projects]);
+  const commentableProjectIds = useMemo(() => {
+    if (!isProjectLimited) {
+      return new Set(
+        (currentMembership?.role ?? activeWorkspace?.role) === "viewer"
+          ? []
+          : projects.map((project) => project.id),
+      );
+    }
+    return new Set(
+      projectMembers
+        .filter(
+          (member) =>
+            member.user.id === currentUserId && member.role !== "viewer",
+        )
+        .map((member) => member.projectId),
+    );
+  }, [activeWorkspace?.role, currentMembership?.role, currentUserId, isProjectLimited, projectMembers, projects]);
+  const editableProjects = useMemo(
+    () => projects.filter((project) => editableProjectIds.has(project.id)),
+    [editableProjectIds, projects],
+  );
   const activeTimeEntries = useMemo(
     () =>
       timeEntries.filter(
@@ -9015,6 +9116,19 @@ export function TaskaApp() {
   );
   const selectedTask =
     tasks.find((task) => task.id === selectedTaskId) ?? null;
+  const selectedTaskProjectIds = selectedTask
+    ? new Set([
+        selectedTask.project.id,
+        ...selectedTask.projects.map((project) => project.id),
+      ])
+    : new Set<string>();
+  const canEditSelectedTask = Array.from(selectedTaskProjectIds).some(
+    (candidateProjectId) => editableProjectIds.has(candidateProjectId),
+  );
+  const canCommentSelectedTask = Array.from(selectedTaskProjectIds).some(
+    (candidateProjectId) => commentableProjectIds.has(candidateProjectId),
+  );
+  const canTrackTime = canEditSelectedTask;
   const focusedProject =
     projectId === "todos"
       ? null
@@ -9214,7 +9328,11 @@ export function TaskaApp() {
   }
 
   function openNewTask(status: TaskStatus = "nuevo") {
-    if (!projects.length) {
+    if (!editableProjects.length) {
+      if (isProjectLimited || (currentMembership?.role ?? activeWorkspace?.role) === "viewer") {
+        notify("No tenés permiso para crear tareas en estos proyectos");
+        return;
+      }
       setShowNewProject(true);
       notify("Primero creá un proyecto");
       return;
@@ -9336,6 +9454,8 @@ export function TaskaApp() {
         onTimeReports={() => setTimeReportsOpen(true)}
         canViewTimeReports={canAuditTime}
         isPlatformAdmin={isPlatformAdmin}
+        isProjectLimited={isProjectLimited}
+        canCreateTasks={editableProjects.length > 0}
         onProjectSelect={(nextProjectId) => {
           setTaskScope("all");
           setProjectId(nextProjectId);
@@ -9468,12 +9588,17 @@ export function TaskaApp() {
                     member.role === "admin",
                 )
               }
+              canEditProject={editableProjectIds.has(focusedProject.id)}
               tab={projectTab}
               selectedTaskId={selectedTaskId}
               onTabChange={setProjectTab}
               onCreate={() => openNewTask()}
               onSelect={(task) => setSelectedTaskId(task.id)}
               onComplete={(task) => {
+                if (!editableProjectIds.has(focusedProject.id)) {
+                  notify("No tenés permiso para editar este proyecto");
+                  return;
+                }
                 const next =
                   task.status === "resuelto" ? "en_progreso" : "resuelto";
                 void updateStatus(task.id, next);
@@ -9484,10 +9609,18 @@ export function TaskaApp() {
                 );
               }}
               onMove={(taskId, status) => {
+                if (!editableProjectIds.has(focusedProject.id)) {
+                  notify("No tenés permiso para mover tareas de este proyecto");
+                  return;
+                }
                 void updateStatus(taskId, status);
                 notify(`Tarea movida a ${statusMeta[status].label}`);
               }}
               onUpdateDates={(taskId, input) => {
+                if (!editableProjectIds.has(focusedProject.id)) {
+                  notify("No tenés permiso para reprogramar este proyecto");
+                  return;
+                }
                 void updateTask(taskId, input);
                 notify("Fechas reprogramadas");
               }}
@@ -9950,11 +10083,17 @@ export function TaskaApp() {
           currency={activeWorkspace?.currency ?? "USD"}
           canTrackTime={canTrackTime}
           canAuditTime={canAuditTime}
+          canEditTask={canEditSelectedTask}
+          canCommentTask={canCommentSelectedTask}
           onClose={() => setSelectedTaskId(null)}
           onTaskSelect={setSelectedTaskId}
           onTaskArchive={() => setTaskToArchiveId(selectedTask.id)}
           onTaskDelete={() => setTaskToDeleteId(selectedTask.id)}
           onTaskUpdate={(input) => {
+            if (!canEditSelectedTask) {
+              notify("No tenés permiso para editar esta tarea");
+              return;
+            }
             void updateTask(selectedTask.id, input);
             if (input.status) {
               notify(
@@ -9965,6 +10104,10 @@ export function TaskaApp() {
             }
           }}
           onComment={(body, type, visibility) => {
+            if (!canCommentSelectedTask) {
+              notify("No tenés permiso para comentar esta tarea");
+              return;
+            }
             void addComment(selectedTask.id, body, type, visibility);
             notify("Comentario agregado");
           }}
@@ -9973,6 +10116,10 @@ export function TaskaApp() {
             notify("Comentario eliminado");
           }}
           onSubtaskCreate={(title, assigneeId) => {
+            if (!canEditSelectedTask) {
+              notify("No tenés permiso para crear subtareas");
+              return;
+            }
             const parentId = selectedTask.id;
             void (async () => {
               try {
@@ -10016,6 +10163,10 @@ export function TaskaApp() {
           }}
           onAttachmentUpload={async (files) => {
             const uploaded: TaskAttachment[] = [];
+            if (!canCommentSelectedTask) {
+              notify("No tenés permiso para adjuntar archivos");
+              return uploaded;
+            }
             try {
               for (const file of files) {
                 uploaded.push(await uploadAttachment(selectedTask, file));
@@ -10125,7 +10276,7 @@ export function TaskaApp() {
 
       {showNewTask && (
         <NewTaskModal
-          projects={projects}
+          projects={editableProjects}
           clients={clients}
           people={people}
           defaultProjectId={

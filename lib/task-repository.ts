@@ -154,6 +154,7 @@ type RemoteMembership = {
   team_id: string;
   user_id: string;
   role: TeamRole;
+  project_limited: boolean;
   joined_at: string;
   hourly_rate: number;
   profiles: RemotePerson | RemotePerson[] | null;
@@ -451,7 +452,7 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     supabase
       .from("team_members")
       .select(
-        "team_id, user_id, role, joined_at, hourly_rate, profiles(id, full_name, email, role, avatar_url)",
+        "team_id, user_id, role, project_limited, joined_at, hourly_rate, profiles(id, full_name, email, role, avatar_url)",
       ),
     supabase
       .from("clients")
@@ -541,6 +542,7 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
       personFromRemote(one(membership.profiles), index) ??
       fallbackPerson(),
     role: membership.role,
+    projectLimited: membership.project_limited,
     hourlyRate: Number(membership.hourly_rate),
     joinedAt: new Intl.DateTimeFormat("es-UY", {
       month: "long",

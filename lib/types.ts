@@ -152,6 +152,7 @@ export type WorkspaceMember = {
   workspaceId: string;
   user: Person;
   role: TeamRole;
+  projectLimited: boolean;
   joinedAt: string;
   hourlyRate: number;
 };

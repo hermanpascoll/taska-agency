@@ -35,6 +35,7 @@ type MembershipRow = {
   team_id: string;
   user_id: string;
   role: TeamRole;
+  project_limited: boolean;
 };
 
 type InvitationRow = {
@@ -124,7 +125,9 @@ export async function GET() {
     admin
       .from("teams")
       .select("id, name, slug, created_by, archived, currency, created_at"),
-    admin.from("team_members").select("team_id, user_id, role"),
+    admin
+      .from("team_members")
+      .select("team_id, user_id, role, project_limited"),
     admin.from("projects").select("id, team_id"),
     admin.from("tasks").select("id, team_id"),
     admin
@@ -196,6 +199,7 @@ export async function GET() {
               workspaceById.get(membership.team_id)?.name ??
               "Espacio eliminado",
             role: membership.role,
+            projectLimited: membership.project_limited,
           }))
           .sort((a, b) => a.workspaceName.localeCompare(b.workspaceName)),
       };
@@ -252,6 +256,7 @@ export async function GET() {
               email: profile?.email || "Sin correo",
               title: profile?.role || "Equipo creativo",
               role: membership.role,
+              projectLimited: membership.project_limited,
               online: Boolean(
                 profile?.last_seen_at &&
                   Date.now() - new Date(profile.last_seen_at).getTime() <
@@ -424,6 +429,7 @@ export async function PATCH(request: Request) {
         team_id: body.workspaceId,
         user_id: body.userId,
         role: body.role,
+        project_limited: false,
       },
       { onConflict: "team_id,user_id" },
     );
@@ -484,7 +490,7 @@ export async function PATCH(request: Request) {
     }
     const result = await admin
       .from("team_members")
-      .update({ role: body.role })
+      .update({ role: body.role, project_limited: false })
       .eq("team_id", body.workspaceId)
       .eq("user_id", body.userId);
     if (result.error) {

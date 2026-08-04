@@ -4,6 +4,7 @@ export type PlatformAdminMembership = {
   workspaceId: string;
   workspaceName: string;
   role: TeamRole;
+  projectLimited: boolean;
 };
 
 export type PlatformAdminUser = {
@@ -28,6 +29,7 @@ export type PlatformAdminWorkspaceMember = {
   email: string;
   title: string;
   role: TeamRole;
+  projectLimited: boolean;
   online: boolean;
 };
 

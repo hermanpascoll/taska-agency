@@ -396,6 +396,7 @@ export const workspaceMembers: WorkspaceMember[] = people.map(
     workspaceId: "prisma",
     user: person,
     role: index === 0 ? "owner" : index === 1 ? "admin" : "agent",
+    projectLimited: false,
     joinedAt: "Julio de 2026",
     hourlyRate: [65, 52, 42, 48][index],
   }),
