@@ -4309,8 +4309,9 @@ function TaskDrawer({
 
   useEffect(() => {
     if (!googleDriveId) return;
-    void preloadGoogleDriveIdentityServices().catch(() => undefined);
-    setDriveConnected(hasGoogleDriveToken());
+    void preloadGoogleDriveIdentityServices()
+      .then(() => setDriveConnected(hasGoogleDriveToken()))
+      .catch(() => setDriveConnected(false));
   }, [googleDriveId]);
 
   async function requestAttachmentSelection() {

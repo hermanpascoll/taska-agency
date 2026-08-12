@@ -105,7 +105,7 @@ el tipo, el tamaño y la información de auditoría; el archivo permanece en Dri
 1. Creá una unidad compartida y agregá como integrantes a las mismas personas
    que participan del espacio de Taska. Se recomienda administrar ambos accesos
    mediante un Google Group del equipo.
-2. Configurá un cliente OAuth web en Google Cloud, habilitá Google Drive API y
+2. En el cliente OAuth web usado por Supabase Auth, habilitá Google Drive API y
    autorizá el alcance `https://www.googleapis.com/auth/drive.file`.
 3. Agregá los orígenes de la aplicación, por ejemplo `http://localhost:3000` y
    el dominio productivo de Vercel.
@@ -114,12 +114,12 @@ el tipo, el tamaño y la información de auditoría; el archivo permanece en Dri
    `teams.google_drive_id`. Opcionalmente, guardá su nombre en
    `teams.google_drive_name`.
 
-Antes de su primera carga, cada usuario debe presionar **Conectar Drive** y
-aceptar el consentimiento de Google. Luego puede adjuntar archivos normalmente
-durante el resto de esa sesión. Taska no recibe ni almacena contraseñas de
-Google y el token permanece temporalmente en el navegador. Si un usuario no
-pertenece a la unidad compartida, Drive rechazará la carga aunque sea integrante
-del espacio en Taska.
+El permiso de Drive se solicita junto con el SSO de Google. Los usuarios que ya
+tenían una sesión abierta pueden presionar **Conectar Drive**: Taska los lleva a
+Google, conserva la tarea actual y regresa al mismo lugar sin depender de una
+ventana emergente. Taska no recibe ni almacena contraseñas de Google y el token
+permanece temporalmente en el navegador. Si un usuario no pertenece a la unidad
+compartida, Drive rechazará la carga aunque sea integrante del espacio en Taska.
 
 ## Conectar Supabase
 
