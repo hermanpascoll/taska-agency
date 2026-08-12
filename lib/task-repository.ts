@@ -38,6 +38,7 @@ import type {
   Workspace,
   WorkspaceMember,
 } from "@/lib/types";
+import { sortTasksByCreation } from "@/lib/task-order";
 
 type RemotePerson = {
   id: string;
@@ -519,7 +520,7 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
       .select(
         "id, task_number, title, description, brief, closure_summary, lessons_learned, archived_at, archived_by, deleted_at, deleted_by, status, priority, start_date, due_date, due_time, client_name, client_email, client_id, client_category, recurrence_rule, recurrence_interval, recurrence_origin_id, recurrence_generated_at, created_at, resolved_at, updated_at, tags, parent_task_id, projects!tasks_project_id_fkey(id, name, color, team_id, description, archived, client_id, client_category, client:clients(id, team_id, name, email, notes, categories, archived)), client:clients!tasks_client_id_fkey(id, team_id, name, email, notes, categories, archived), task_projects(project:projects(id, name, color, team_id, description, archived, client_id, client_category, client:clients(id, team_id, name, email, notes, categories, archived))), assignee:profiles!tasks_assignee_id_fkey(id, full_name, email, role, avatar_url), billing:task_billing_records(commercial_condition, billing_status, amount, external_cost, currency, invoice_number, purchase_order, notes, invoiced_at, collected_at, updated_at, billing_assignee:profiles!task_billing_records_billing_assignee_id_fkey(id, full_name, email, role, avatar_url)), comments(id, body, comment_type, visibility, deleted_at, created_at, author:profiles!comments_author_id_fkey(id, full_name, email, role, avatar_url)), attachments:task_attachments(id, task_id, name, size_bytes, mime_type, storage_path, storage_provider, external_file_id, external_web_url, external_thumbnail_url, version_group_id, version_number, approval_status, deleted_at, created_at, uploader:profiles!task_attachments_uploaded_by_fkey(id, full_name, email, role, avatar_url)), events:task_events(id, event_type, summary, metadata, created_at, actor:profiles!task_events_actor_id_fkey(id, full_name, email, role, avatar_url))",
       )
-      .order("updated_at", { ascending: false }),
+      .order("created_at", { ascending: true }),
     supabase
       .from("team_invitations")
       .select(
@@ -707,7 +708,9 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     timeEntries: (
       (timeEntriesResult.data ?? []) as unknown as RemoteTimeEntry[]
     ).map(mapTimeEntry),
-    tasks: ((tasksResult.data ?? []) as unknown as RemoteTask[]).map(mapTask),
+    tasks: sortTasksByCreation(
+      ((tasksResult.data ?? []) as unknown as RemoteTask[]).map(mapTask),
+    ),
   };
 }
 

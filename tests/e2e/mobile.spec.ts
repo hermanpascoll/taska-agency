@@ -28,8 +28,9 @@ test("mantiene navegables las tareas y el detalle en pantallas táctiles", async
 
   await page.getByRole("button", { name: "Tareas", exact: true }).click();
   await page
-    .getByRole("button", {
-      name: /AG-142.*Adaptar campaña/,
+    .getByRole("heading", {
+      name: "Adaptar campaña de lanzamiento a stories",
+      exact: true,
     })
     .click();
 
@@ -47,7 +48,9 @@ test("mantiene navegables las tareas y el detalle en pantallas táctiles", async
 });
 
 test("crea una tarea con el formulario desplazable", async ({ page }) => {
-  await page.getByRole("button", { name: "Abrir menú" }).click();
+  await page
+    .getByRole("button", { name: "Abrir menú", exact: true })
+    .click();
   await page.getByRole("button", { name: "Crear", exact: true }).click();
   await page.getByLabel("Título de la nueva tarea").fill("Tarea móvil E2E");
   await page.getByLabel("Descripción de la tarea").fill(

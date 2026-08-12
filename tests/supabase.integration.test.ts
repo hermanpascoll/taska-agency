@@ -55,38 +55,52 @@ describe.skipIf(!configured)("Supabase real: autenticación y persistencia", () 
       .single();
     expect(client.error).toBeNull();
 
-    const project = await supabase!
+    const projectSlug = `proyecto-e2e-${Date.now()}`;
+    const projectInsert = await supabase!
       .from("projects")
       .insert({
         team_id: createdWorkspaceId,
         name: "Proyecto E2E",
-        slug: `proyecto-e2e-${Date.now()}`,
+        slug: projectSlug,
         color: "#0A84FF",
         client_id: client.data!.id,
         client_category: "Cartelería",
-      })
+      });
+    expect(projectInsert.error).toBeNull();
+    const project = await supabase!
+      .from("projects")
       .select("id, client_id, client_category")
+      .eq("team_id", createdWorkspaceId)
+      .eq("slug", projectSlug)
       .single();
     expect(project.error).toBeNull();
     expect(project.data?.client_id).toBe(client.data!.id);
     expect(project.data?.client_category).toBe("Cartelería");
 
-    const secondaryProject = await supabase!
+    const secondarySlug = `proyecto-secundario-e2e-${Date.now()}`;
+    const secondaryInsert = await supabase!
       .from("projects")
       .insert({
         team_id: createdWorkspaceId,
         name: "Proyecto secundario E2E",
-        slug: `proyecto-secundario-e2e-${Date.now()}`,
+        slug: secondarySlug,
         color: "#30D158",
-      })
+      });
+    expect(secondaryInsert.error).toBeNull();
+    const secondaryProject = await supabase!
+      .from("projects")
       .select("id")
+      .eq("team_id", createdWorkspaceId)
+      .eq("slug", secondarySlug)
       .single();
     expect(secondaryProject.error).toBeNull();
 
     const title = `Persistencia E2E ${Date.now()}`;
+    const createdTaskId = randomUUID();
     const created = await supabase!
       .from("tasks")
       .insert({
+        id: createdTaskId,
         team_id: createdWorkspaceId,
         project_id: project.data!.id,
         title,
@@ -101,13 +115,11 @@ describe.skipIf(!configured)("Supabase real: autenticación y persistencia", () 
         tags: ["Diseño", "Aprobación"],
         recurrence_rule: "weekly",
         recurrence_interval: 1,
-      })
-      .select("id")
-      .single();
+      });
     expect(created.error).toBeNull();
 
     const relation = await supabase!.from("task_projects").upsert({
-      task_id: created.data!.id,
+      task_id: createdTaskId,
       project_id: secondaryProject.data!.id,
       team_id: createdWorkspaceId,
     });
@@ -115,24 +127,26 @@ describe.skipIf(!configured)("Supabase real: autenticación y persistencia", () 
     const relatedProjects = await supabase!
       .from("task_projects")
       .select("project_id")
-      .eq("task_id", created.data!.id);
+      .eq("task_id", createdTaskId);
     expect(relatedProjects.error).toBeNull();
     expect(relatedProjects.data).toHaveLength(2);
 
     const persisted = await supabase!
       .from("tasks")
       .select("id, title")
-      .eq("id", created.data!.id)
+      .eq("id", createdTaskId)
       .single();
     expect(persisted.error).toBeNull();
     expect(persisted.data?.title).toBe(title);
 
+    const subtaskId = randomUUID();
     const subtask = await supabase!
       .from("tasks")
       .insert({
+        id: subtaskId,
         team_id: createdWorkspaceId,
         project_id: project.data!.id,
-        parent_task_id: created.data!.id,
+        parent_task_id: createdTaskId,
         title: "Subtarea recurrente E2E",
         description: "Debe conservar responsable y desplazarse una semana.",
         status: "en_progreso",
@@ -143,15 +157,13 @@ describe.skipIf(!configured)("Supabase real: autenticación y persistencia", () 
         start_date: "2099-01-02",
         due_date: "2099-01-06",
         due_time: "15:30",
-      })
-      .select("id")
-      .single();
+      });
     expect(subtask.error).toBeNull();
 
     const completed = await supabase!
       .from("tasks")
       .update({ status: "resuelto" })
-      .eq("id", created.data!.id)
+      .eq("id", createdTaskId)
       .select("resolved_at")
       .single();
     expect(completed.error).toBeNull();
@@ -159,7 +171,7 @@ describe.skipIf(!configured)("Supabase real: autenticación y persistencia", () 
     const completedSource = await supabase!
       .from("tasks")
       .select("recurrence_generated_at")
-      .eq("id", created.data!.id)
+      .eq("id", createdTaskId)
       .single();
     expect(completedSource.error).toBeNull();
     expect(completedSource.data?.recurrence_generated_at).toBeTruthy();
@@ -169,7 +181,7 @@ describe.skipIf(!configured)("Supabase real: autenticación y persistencia", () 
       .select(
         "id, due_date, due_time, client_id, client_category, tags, recurrence_origin_id",
       )
-      .eq("recurrence_origin_id", created.data!.id)
+      .eq("recurrence_origin_id", createdTaskId)
       .single();
     expect(nextOccurrence.error).toBeNull();
     expect(nextOccurrence.data).toMatchObject({
@@ -178,7 +190,7 @@ describe.skipIf(!configured)("Supabase real: autenticación y persistencia", () 
       client_id: client.data!.id,
       client_category: "Cartelería",
       tags: ["Diseño", "Aprobación"],
-      recurrence_origin_id: created.data!.id,
+      recurrence_origin_id: createdTaskId,
     });
     const clonedSubtasks = await supabase!
       .from("tasks")
@@ -195,7 +207,7 @@ describe.skipIf(!configured)("Supabase real: autenticación y persistencia", () 
     ]);
 
     const timer = await supabase!.rpc("start_task_timer", {
-      candidate_task_id: created.data!.id,
+      candidate_task_id: createdTaskId,
       candidate_description: "Timer de integración",
       candidate_billable: true,
     });
@@ -215,11 +227,11 @@ describe.skipIf(!configured)("Supabase real: autenticación y persistencia", () 
     expect(activeTimers.error).toBeNull();
     expect(activeTimers.data).toHaveLength(2);
     expect(activeTimers.data?.map((entry) => entry.task_id)).toEqual(
-      expect.arrayContaining([created.data!.id, nextOccurrence.data!.id]),
+      expect.arrayContaining([createdTaskId, nextOccurrence.data!.id]),
     );
 
     const duplicateTimer = await supabase!.rpc("start_task_timer", {
-      candidate_task_id: created.data!.id,
+      candidate_task_id: createdTaskId,
       candidate_description: "No debe duplicarse",
       candidate_billable: true,
     });
@@ -252,7 +264,7 @@ describe.skipIf(!configured)("Supabase real: autenticación y persistencia", () 
     const preservedTask = await supabase!
       .from("tasks")
       .select("id, project_id")
-      .eq("id", created.data!.id)
+      .eq("id", createdTaskId)
       .single();
     expect(preservedTask.error).toBeNull();
     expect(preservedTask.data?.project_id).toBe(secondaryProject.data!.id);
@@ -263,9 +275,9 @@ describe.skipIf(!configured)("Supabase real: autenticación y persistencia", () 
 });
 
 const archiveUrl =
-  process.env.SUPABASE_TEST_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
+  process.env.SUPABASE_TEST_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
 const archiveAnonKey =
-  process.env.SUPABASE_TEST_ANON_KEY ??
+  process.env.SUPABASE_TEST_ANON_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const serviceKey = process.env.SUPABASE_SECRET_KEY;
 const archiveConfigured = Boolean(archiveUrl && archiveAnonKey && serviceKey);
@@ -316,21 +328,29 @@ describe.skipIf(!archiveConfigured)(
     });
 
     it("versiona, registra eventos, bloquea el archivo y restaura", async () => {
-      const project = await session!
+      const projectSlug = `proceso-${randomUUID()}`;
+      const projectInsert = await session!
         .from("projects")
         .insert({
           team_id: workspaceId,
           name: "Proceso auditable",
-          slug: `proceso-${randomUUID()}`,
+          slug: projectSlug,
           color: "#0A84FF",
-        })
+        });
+      expect(projectInsert.error).toBeNull();
+      const project = await session!
+        .from("projects")
         .select("id")
+        .eq("team_id", workspaceId)
+        .eq("slug", projectSlug)
         .single();
       expect(project.error).toBeNull();
 
+      const taskId = randomUUID();
       const task = await session!
         .from("tasks")
         .insert({
+          id: taskId,
           team_id: workspaceId,
           project_id: project.data!.id,
           title: "Expediente de prueba",
@@ -341,41 +361,131 @@ describe.skipIf(!archiveConfigured)(
             objective: "Validar el archivo de procesos",
             deliverables: "Historial y versiones",
           },
-        })
-        .select("id")
-        .single();
+        });
       expect(task.error).toBeNull();
 
+      const parallelTaskId = randomUUID();
       const parallelTask = await session!
         .from("tasks")
         .insert({
+          id: parallelTaskId,
           team_id: workspaceId,
           project_id: project.data!.id,
           title: "Trabajo paralelo",
           description: "Valida timers simultáneos del mismo usuario.",
           status: "en_progreso",
           priority: "media",
-        })
-        .select("id")
-        .single();
+        });
       expect(parallelTask.error).toBeNull();
 
+      const orderBefore = await session!
+        .from("tasks")
+        .select("id, task_number, created_at")
+        .eq("team_id", workspaceId)
+        .order("created_at", { ascending: true })
+        .order("task_number", { ascending: true });
+      expect(orderBefore.error).toBeNull();
+
+      const richDescription =
+        '<h2>Brief persistente</h2><p>Texto antes.</p><img src="https://example.com/reference.png" data-attachment-id="reference-e2e"><p>Texto después.</p>';
+      const descriptionUpdate = await session!
+        .from("tasks")
+        .update({ description: richDescription })
+        .eq("id", taskId);
+      expect(descriptionUpdate.error).toBeNull();
+      const persistedDescription = await session!
+        .from("tasks")
+        .select("description")
+        .eq("id", taskId)
+        .single();
+      expect(persistedDescription.error).toBeNull();
+      expect(persistedDescription.data?.description).toBe(richDescription);
+
+      const orderAfterDescription = await session!
+        .from("tasks")
+        .select("id, task_number, created_at")
+        .eq("team_id", workspaceId)
+        .order("created_at", { ascending: true })
+        .order("task_number", { ascending: true });
+      expect(orderAfterDescription.error).toBeNull();
+      expect(orderAfterDescription.data?.map((item) => item.id)).toEqual(
+        orderBefore.data?.map((item) => item.id),
+      );
+
+      const invitation = await session!.rpc("create_project_invitation", {
+        candidate_project_id: project.data!.id,
+        candidate_email: `invite-${randomUUID()}@example.com`,
+        candidate_role: "editor",
+        candidate_notify_on_new_tasks: true,
+      });
+      expect(invitation.error).toBeNull();
+      expect(invitation.data?.[0]).toMatchObject({
+        project_id: project.data!.id,
+        role: "editor",
+        notify_on_new_tasks: true,
+      });
+
+      const billing = await session!.rpc("upsert_task_billing_record", {
+        candidate_task_id: taskId,
+        candidate_billing: {
+          commercialCondition: "extra",
+          status: "ready",
+          amount: 1250,
+          externalCost: 200,
+          currency: "USD",
+          assigneeId: userId,
+          notes: "Validación automatizada",
+        },
+      });
+      expect(billing.error).toBeNull();
+      const persistedBilling = await session!
+        .from("task_billing_records")
+        .select(
+          "commercial_condition, billing_status, amount, external_cost, billing_assignee_id",
+        )
+        .eq("task_id", taskId)
+        .single();
+      expect(persistedBilling.error).toBeNull();
+      expect(persistedBilling.data).toMatchObject({
+        commercial_condition: "extra",
+        billing_status: "ready",
+        amount: 1250,
+        external_cost: 200,
+        billing_assignee_id: userId,
+      });
+
+      const commentId = randomUUID();
       const comment = await session!.from("comments").insert({
-        task_id: task.data!.id,
+        id: commentId,
+        task_id: taskId,
         author_id: userId,
         body: "Se aprueba conservar esta decisión.",
         comment_type: "decision",
         visibility: "team",
       });
       expect(comment.error).toBeNull();
+      const commentEdit = await session!
+        .from("comments")
+        .update({ body: "Decisión editada y persistida." })
+        .eq("id", commentId);
+      expect(commentEdit.error).toBeNull();
+      const persistedComment = await session!
+        .from("comments")
+        .select("body")
+        .eq("id", commentId)
+        .single();
+      expect(persistedComment.error).toBeNull();
+      expect(persistedComment.data?.body).toBe(
+        "Decisión editada y persistida.",
+      );
 
       const firstFile = await session!
         .from("task_attachments")
         .insert({
-          task_id: task.data!.id,
+          task_id: taskId,
           uploaded_by: userId,
           name: "entregable.pdf",
-          storage_path: `${workspaceId}/${task.data!.id}/${randomUUID()}.pdf`,
+          storage_path: `${workspaceId}/${taskId}/${randomUUID()}.pdf`,
           size_bytes: 100,
           mime_type: "application/pdf",
         })
@@ -387,10 +497,10 @@ describe.skipIf(!archiveConfigured)(
       const secondFile = await session!
         .from("task_attachments")
         .insert({
-          task_id: task.data!.id,
+          task_id: taskId,
           uploaded_by: userId,
           name: "entregable.pdf",
-          storage_path: `${workspaceId}/${task.data!.id}/${randomUUID()}.pdf`,
+          storage_path: `${workspaceId}/${taskId}/${randomUUID()}.pdf`,
           size_bytes: 120,
           mime_type: "application/pdf",
           approval_status: "approved",
@@ -405,13 +515,13 @@ describe.skipIf(!archiveConfigured)(
       });
 
       const timer = await session!.rpc("start_task_timer", {
-        candidate_task_id: task.data!.id,
+        candidate_task_id: taskId,
         candidate_description: "Validación de cierre",
         candidate_billable: true,
       });
       expect(timer.error).toBeNull();
       const parallelTimer = await session!.rpc("start_task_timer", {
-        candidate_task_id: parallelTask.data!.id,
+        candidate_task_id: parallelTaskId,
         candidate_description: "Trabajo en paralelo",
         candidate_billable: false,
       });
@@ -426,7 +536,7 @@ describe.skipIf(!archiveConfigured)(
       expect(activeTimers.data).toHaveLength(2);
 
       const duplicateTimer = await session!.rpc("start_task_timer", {
-        candidate_task_id: task.data!.id,
+        candidate_task_id: taskId,
         candidate_description: "Duplicado",
         candidate_billable: true,
       });
@@ -435,7 +545,7 @@ describe.skipIf(!archiveConfigured)(
       );
 
       const archived = await session!.rpc("archive_task_record", {
-        candidate_task_id: task.data!.id,
+        candidate_task_id: taskId,
         candidate_closure_summary: "Expediente validado correctamente.",
         candidate_lessons_learned: "Mantener el cierre obligatorio.",
       });
@@ -446,7 +556,7 @@ describe.skipIf(!archiveConfigured)(
         .select(
           "archived_at, closure_summary, lessons_learned, status, task_events(event_type)",
         )
-        .eq("id", task.data!.id)
+        .eq("id", taskId)
         .single();
       expect(persisted.error).toBeNull();
       expect(persisted.data).toMatchObject({
@@ -483,34 +593,34 @@ describe.skipIf(!archiveConfigured)(
       const forbiddenEdit = await session!
         .from("tasks")
         .update({ title: "No debe modificarse" })
-        .eq("id", task.data!.id);
+        .eq("id", taskId);
       expect(forbiddenEdit.error?.message).toContain("read-only");
 
       const restored = await session!.rpc("restore_task_record", {
-        candidate_task_id: task.data!.id,
+        candidate_task_id: taskId,
       });
       expect(restored.error).toBeNull();
       const editableAgain = await session!
         .from("tasks")
         .update({ title: "Expediente restaurado" })
-        .eq("id", task.data!.id);
+        .eq("id", taskId);
       expect(editableAgain.error).toBeNull();
 
       const trashed = await session!.rpc("trash_task_record", {
-        candidate_task_id: task.data!.id,
+        candidate_task_id: taskId,
       });
       expect(trashed.error).toBeNull();
       const trashState = await session!
         .from("tasks")
         .select("archived_at, deleted_at")
-        .eq("id", task.data!.id)
+        .eq("id", taskId)
         .single();
       expect(trashState.error).toBeNull();
       expect(trashState.data?.archived_at).toBeTruthy();
       expect(trashState.data?.deleted_at).toBeTruthy();
 
       const finalRestore = await session!.rpc("restore_task_record", {
-        candidate_task_id: task.data!.id,
+        candidate_task_id: taskId,
       });
       expect(finalRestore.error).toBeNull();
     }, 15_000);

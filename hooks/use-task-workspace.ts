@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   clients as demoClients,
   initialTasks,
@@ -55,7 +55,9 @@ import {
 } from "@/lib/task-repository";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { defaultTaskBilling } from "@/lib/billing-utils";
+import { sortTasksByCreation } from "@/lib/task-order";
 import { formatTaskDueLabel, nextTaskCode } from "@/lib/task-utils";
+import { selectActiveWorkspaceId } from "@/lib/workspace-selection";
 import type {
   AppNotification,
   ArchiveTaskInput,
@@ -90,6 +92,8 @@ import type {
 } from "@/lib/types";
 
 const demoStorageKey = "taska-demo-workspace-v2";
+const activeWorkspaceStorageKey = (userId: string) =>
+  `taska-active-workspace:${userId}`;
 const themeStorageKey = "taska-theme";
 const defaultSettings: AppSettings = {
   compactMode: false,
@@ -286,6 +290,7 @@ export function useTaskWorkspace() {
   const [currentUserId, setCurrentUserId] = useState(
     supabaseConfigured ? "" : "martina",
   );
+  const currentUserIdRef = useRef(currentUserId);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(
     supabaseConfigured ? "" : demoWorkspaces[0].id,
   );
@@ -315,14 +320,19 @@ export function useTaskWorkspace() {
       setProjectInvitations(workspace.projectInvitations);
       setNotifications(workspace.notifications);
       setAllTimeEntries(workspace.timeEntries);
+      const sameUser = currentUserIdRef.current === workspace.currentUserId;
+      currentUserIdRef.current = workspace.currentUserId;
       setCurrentUserId(workspace.currentUserId);
-      setActiveWorkspaceId((current) =>
-        workspace.workspaces.some(
-          (item) => item.id === current && !item.archived,
-        )
-          ? current
-          : (workspace.workspaces.find((item) => !item.archived)?.id ?? ""),
-      );
+      setActiveWorkspaceId((current) => {
+        const stored = window.localStorage.getItem(
+          activeWorkspaceStorageKey(workspace.currentUserId),
+        );
+        return selectActiveWorkspaceId(
+          workspace.workspaces,
+          sameUser ? current : null,
+          stored,
+        );
+      });
       setMode("supabase");
     } catch (error) {
       console.error("No se pudo sincronizar Supabase:", error);
@@ -362,7 +372,7 @@ export function useTaskWorkspace() {
             const demoDates = new Map(
               initialTasks.map((task) => [task.id, task.startDate]),
             );
-            setAllTasks(
+            setAllTasks(sortTasksByCreation(
               snapshot.tasks.map((task) => ({
                 ...task,
                 projects:
@@ -412,7 +422,7 @@ export function useTaskWorkspace() {
                 ),
                 events: task.events ?? [],
               })),
-            );
+            ));
           }
           if (Array.isArray(snapshot.projects)) {
             setAllProjects(
@@ -505,6 +515,14 @@ export function useTaskWorkspace() {
       document.removeEventListener("visibilitychange", touch);
     };
   }, [initializing, supabaseConfigured]);
+
+  useEffect(() => {
+    if (mode !== "supabase" || !currentUserId || !activeWorkspaceId) return;
+    window.localStorage.setItem(
+      activeWorkspaceStorageKey(currentUserId),
+      activeWorkspaceId,
+    );
+  }, [activeWorkspaceId, currentUserId, mode]);
 
   useEffect(() => {
     if (mode !== "demo" || !demoReady) return;
@@ -792,12 +810,14 @@ export function useTaskWorkspace() {
               ],
             };
           });
-        return [nextParent, ...nextSubtasks, ...updated];
+        return sortTasksByCreation([...updated, nextParent, ...nextSubtasks]);
       });
       if (mode === "supabase") {
         try {
           await updateRemoteTask(taskId, input);
-          await refresh();
+          const descriptionOnly =
+            input.description !== undefined && Object.keys(input).length === 1;
+          if (!descriptionOnly) await refresh();
         } catch (error) {
           await refresh();
           throw error;
@@ -1107,7 +1127,7 @@ export function useTaskWorkspace() {
           ),
         ],
       };
-      setAllTasks((current) => [task, ...current]);
+      setAllTasks((current) => sortTasksByCreation([...current, task]));
       if (mode === "supabase") {
         try {
           const remoteId = await createRemoteTask(input);

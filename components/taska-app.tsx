@@ -5173,6 +5173,7 @@ function TaskDrawer({
               Descripción
             </h3>
             <TaskRichTextEditor
+              key={task.id}
               task={task}
               editable={canEditTask}
               onUpdate={(description) => onTaskUpdate({ description })}
@@ -10212,7 +10213,9 @@ export function TaskaApp() {
                 `Estado actualizado a ${statusMeta[input.status].label}`,
               );
             } else {
-              if (!input.billing) notify("Tarea actualizada");
+              if (!input.billing && input.description === undefined) {
+                notify("Tarea actualizada");
+              }
             }
             return operation;
           }}

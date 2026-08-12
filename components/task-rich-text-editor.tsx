@@ -195,7 +195,7 @@ export function TaskRichTextEditor({
   editable = true,
 }: {
   task: TaskDocument;
-  onUpdate: (description: string) => void;
+  onUpdate: (description: string) => Promise<void> | void;
   onUpload: (files: File[]) => Promise<TaskAttachment[]>;
   onOpen: (attachment: TaskAttachment) => void;
   onCreateSubtask?: (title: string) => void;
@@ -204,12 +204,52 @@ export function TaskRichTextEditor({
 }) {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dirtyRef = useRef(false);
+  const mountedRef = useRef(true);
+  const latestHtmlRef = useRef("");
+  const onUpdateRef = useRef(onUpdate);
   const lastEmittedRef = useRef("");
+  const lastSubmittedRef = useRef("");
   const loadedTaskIdRef = useRef("");
   const loadedSourceDescriptionRef = useRef("");
+
+  useEffect(() => {
+    onUpdateRef.current = onUpdate;
+  }, [onUpdate]);
+
+  const submitDescription = useCallback((html: string, reportState = true) => {
+    if (!html || html === lastSubmittedRef.current) {
+      dirtyRef.current = false;
+      return;
+    }
+    lastSubmittedRef.current = html;
+    dirtyRef.current = false;
+    if (reportState && mountedRef.current) setSaveState("saving");
+    try {
+      const operation = onUpdateRef.current(html);
+      void Promise.resolve(operation).then(
+        () => {
+          if (!reportState || !mountedRef.current) return;
+          setSaveState("saved");
+          window.setTimeout(() => {
+            if (mountedRef.current) setSaveState("idle");
+          }, 1600);
+        },
+        () => {
+          lastSubmittedRef.current = "";
+          if (reportState && mountedRef.current) setSaveState("error");
+        },
+      );
+    } catch {
+      lastSubmittedRef.current = "";
+      if (reportState && mountedRef.current) setSaveState("error");
+    }
+  }, []);
   const insertImages = useCallback(
     async (targetEditor: Editor, files: File[], position?: number) => {
       const images = files.filter((file) => file.type.startsWith("image/"));
@@ -313,17 +353,18 @@ export function TaskRichTextEditor({
     },
     onUpdate: ({ editor: currentEditor }) => {
       const html = currentEditor.getHTML();
+      latestHtmlRef.current = html;
       lastEmittedRef.current = html;
       if (updateDelay === 0) {
         dirtyRef.current = false;
-        onUpdate(html);
+        onUpdateRef.current(html);
         return;
       }
       dirtyRef.current = true;
+      setSaveState("saving");
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       saveTimerRef.current = setTimeout(() => {
-        onUpdate(html);
-        dirtyRef.current = false;
+        submitDescription(latestHtmlRef.current);
         saveTimerRef.current = null;
       }, updateDelay);
     },
@@ -332,9 +373,9 @@ export function TaskRichTextEditor({
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
       const html = currentEditor.getHTML();
+      latestHtmlRef.current = html;
       lastEmittedRef.current = html;
-      onUpdate(html);
-      dirtyRef.current = false;
+      submitDescription(html);
     },
   });
 
@@ -358,7 +399,11 @@ export function TaskRichTextEditor({
     }
     void hydrateDescription(task).then((html) => {
       if (!active || editor.isDestroyed) return;
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+      latestHtmlRef.current = html;
       lastEmittedRef.current = html;
+      lastSubmittedRef.current = task.description;
       dirtyRef.current = false;
       editor.commands.setContent(html, { emitUpdate: false });
     });
@@ -368,10 +413,16 @@ export function TaskRichTextEditor({
   }, [editor, task]);
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+      if (dirtyRef.current) {
+        submitDescription(latestHtmlRef.current, false);
+      }
     };
-  }, []);
+  }, [submitDescription]);
 
   const toolbar = useEditorState({
     editor,
@@ -495,7 +546,22 @@ export function TaskRichTextEditor({
       <EditorContent editor={editor} />
       {editable && <div className="flex min-h-8 items-center justify-between gap-3 border-t border-slate-200 bg-slate-50/70 px-3 py-1.5 text-[10px] text-slate-500">
         <span>{uploading ? "Insertando imagen…" : "Pegá o arrastrá imágenes directamente en el texto"}</span>
-        {uploadError && <span className="font-semibold text-rose-500">{uploadError}</span>}
+        <span
+          className={clsx(
+            "font-semibold",
+            (uploadError || saveState === "error") && "text-rose-500",
+          )}
+        >
+          {uploadError
+            ? uploadError
+            : saveState === "saving"
+              ? "Guardando…"
+              : saveState === "saved"
+                ? "Guardado"
+                : saveState === "error"
+                  ? "No se pudo guardar. Se reintentará al editar."
+                  : ""}
+        </span>
       </div>}
     </div>
   );

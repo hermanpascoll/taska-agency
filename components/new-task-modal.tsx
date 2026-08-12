@@ -313,7 +313,7 @@ export function NewTaskModal({
               <span className="size-2.5 rounded-full" style={{ background: status === "resuelto" ? "#2E9B78" : status === "esperando" ? "#3C8FD5" : status === "en_progreso" ? "#E89732" : "#6C5CE7" }} />
               <span className="min-w-0 flex-1">
                 <span className="block text-[10px] text-slate-500">Estado</span>
-                <select value={status} onChange={(event) => setStatus(event.target.value as TaskStatus)} className="mt-0.5 w-full bg-transparent text-[13px] font-medium text-slate-800 outline-none">
+                <select aria-label="Estado" value={status} onChange={(event) => setStatus(event.target.value as TaskStatus)} className="mt-0.5 w-full bg-transparent text-[13px] font-medium text-slate-800 outline-none">
                   {(Object.keys(statusLabels) as TaskStatus[]).map((item) => <option key={item} value={item}>{statusLabels[item]}</option>)}
                 </select>
               </span>
@@ -323,7 +323,7 @@ export function NewTaskModal({
               <Avatar person={assignee} />
               <span className="min-w-0 flex-1">
                 <span className="block text-[10px] text-slate-500">Responsable</span>
-                <select value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)} className="mt-0.5 w-full bg-transparent text-[13px] font-medium text-slate-800 outline-none">
+                <select aria-label="Responsable" value={assigneeId} onChange={(event) => setAssigneeId(event.target.value)} className="mt-0.5 w-full bg-transparent text-[13px] font-medium text-slate-800 outline-none">
                   <option value="">Sin responsable</option>
                   {people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
                 </select>
