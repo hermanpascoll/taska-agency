@@ -223,7 +223,7 @@ export function TaskRichTextEditor({
   }, [onUpdate]);
 
   const submitDescription = useCallback((html: string, reportState = true) => {
-    if (!html || html === lastSubmittedRef.current) {
+    if (html === lastSubmittedRef.current) {
       dirtyRef.current = false;
       return;
     }
@@ -357,7 +357,7 @@ export function TaskRichTextEditor({
       lastEmittedRef.current = html;
       if (updateDelay === 0) {
         dirtyRef.current = false;
-        onUpdateRef.current(html);
+        submitDescription(html);
         return;
       }
       dirtyRef.current = true;
@@ -377,7 +377,7 @@ export function TaskRichTextEditor({
       lastEmittedRef.current = html;
       submitDescription(html);
     },
-  });
+  }, [submitDescription]);
 
   useEffect(() => {
     editor?.setEditable(editable);

@@ -845,8 +845,18 @@ export async function updateRemoteTask(id: string, input: UpdateTaskInput) {
   }
   if (input.brief !== undefined) payload.brief = input.brief;
   if (Object.keys(payload).length) {
-    const { error } = await supabase.from("tasks").update(payload).eq("id", id);
+    const { data, error } = await supabase
+      .from("tasks")
+      .update(payload)
+      .eq("id", id)
+      .select("id")
+      .maybeSingle();
     if (error) throw error;
+    if (!data) {
+      throw new Error(
+        "La tarea no se guardó. Verificá que tengas permisos de edición y volvé a intentar.",
+      );
+    }
   }
   if (input.billing !== undefined) {
     const { error } = await supabase.rpc("upsert_task_billing_record", {

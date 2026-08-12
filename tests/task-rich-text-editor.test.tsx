@@ -80,4 +80,32 @@ describe("editor enriquecido", () => {
     expect(saved).toContain('data-attachment-id="embedded-image"');
     expect(saved).toContain("Texto después");
   });
+
+  it("no informa Guardado cuando la persistencia rechaza el cambio", async () => {
+    const onUpdate = vi
+      .fn()
+      .mockRejectedValue(new Error("La tarea no se guardó"));
+    const user = userEvent.setup();
+    render(
+      <TaskRichTextEditor
+        task={{ ...initialTasks[0], description: "", attachments: [] }}
+        onUpdate={onUpdate}
+        onUpload={vi.fn().mockResolvedValue([])}
+        onOpen={vi.fn()}
+        updateDelay={0}
+      />,
+    );
+
+    const editor = screen.getByLabelText("Descripción de la tarea");
+    await user.click(editor);
+    await user.type(editor, "Cambio sin permisos");
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("No se pudo guardar. Se reintentará al editar."),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("Guardado")).not.toBeInTheDocument();
+    expect(editor).toHaveTextContent("Cambio sin permisos");
+  });
 });

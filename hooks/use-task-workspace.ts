@@ -820,7 +820,9 @@ export function useTaskWorkspace() {
           if (!descriptionOnly) await refresh();
         } catch (error) {
           await refresh();
-          throw error;
+          throw error instanceof Error
+            ? error
+            : new Error("No se pudo guardar la tarea.");
         }
       }
     },
