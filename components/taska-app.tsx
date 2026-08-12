@@ -93,6 +93,7 @@ import {
 } from "react";
 import { clsx } from "clsx";
 import { AdminPanel } from "@/components/admin-panel";
+import { BillingView, TaskBillingPanel } from "@/components/task-billing";
 import { GanttChart } from "@/components/gantt-chart";
 import {
   NewTaskModal,
@@ -183,6 +184,7 @@ type View =
   | "my_tasks"
   | "inbox"
   | "reporting"
+  | "billing"
   | "portfolios"
   | "goals"
   | "all_tasks"
@@ -1943,6 +1945,9 @@ function Sidebar({
   ];
   const insights = [
     { id: "reporting" as const, label: "Informes", icon: Gauge },
+    ...(canViewTimeReports
+      ? [{ id: "billing" as const, label: "Facturación", icon: CircleDollarSign }]
+      : []),
     { id: "portfolios" as const, label: "Portafolios", icon: Briefcase },
     { id: "goals" as const, label: "Objetivos", icon: Target },
   ];
@@ -4217,7 +4222,7 @@ function TaskDrawer({
   canCommentTask: boolean;
   googleDriveId?: string | null;
   onClose: () => void;
-  onTaskUpdate: (input: UpdateTaskInput) => void;
+  onTaskUpdate: (input: UpdateTaskInput) => Promise<void> | void;
   onTaskArchive: () => void;
   onTaskDelete: () => void;
   onTaskSelect: (taskId: string) => void;
@@ -5209,6 +5214,19 @@ function TaskDrawer({
                 Separalas con comas. También se incluyen en la búsqueda.
               </span>
             </label>
+          </section>
+
+          <section className="mt-6">
+            <TaskBillingPanel
+              key={`${task.id}-${task.billing?.updatedAt ?? "new"}`}
+              task={task}
+              entries={timeEntries}
+              people={people}
+              currency={currency}
+              canEdit={canAuditTime}
+              onUpdate={onTaskUpdate}
+              notify={notify}
+            />
           </section>
 
           <div className="hidden">
@@ -9380,8 +9398,9 @@ export function TaskaApp() {
             ? `${creationMessage} · ${pendingImages.length} ${pendingImages.length === 1 ? "imagen embebida" : "imágenes embebidas"}`
             : creationMessage,
       );
-    } catch {
-      notify("No se pudo crear la tarea");
+    } catch (error: unknown) {
+      console.error("No se pudo crear la tarea", error);
+      throw error;
     }
   }
 
@@ -9452,6 +9471,8 @@ export function TaskaApp() {
               ? "Bandeja de entrada"
               : view === "reporting"
                 ? "Informes"
+                : view === "billing"
+                  ? "Facturación"
                 : view === "portfolios"
                   ? "Portafolios"
                   : view === "goals"
@@ -9701,6 +9722,15 @@ export function TaskaApp() {
             <GoalsView workspaceId={activeWorkspaceId} projects={projects} people={people} />
           ) : view === "reporting" ? (
             <ReportingView tasks={activeTopLevelTasks} projects={projects} people={people} />
+          ) : view === "billing" ? (
+            <BillingView
+              tasks={tasks}
+              entries={timeEntries}
+              people={people}
+              currency={activeWorkspace?.currency ?? "USD"}
+              onUpdateTask={updateTask}
+              notify={notify}
+            />
           ) : (
             <>
               {view === "home" && (
@@ -10153,14 +10183,15 @@ export function TaskaApp() {
               notify("No tenés permiso para editar esta tarea");
               return;
             }
-            void updateTask(selectedTask.id, input);
+            const operation = updateTask(selectedTask.id, input);
             if (input.status) {
               notify(
                 `Estado actualizado a ${statusMeta[input.status].label}`,
               );
             } else {
-              notify("Tarea actualizada");
+              if (!input.billing) notify("Tarea actualizada");
             }
+            return operation;
           }}
           onComment={(body, type, visibility) => {
             if (!canCommentSelectedTask) {
@@ -10338,6 +10369,7 @@ export function TaskaApp() {
           projects={editableProjects}
           clients={clients}
           people={people}
+          currentUserId={currentUserId}
           defaultProjectId={
             projectId === "todos" ? undefined : projectId
           }

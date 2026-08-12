@@ -102,6 +102,7 @@ export function NewTaskModal({
   projects,
   clients,
   people,
+  currentUserId,
   defaultProjectId,
   defaultStatus,
   googleDriveId,
@@ -111,6 +112,7 @@ export function NewTaskModal({
   projects: Project[];
   clients: Client[];
   people: Person[];
+  currentUserId: string;
   defaultProjectId?: string;
   defaultStatus: TaskStatus;
   googleDriveId?: string | null;
@@ -130,7 +132,9 @@ export function NewTaskModal({
   );
   const [status, setStatus] = useState<TaskStatus>(defaultStatus);
   const [priority, setPriority] = useState<TaskPriority>("media");
-  const [assigneeId, setAssigneeId] = useState(people[0]?.id ?? "");
+  const currentPerson =
+    people.find((person) => person.id === currentUserId) ?? null;
+  const [assigneeId, setAssigneeId] = useState(currentPerson?.id ?? "");
   const [clientId, setClientId] = useState(defaultProject?.clientId ?? "");
   const [clientCategory, setClientCategory] = useState(
     defaultProject?.clientCategory ?? "",
@@ -153,6 +157,7 @@ export function NewTaskModal({
     Array<PendingTaskImage & { attachment: TaskAttachment }>
   >([]);
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [driveConnected, setDriveConnected] = useState(() =>
     hasGoogleDriveToken(),
   );
@@ -183,7 +188,7 @@ export function NewTaskModal({
     if (googleDriveId && !hasGoogleDriveToken()) {
       throw new Error("Conectá Google Drive antes de insertar imágenes.");
     }
-    const uploader = people[0];
+    const uploader = currentPerson;
     if (!uploader) throw new Error("No hay un usuario disponible para cargar la imagen.");
     const created = await Promise.all(
       files.map(async (file) => {
@@ -212,6 +217,7 @@ export function NewTaskModal({
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!title.trim() || !projectId || submitting) return;
+    setSubmitError(null);
     setSubmitting(true);
     try {
       const referencedImages = draftImages
@@ -238,6 +244,12 @@ export function NewTaskModal({
           templateId: templateId || undefined,
         },
         referencedImages,
+      );
+    } catch (error: unknown) {
+      setSubmitError(
+        error instanceof Error
+          ? error.message
+          : "No se pudo crear la tarea. Intentá nuevamente.",
       );
     } finally {
       setSubmitting(false);
@@ -427,7 +439,13 @@ export function NewTaskModal({
         </div>
 
         <footer className="task-detail-comment-composer flex shrink-0 items-center gap-3 border-t border-slate-200 bg-white px-5 py-3 sm:px-7">
-          <span className="hidden text-[10px] text-slate-500 sm:block">⌘ Enter para crear</span>
+          {submitError ? (
+            <p className="min-w-0 flex-1 text-[11px] font-medium text-rose-500" role="alert">
+              {submitError}
+            </p>
+          ) : (
+            <span className="hidden text-[10px] text-slate-500 sm:block">⌘ Enter para crear</span>
+          )}
           <div className="ml-auto flex items-center gap-2">
             <button type="button" onClick={onClose} className="focus-ring rounded-lg px-4 py-2 text-[11px] font-semibold text-slate-500 hover:bg-slate-100">Cancelar</button>
             <button disabled={submitting || !title.trim()} className="focus-ring flex items-center gap-2 rounded-lg bg-[#5b4bec] px-4 py-2.5 text-[11px] font-bold text-white disabled:opacity-50">

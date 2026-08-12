@@ -3,6 +3,7 @@
 import {
   Archive,
   ArchiveRestore,
+  Banknote,
   BookOpen,
   CheckCircle2,
   ChevronDown,
@@ -25,6 +26,10 @@ import {
 import { FormEvent, useMemo, useState } from "react";
 import { clsx } from "clsx";
 import { taskDescriptionPlainText } from "@/lib/task-description";
+import {
+  billingStatusLabels,
+  commercialConditionLabels,
+} from "@/lib/billing-utils";
 import { elapsedSeconds, formatBytes, formatDuration } from "@/lib/task-utils";
 import type {
   ArchiveTaskInput,
@@ -296,7 +301,7 @@ export function ProcessBriefAndHistory({
   );
 }
 
-type ActivityCategory = "tasks" | "comments" | "time" | "files";
+type ActivityCategory = "tasks" | "comments" | "time" | "files" | "billing";
 type ActivityFilter = "all" | ActivityCategory;
 type ProcessActivityEvent = TaskEvent & {
   sourceTaskId: string;
@@ -314,6 +319,7 @@ const activityFilters: Array<{
   { id: "comments", label: "Comentarios" },
   { id: "time", label: "Tiempo" },
   { id: "files", label: "Archivos" },
+  { id: "billing", label: "Facturación" },
 ];
 
 function eventTime(value: string) {
@@ -338,6 +344,7 @@ function eventCategory(event: TaskEvent): ActivityCategory {
     return "time";
   }
   if (event.type.startsWith("attachment_")) return "files";
+  if (event.type.startsWith("billing_")) return "billing";
   return "tasks";
 }
 
@@ -345,6 +352,7 @@ function activityIcon(category: ActivityCategory) {
   if (category === "comments") return MessageSquare;
   if (category === "time") return TimerReset;
   if (category === "files") return Paperclip;
+  if (category === "billing") return Banknote;
   return CheckCircle2;
 }
 
@@ -358,11 +366,29 @@ function activityColors(category: ActivityCategory) {
   if (category === "files") {
     return "bg-amber-50 text-amber-600 ring-amber-100";
   }
+  if (category === "billing") {
+    return "bg-emerald-50 text-emerald-700 ring-emerald-100";
+  }
   return "bg-emerald-50 text-emerald-600 ring-emerald-100";
 }
 
 function activityDetail(event: ProcessActivityEvent) {
   const metadata = event.metadata ?? {};
+  if (event.type === "billing_updated") {
+    const condition = metadata.commercial_condition;
+    const status = metadata.billing_status;
+    const conditionLabel =
+      typeof condition === "string" && condition in commercialConditionLabels
+        ? commercialConditionLabels[
+            condition as keyof typeof commercialConditionLabels
+          ]
+        : null;
+    const statusLabel =
+      typeof status === "string" && status in billingStatusLabels
+        ? billingStatusLabels[status as keyof typeof billingStatusLabels]
+        : null;
+    return [conditionLabel, statusLabel].filter(Boolean).join(" · ") || null;
+  }
   if (typeof metadata.excerpt === "string") return metadata.excerpt;
   if (typeof metadata.description === "string" && metadata.description) {
     return metadata.description;

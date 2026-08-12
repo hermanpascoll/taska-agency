@@ -22,6 +22,7 @@ import type {
   ProjectRole,
   Task,
   TaskAttachment,
+  TaskBilling,
   TaskComment,
   TaskEvent,
   TaskPriority,
@@ -115,6 +116,21 @@ type RemoteTaskEvent = {
   actor: RemotePerson | RemotePerson[] | null;
 };
 
+type RemoteBilling = {
+  commercial_condition: TaskBilling["commercialCondition"];
+  billing_status: TaskBilling["status"];
+  amount: number | string;
+  external_cost: number | string;
+  currency: string | null;
+  invoice_number: string | null;
+  purchase_order: string | null;
+  notes: string | null;
+  invoiced_at: string | null;
+  collected_at: string | null;
+  updated_at: string | null;
+  billing_assignee: RemotePerson | RemotePerson[] | null;
+};
+
 type RemoteTask = {
   id: string;
   task_number: number;
@@ -153,6 +169,7 @@ type RemoteTask = {
       }[]
     | null;
   assignee: RemotePerson | RemotePerson[] | null;
+  billing: RemoteBilling | RemoteBilling[] | null;
   comments: RemoteComment[] | null;
   attachments: RemoteAttachment[] | null;
   events: RemoteTaskEvent[] | null;
@@ -331,6 +348,7 @@ function mapAttachment(
 function mapTask(row: RemoteTask, index: number): Task {
   const remoteProject = one(row.projects);
   const remoteClient = one(row.client);
+  const remoteBilling = one(row.billing);
   const project = remoteProject
     ? mapProject(remoteProject)
     : ({
@@ -408,6 +426,22 @@ function mapTask(row: RemoteTask, index: number): Task {
     comments,
     attachments: (row.attachments ?? []).map(mapAttachment),
     events,
+    billing: remoteBilling
+      ? {
+          commercialCondition: remoteBilling.commercial_condition,
+          status: remoteBilling.billing_status,
+          amount: Number(remoteBilling.amount ?? 0),
+          externalCost: Number(remoteBilling.external_cost ?? 0),
+          currency: remoteBilling.currency,
+          assignee: personFromRemote(one(remoteBilling.billing_assignee), index),
+          invoiceNumber: remoteBilling.invoice_number ?? "",
+          purchaseOrder: remoteBilling.purchase_order ?? "",
+          notes: remoteBilling.notes ?? "",
+          invoicedAt: remoteBilling.invoiced_at,
+          collectedAt: remoteBilling.collected_at,
+          updatedAt: remoteBilling.updated_at,
+        }
+      : undefined,
   };
 }
 
@@ -483,7 +517,7 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     supabase
       .from("tasks")
       .select(
-        "id, task_number, title, description, brief, closure_summary, lessons_learned, archived_at, archived_by, deleted_at, deleted_by, status, priority, start_date, due_date, due_time, client_name, client_email, client_id, client_category, recurrence_rule, recurrence_interval, recurrence_origin_id, recurrence_generated_at, created_at, resolved_at, updated_at, tags, parent_task_id, projects!tasks_project_id_fkey(id, name, color, team_id, description, archived, client_id, client_category, client:clients(id, team_id, name, email, notes, categories, archived)), client:clients!tasks_client_id_fkey(id, team_id, name, email, notes, categories, archived), task_projects(project:projects(id, name, color, team_id, description, archived, client_id, client_category, client:clients(id, team_id, name, email, notes, categories, archived))), assignee:profiles!tasks_assignee_id_fkey(id, full_name, email, role, avatar_url), comments(id, body, comment_type, visibility, deleted_at, created_at, author:profiles!comments_author_id_fkey(id, full_name, email, role, avatar_url)), attachments:task_attachments(id, task_id, name, size_bytes, mime_type, storage_path, storage_provider, external_file_id, external_web_url, external_thumbnail_url, version_group_id, version_number, approval_status, deleted_at, created_at, uploader:profiles!task_attachments_uploaded_by_fkey(id, full_name, email, role, avatar_url)), events:task_events(id, event_type, summary, metadata, created_at, actor:profiles!task_events_actor_id_fkey(id, full_name, email, role, avatar_url))",
+        "id, task_number, title, description, brief, closure_summary, lessons_learned, archived_at, archived_by, deleted_at, deleted_by, status, priority, start_date, due_date, due_time, client_name, client_email, client_id, client_category, recurrence_rule, recurrence_interval, recurrence_origin_id, recurrence_generated_at, created_at, resolved_at, updated_at, tags, parent_task_id, projects!tasks_project_id_fkey(id, name, color, team_id, description, archived, client_id, client_category, client:clients(id, team_id, name, email, notes, categories, archived)), client:clients!tasks_client_id_fkey(id, team_id, name, email, notes, categories, archived), task_projects(project:projects(id, name, color, team_id, description, archived, client_id, client_category, client:clients(id, team_id, name, email, notes, categories, archived))), assignee:profiles!tasks_assignee_id_fkey(id, full_name, email, role, avatar_url), billing:task_billing_records(commercial_condition, billing_status, amount, external_cost, currency, invoice_number, purchase_order, notes, invoiced_at, collected_at, updated_at, billing_assignee:profiles!task_billing_records_billing_assignee_id_fkey(id, full_name, email, role, avatar_url)), comments(id, body, comment_type, visibility, deleted_at, created_at, author:profiles!comments_author_id_fkey(id, full_name, email, role, avatar_url)), attachments:task_attachments(id, task_id, name, size_bytes, mime_type, storage_path, storage_provider, external_file_id, external_web_url, external_thumbnail_url, version_group_id, version_number, approval_status, deleted_at, created_at, uploader:profiles!task_attachments_uploaded_by_fkey(id, full_name, email, role, avatar_url)), events:task_events(id, event_type, summary, metadata, created_at, actor:profiles!task_events_actor_id_fkey(id, full_name, email, role, avatar_url))",
       )
       .order("updated_at", { ascending: false }),
     supabase
@@ -688,7 +722,9 @@ export async function createRemoteTask(input: NewTaskInput) {
     .from("projects")
     .select("id, team_id")
     .in("id", projectIds);
-  if (projectError) throw projectError;
+  if (projectError) {
+    throw new Error(`No se pudieron validar los proyectos: ${projectError.message}`);
+  }
   const teamIds = new Set(
     ((selectedProjects ?? []) as { id: string; team_id: string }[]).map(
       (project) => project.team_id,
@@ -698,10 +734,12 @@ export async function createRemoteTask(input: NewTaskInput) {
     throw new Error("Todos los proyectos deben pertenecer al mismo espacio.");
   }
   const teamId = selectedProjects![0].team_id;
+  const taskId = globalThis.crypto.randomUUID();
 
-  const { data, error } = await supabase
+  const { error } = await supabase
     .from("tasks")
     .insert({
+      id: taskId,
       team_id: teamId,
       project_id: input.projectId,
       assignee_id: input.assigneeId || null,
@@ -720,18 +758,22 @@ export async function createRemoteTask(input: NewTaskInput) {
       recurrence_interval: input.recurrenceInterval,
       status: input.status ?? "nuevo",
       parent_task_id: input.parentTaskId || null,
-    })
-    .select("id")
-    .single();
-  if (error) throw error;
+    });
+  if (error) {
+    throw new Error(`No se pudo guardar la tarea: ${error.message}`);
+  }
   const relations = projectIds.map((projectId) => ({
-    task_id: data.id,
+    task_id: taskId,
     project_id: projectId,
     team_id: teamId,
   }));
   const relationResult = await supabase.from("task_projects").upsert(relations);
-  if (relationResult.error) throw relationResult.error;
-  return data.id as string;
+  if (relationResult.error) {
+    throw new Error(
+      `La tarea se creó, pero no se pudo vincular al proyecto: ${relationResult.error.message}`,
+    );
+  }
+  return taskId;
 }
 
 export async function updateRemoteTask(id: string, input: UpdateTaskInput) {
@@ -799,9 +841,17 @@ export async function updateRemoteTask(id: string, input: UpdateTaskInput) {
     payload.recurrence_interval = input.recurrenceInterval;
   }
   if (input.brief !== undefined) payload.brief = input.brief;
-  if (!Object.keys(payload).length) return;
-  const { error } = await supabase.from("tasks").update(payload).eq("id", id);
-  if (error) throw error;
+  if (Object.keys(payload).length) {
+    const { error } = await supabase.from("tasks").update(payload).eq("id", id);
+    if (error) throw error;
+  }
+  if (input.billing !== undefined) {
+    const { error } = await supabase.rpc("upsert_task_billing_record", {
+      candidate_task_id: id,
+      candidate_billing: input.billing,
+    });
+    if (error) throw error;
+  }
 }
 
 export async function archiveRemoteTask(

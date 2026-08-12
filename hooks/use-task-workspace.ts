@@ -54,6 +54,7 @@ import {
   upsertRemoteProjectMember,
 } from "@/lib/task-repository";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
+import { defaultTaskBilling } from "@/lib/billing-utils";
 import { formatTaskDueLabel, nextTaskCode } from "@/lib/task-utils";
 import type {
   AppNotification,
@@ -145,6 +146,7 @@ function localEvent(
 }
 
 function taskUpdateSummary(input: UpdateTaskInput) {
+  if (input.billing !== undefined) return "Actualizó la ficha de facturación";
   if (input.status === "resuelto") return "Tarea completada";
   if (input.status) return "Cambió el estado de la tarea";
   if (input.assigneeId !== undefined) return "Cambió el responsable";
@@ -390,6 +392,7 @@ export function useTaskWorkspace() {
                 archivedBy: task.archivedBy ?? null,
                 deletedAt: task.deletedAt ?? null,
                 deletedBy: task.deletedBy ?? null,
+                billing: defaultTaskBilling(task.billing),
                 comments: (task.comments ?? []).map((comment) => ({
                   ...comment,
                   type: comment.type ?? "comment",
@@ -613,7 +616,11 @@ export function useTaskWorkspace() {
         );
         const updated = current.map((task) => {
           if (task.id !== taskId) return task;
-          const { projectIds: nextProjectIds, ...taskInput } = input;
+          const {
+            projectIds: nextProjectIds,
+            billing: billingInput,
+            ...taskInput
+          } = input;
           const assignee =
             input.assigneeId === undefined
               ? task.assignee
@@ -650,6 +657,22 @@ export function useTaskWorkspace() {
                 ? null
                 : (task.clientCategory ?? primaryProject.clientCategory);
           const nextStatus = input.status ?? task.status;
+          const previousBilling = defaultTaskBilling(task.billing);
+          const { assigneeId: billingAssigneeId, ...billingFields } =
+            billingInput ?? {};
+          const nextBilling = billingInput
+            ? {
+                ...previousBilling,
+                ...billingFields,
+                assignee:
+                  billingAssigneeId === undefined
+                    ? previousBilling.assignee
+                    : (allPeople.find(
+                        (person) => person.id === billingAssigneeId,
+                      ) ?? null),
+                updatedAt: new Date().toISOString(),
+              }
+            : task.billing;
           return {
             ...task,
             ...taskInput,
@@ -666,6 +689,7 @@ export function useTaskWorkspace() {
             dueDate: nextDueDate,
             dueTime: nextDueTime ?? null,
             dueLabel: formatTaskDueLabel(nextDueDate, nextDueTime),
+            billing: nextBilling,
             resolvedAt:
               nextStatus === "resuelto"
                 ? (task.resolvedAt ?? new Date().toISOString())
@@ -727,6 +751,7 @@ export function useTaskWorkspace() {
           updatedAt: "Ahora",
           comments: [],
           attachments: [],
+          billing: defaultTaskBilling(),
           events: [
             localEvent(
               actor,
@@ -757,6 +782,7 @@ export function useTaskWorkspace() {
               updatedAt: "Ahora",
               comments: [],
               attachments: [],
+              billing: defaultTaskBilling(),
               events: [
                 localEvent(
                   actor,
@@ -1072,6 +1098,7 @@ export function useTaskWorkspace() {
         tags: input.tags,
         comments: [],
         attachments: [],
+        billing: defaultTaskBilling(),
         events: [
           localEvent(
             allPeople.find((person) => person.id === currentUserId) ?? null,

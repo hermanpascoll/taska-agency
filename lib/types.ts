@@ -6,6 +6,15 @@ export type TaskRecurrence =
   | "weekly"
   | "biweekly"
   | "monthly";
+export type CommercialCondition = "pending" | "fee" | "extra" | "non_billable";
+export type BillingStatus =
+  | "not_required"
+  | "pending_info"
+  | "ready"
+  | "invoiced"
+  | "collected"
+  | "observed"
+  | "cancelled";
 export type TeamRole = "owner" | "admin" | "agent" | "viewer";
 export type ProjectRole = "admin" | "editor" | "commenter" | "viewer";
 export type CommentType =
@@ -115,6 +124,25 @@ export type TaskEvent = {
   createdAt: string;
 };
 
+export type TaskBilling = {
+  commercialCondition: CommercialCondition;
+  status: BillingStatus;
+  amount: number;
+  externalCost: number;
+  currency: string | null;
+  assignee: Person | null;
+  invoiceNumber: string;
+  purchaseOrder: string;
+  notes: string;
+  invoicedAt: string | null;
+  collectedAt: string | null;
+  updatedAt: string | null;
+};
+
+export type TaskBillingUpdate = Omit<TaskBilling, "assignee" | "updatedAt"> & {
+  assigneeId: string | null;
+};
+
 export type Task = {
   id: string;
   code: string;
@@ -152,6 +180,7 @@ export type Task = {
   comments: TaskComment[];
   attachments: TaskAttachment[];
   events?: TaskEvent[];
+  billing?: TaskBilling;
 };
 
 export type WorkspaceMember = {
@@ -282,6 +311,7 @@ export type UpdateTaskInput = {
   recurrenceRule?: TaskRecurrence;
   recurrenceInterval?: number;
   brief?: TaskBrief;
+  billing?: Partial<TaskBillingUpdate>;
 };
 
 export type ArchiveTaskInput = {
