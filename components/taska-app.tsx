@@ -6496,13 +6496,15 @@ function NewProjectModal({
   workspaceId: string;
   clients: Client[];
   onClose: () => void;
-  onCreate: (input: NewProjectInput) => void;
+  onCreate: (input: NewProjectInput) => Promise<void> | void;
 }) {
   const [name, setName] = useState("");
   const [color, setColor] = useState("#6556EE");
   const [description, setDescription] = useState("");
   const [clientId, setClientId] = useState("");
   const [clientCategory, setClientCategory] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const selectedClient =
     clients.find((client) => client.id === clientId) ?? null;
   const colors = [
@@ -6514,17 +6516,29 @@ function NewProjectModal({
     "#B15AC7",
   ];
 
-  function submit(event: FormEvent) {
+  async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!name.trim()) return;
-    onCreate({
-      name: name.trim(),
-      color,
-      description: description.trim(),
-      clientId: clientId || undefined,
-      clientCategory: clientCategory || undefined,
-      workspaceId,
-    });
+    if (!name.trim() || submitting) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      await onCreate({
+        name: name.trim(),
+        color,
+        description: description.trim(),
+        clientId: clientId || undefined,
+        clientCategory: clientCategory || undefined,
+        workspaceId,
+      });
+    } catch (error: unknown) {
+      setSubmitError(
+        error instanceof Error
+          ? error.message
+          : "No se pudo crear el proyecto. Intentá nuevamente.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -6646,6 +6660,11 @@ function NewProjectModal({
           </div>
         </fieldset>
         <div className="mt-7 flex justify-end gap-3">
+          {submitError && (
+            <p className="mr-auto self-center text-[10px] font-semibold text-rose-500" role="alert">
+              {submitError}
+            </p>
+          )}
           <button
             type="button"
             onClick={onClose}
@@ -6653,8 +6672,11 @@ function NewProjectModal({
           >
             Cancelar
           </button>
-          <button className="focus-ring rounded-lg bg-[#5b4bec] px-4 py-2.5 text-[11px] font-bold text-white">
-            Crear proyecto
+          <button
+            disabled={submitting || !name.trim()}
+            className="focus-ring rounded-lg bg-[#5b4bec] px-4 py-2.5 text-[11px] font-bold text-white disabled:cursor-wait disabled:opacity-50"
+          >
+            {submitting ? "Creando…" : "Crear proyecto"}
           </button>
         </div>
       </form>
@@ -9427,8 +9449,9 @@ export function TaskaApp() {
         setView("all_tasks");
       }
       notify("Proyecto creado correctamente");
-    } catch {
+    } catch (error: unknown) {
       notify("No se pudo crear el proyecto");
+      throw error;
     }
   }
 

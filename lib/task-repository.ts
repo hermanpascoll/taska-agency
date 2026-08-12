@@ -889,6 +889,7 @@ export async function restoreRemoteTask(id: string) {
 export async function createRemoteProject(input: NewProjectInput) {
   const supabase = createClient();
   if (!supabase) return null;
+  const projectId = globalThis.crypto.randomUUID();
   const slugBase =
     input.name
       .normalize("NFD")
@@ -896,9 +897,10 @@ export async function createRemoteProject(input: NewProjectInput) {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-|-$/g, "") || "proyecto";
-  const { data, error } = await supabase
+  const { error } = await supabase
     .from("projects")
     .insert({
+      id: projectId,
       team_id: input.workspaceId,
       name: input.name,
       description: input.description || null,
@@ -906,12 +908,34 @@ export async function createRemoteProject(input: NewProjectInput) {
       client_category: input.clientCategory || null,
       slug: `${slugBase}-${Date.now().toString(36)}`,
       color: input.color,
-    })
+    });
+  if (error) {
+    throw new Error(`No se pudo guardar el proyecto: ${error.message}`);
+  }
+
+  // PostgREST puede rechazar un INSERT ... RETURNING cuando la política de
+  // lectura depende del project_members creado por el trigger de este insert.
+  // Una lectura separada ya ve esa membresía y evita reportar un falso error.
+  const { data, error: readError } = await supabase
+    .from("projects")
     .select(
       "id, team_id, name, color, description, archived, client_id, client_category, client:clients(id, team_id, name, email, notes, categories, archived)",
     )
+    .eq("id", projectId)
     .single();
-  if (error) throw error;
+  if (readError) {
+    return {
+      id: projectId,
+      name: input.name,
+      color: input.color,
+      workspaceId: input.workspaceId,
+      description: input.description || undefined,
+      clientId: input.clientId ?? null,
+      clientName: null,
+      clientCategory: input.clientCategory ?? null,
+      archived: false,
+    } satisfies Project;
+  }
   return mapProject(data as RemoteProject);
 }
 
