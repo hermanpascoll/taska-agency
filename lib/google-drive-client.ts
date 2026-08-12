@@ -2,6 +2,7 @@ import type { Task } from "@/lib/types";
 
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const GOOGLE_SCRIPT_ID = "taska-google-identity-services";
+const GOOGLE_TOKEN_SESSION_KEY = "taska-google-drive-token";
 
 type GoogleTokenResponse = {
   access_token?: string;
@@ -31,10 +32,43 @@ declare global {
   }
 }
 
-let cachedToken: { value: string; expiresAt: number } | null = null;
+type CachedGoogleToken = { value: string; expiresAt: number };
+
+let cachedToken: CachedGoogleToken | null = null;
 let googleScriptPromise: Promise<void> | null = null;
 
-function loadGoogleIdentityServices() {
+function readSessionToken() {
+  if (cachedToken || typeof window === "undefined") return cachedToken;
+  try {
+    const stored = window.sessionStorage.getItem(GOOGLE_TOKEN_SESSION_KEY);
+    if (!stored) return null;
+    const parsed = JSON.parse(stored) as CachedGoogleToken;
+    if (parsed.value && parsed.expiresAt > Date.now() + 60_000) {
+      cachedToken = parsed;
+      return parsed;
+    }
+    window.sessionStorage.removeItem(GOOGLE_TOKEN_SESSION_KEY);
+  } catch {
+    window.sessionStorage.removeItem(GOOGLE_TOKEN_SESSION_KEY);
+  }
+  return null;
+}
+
+function writeSessionToken(token: CachedGoogleToken) {
+  cachedToken = token;
+  try {
+    window.sessionStorage.setItem(GOOGLE_TOKEN_SESSION_KEY, JSON.stringify(token));
+  } catch {
+    // El token sigue disponible en memoria si sessionStorage está bloqueado.
+  }
+}
+
+export function hasGoogleDriveToken() {
+  const token = readSessionToken();
+  return Boolean(token && token.expiresAt > Date.now() + 60_000);
+}
+
+export function preloadGoogleDriveIdentityServices() {
   if (typeof window === "undefined") {
     return Promise.reject(new Error("Google Drive solo está disponible en el navegador."));
   }
@@ -55,15 +89,19 @@ function loadGoogleIdentityServices() {
   return googleScriptPromise;
 }
 
-export async function requestGoogleDriveToken() {
-  if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) {
-    return cachedToken.value;
+export async function requestGoogleDriveToken(interactive = false) {
+  const availableToken = readSessionToken();
+  if (availableToken && availableToken.expiresAt > Date.now() + 60_000) {
+    return availableToken.value;
+  }
+  if (!interactive) {
+    throw new Error("Conectá Google Drive antes de adjuntar archivos.");
   }
   const clientId = process.env.NEXT_PUBLIC_GOOGLE_DRIVE_CLIENT_ID;
   if (!clientId) {
     throw new Error("Google Drive todavía no está configurado para este entorno.");
   }
-  await loadGoogleIdentityServices();
+  await preloadGoogleDriveIdentityServices();
 
   return new Promise<string>((resolve, reject) => {
     const client = window.google!.accounts.oauth2.initTokenClient({
@@ -78,17 +116,21 @@ export async function requestGoogleDriveToken() {
           );
           return;
         }
-        cachedToken = {
+        writeSessionToken({
           value: response.access_token,
           expiresAt: Date.now() + Math.max(60, response.expires_in ?? 3600) * 1000,
-        };
+        });
         resolve(response.access_token);
       },
       error_callback: (error) =>
         reject(new Error(error.message || "Se cerró la autorización de Google Drive.")),
     });
-    client.requestAccessToken({ prompt: "" });
+    client.requestAccessToken({ prompt: "consent" });
   });
+}
+
+export function connectGoogleDrive() {
+  return requestGoogleDriveToken(true);
 }
 
 export type GoogleDriveUpload = {

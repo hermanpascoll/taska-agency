@@ -4,18 +4,24 @@ import {
   CalendarDays,
   ChevronDown,
   Circle,
+  Cloud,
   Layers3,
   LoaderCircle,
   Plus,
   Sparkles,
   X,
 } from "lucide-react";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { TaskRichTextEditor } from "@/components/task-rich-text-editor";
 import {
   findProcessTemplate,
   processTemplates,
 } from "@/lib/process-templates";
+import {
+  connectGoogleDrive,
+  hasGoogleDriveToken,
+  preloadGoogleDriveIdentityServices,
+} from "@/lib/google-drive-client";
 import type {
   Client,
   NewTaskInput,
@@ -98,6 +104,7 @@ export function NewTaskModal({
   people,
   defaultProjectId,
   defaultStatus,
+  googleDriveId,
   onClose,
   onCreate,
 }: {
@@ -106,6 +113,7 @@ export function NewTaskModal({
   people: Person[];
   defaultProjectId?: string;
   defaultStatus: TaskStatus;
+  googleDriveId?: string | null;
   onClose: () => void;
   onCreate: (
     task: NewTaskInput,
@@ -145,10 +153,21 @@ export function NewTaskModal({
     Array<PendingTaskImage & { attachment: TaskAttachment }>
   >([]);
   const [submitting, setSubmitting] = useState(false);
+  const [driveConnected, setDriveConnected] = useState(() =>
+    hasGoogleDriveToken(),
+  );
+  const [connectingDrive, setConnectingDrive] = useState(false);
+  const [driveMessage, setDriveMessage] = useState<string | null>(null);
   const selectedClient = clients.find((client) => client.id === clientId) ?? null;
   const selectedProject =
     projects.find((project) => project.id === projectId) ?? defaultProject;
   const assignee = people.find((person) => person.id === assigneeId) ?? null;
+
+  useEffect(() => {
+    if (!googleDriveId) return;
+    void preloadGoogleDriveIdentityServices().catch(() => undefined);
+    setDriveConnected(hasGoogleDriveToken());
+  }, [googleDriveId]);
 
   const draftDocument = useMemo(
     () => ({
@@ -160,6 +179,9 @@ export function NewTaskModal({
   );
 
   async function uploadDraftImages(files: File[]) {
+    if (googleDriveId && !hasGoogleDriveToken()) {
+      throw new Error("Conectá Google Drive antes de insertar imágenes.");
+    }
     const uploader = people[0];
     if (!uploader) throw new Error("No hay un usuario disponible para cargar la imagen.");
     const created = await Promise.all(
@@ -331,7 +353,45 @@ export function NewTaskModal({
           </section>
 
           <section className="task-detail-description mt-6">
-            <h3 className="text-[15px] font-bold text-slate-800">Descripción</h3>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-[15px] font-bold text-slate-800">Descripción</h3>
+              {googleDriveId && !driveConnected && (
+                <button
+                  type="button"
+                  disabled={connectingDrive}
+                  onClick={() => {
+                    setConnectingDrive(true);
+                    setDriveMessage(null);
+                    void connectGoogleDrive()
+                      .then(() => {
+                        setDriveConnected(true);
+                        setDriveMessage("Google Drive conectado");
+                      })
+                      .catch((error: unknown) =>
+                        setDriveMessage(
+                          error instanceof Error
+                            ? error.message
+                            : "No se pudo conectar Google Drive",
+                        ),
+                      )
+                      .finally(() => setConnectingDrive(false));
+                  }}
+                  className="focus-ring flex items-center gap-1.5 rounded-lg bg-[#0a84ff]/10 px-3 py-2 text-[10px] font-semibold text-[#5aa7ff] hover:bg-[#0a84ff]/15 disabled:opacity-60"
+                >
+                  {connectingDrive ? (
+                    <LoaderCircle className="size-3.5 animate-spin" />
+                  ) : (
+                    <Cloud className="size-3.5" />
+                  )}
+                  {connectingDrive ? "Conectando…" : "Conectar Drive"}
+                </button>
+              )}
+            </div>
+            {driveMessage && (
+              <p className="mt-2 text-[10px] text-slate-400" role="status">
+                {driveMessage}
+              </p>
+            )}
             <TaskRichTextEditor
               task={draftDocument}
               onUpdate={setDescription}

@@ -17,6 +17,7 @@ import {
   ChevronRight,
   Circle,
   Clock3,
+  Cloud,
   Columns3,
   CircleDollarSign,
   ContactRound,
@@ -125,6 +126,11 @@ import {
   descriptionWithoutDraftImages,
 } from "@/lib/pending-task-description";
 import { createClient } from "@/lib/supabase/client";
+import {
+  connectGoogleDrive,
+  hasGoogleDriveToken,
+  preloadGoogleDriveIdentityServices,
+} from "@/lib/google-drive-client";
 import {
   buildTimeReportCsv,
   canAuditTimeReports,
@@ -4172,6 +4178,7 @@ function TaskDrawer({
   canAuditTime,
   canEditTask,
   canCommentTask,
+  googleDriveId,
   onClose,
   onTaskUpdate,
   onTaskArchive,
@@ -4208,6 +4215,7 @@ function TaskDrawer({
   canAuditTime: boolean;
   canEditTask: boolean;
   canCommentTask: boolean;
+  googleDriveId?: string | null;
   onClose: () => void;
   onTaskUpdate: (input: UpdateTaskInput) => void;
   onTaskArchive: () => void;
@@ -4250,6 +4258,10 @@ function TaskDrawer({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [driveConnected, setDriveConnected] = useState(() =>
+    hasGoogleDriveToken(),
+  );
+  const [connectingDrive, setConnectingDrive] = useState(false);
   const [subtaskTitle, setSubtaskTitle] = useState("");
   const [subtaskAssigneeId, setSubtaskAssigneeId] = useState(
     task.assignee?.id ?? currentPerson?.id ?? "",
@@ -4294,6 +4306,35 @@ function TaskDrawer({
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
+
+  useEffect(() => {
+    if (!googleDriveId) return;
+    void preloadGoogleDriveIdentityServices().catch(() => undefined);
+    setDriveConnected(hasGoogleDriveToken());
+  }, [googleDriveId]);
+
+  async function requestAttachmentSelection() {
+    if (googleDriveId && !hasGoogleDriveToken()) {
+      if (connectingDrive) return;
+      setConnectingDrive(true);
+      try {
+        await connectGoogleDrive();
+        setDriveConnected(true);
+        notify("Google Drive conectado. Volvé a presionar Adjuntar.");
+      } catch (error: unknown) {
+        notify(
+          error instanceof Error
+            ? error.message
+            : "No se pudo conectar Google Drive",
+        );
+      } finally {
+        setConnectingDrive(false);
+      }
+      return;
+    }
+    setDriveConnected(hasGoogleDriveToken());
+    attachmentInput.current?.click();
+  }
 
   useEffect(() => {
     const previousFocus =
@@ -5284,7 +5325,7 @@ function TaskDrawer({
                 </span>
               </h3>
               <button
-                onClick={() => attachmentInput.current?.click()}
+                onClick={() => void requestAttachmentSelection()}
                 className="focus-ring flex items-center gap-1.5 rounded-lg bg-[#0a84ff]/10 px-2.5 py-1.5 text-[10px] font-semibold text-[#0879ea] hover:bg-[#0a84ff]/15"
               >
                 <Plus className="size-3.5" />
@@ -5389,7 +5430,7 @@ function TaskDrawer({
               ))}
               {task.attachments.length === 0 && (
                 <button
-                  onClick={() => attachmentInput.current?.click()}
+                  onClick={() => void requestAttachmentSelection()}
                   className="focus-ring w-full rounded-xl border border-dashed border-slate-200 p-4 text-center text-[10px] text-slate-400 hover:border-[#0a84ff]/40 hover:bg-[#0a84ff]/5 hover:text-[#0879ea]"
                 >
                   Arrastrá el contexto al equipo con archivos de hasta 100 MB.
@@ -5614,11 +5655,21 @@ function TaskDrawer({
                   </div>
                   {canCommentTask && <button
                     type="button"
-                    onClick={() => attachmentInput.current?.click()}
+                    onClick={() => void requestAttachmentSelection()}
                     className="focus-ring flex items-center gap-1.5 rounded-lg bg-[#0a84ff]/10 px-3 py-2 text-[10px] font-semibold text-[#5aa7ff] hover:bg-[#0a84ff]/15"
                   >
-                    <Plus className="size-3.5" />
-                    Adjuntar
+                    {connectingDrive ? (
+                      <LoaderCircle className="size-3.5 animate-spin" />
+                    ) : googleDriveId && !driveConnected ? (
+                      <Cloud className="size-3.5" />
+                    ) : (
+                      <Plus className="size-3.5" />
+                    )}
+                    {googleDriveId && !driveConnected
+                      ? connectingDrive
+                        ? "Conectando…"
+                        : "Conectar Drive"
+                      : "Adjuntar"}
                   </button>}
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2">
@@ -5692,7 +5743,7 @@ function TaskDrawer({
                   {task.attachments.length === 0 && canCommentTask && (
                     <button
                       type="button"
-                      onClick={() => attachmentInput.current?.click()}
+                      onClick={() => void requestAttachmentSelection()}
                       className="focus-ring col-span-full rounded-xl border border-dashed border-slate-300 p-8 text-center text-[10px] text-slate-400 hover:border-[#0a84ff]/50 hover:text-[#5aa7ff]"
                     >
                       Todavía no hay archivos. Hacé clic para adjuntar.
@@ -5804,7 +5855,7 @@ function TaskDrawer({
                   </select>
                   <button
                     type="button"
-                    onClick={() => attachmentInput.current?.click()}
+                    onClick={() => void requestAttachmentSelection()}
                     className="focus-ring rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                     aria-label="Adjuntar archivo desde el comentario"
                     title="Adjuntar archivo"
@@ -10091,6 +10142,7 @@ export function TaskaApp() {
           canAuditTime={canAuditTime}
           canEditTask={canEditSelectedTask}
           canCommentTask={canCommentSelectedTask}
+          googleDriveId={activeWorkspace?.googleDriveId}
           onClose={() => setSelectedTaskId(null)}
           onTaskSelect={setSelectedTaskId}
           onTaskArchive={() => setTaskToArchiveId(selectedTask.id)}
@@ -10289,6 +10341,7 @@ export function TaskaApp() {
             projectId === "todos" ? undefined : projectId
           }
           defaultStatus={newTaskStatus}
+          googleDriveId={activeWorkspace?.googleDriveId}
           onClose={() => setShowNewTask(false)}
           onCreate={handleCreate}
         />

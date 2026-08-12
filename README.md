@@ -114,10 +114,12 @@ el tipo, el tamaño y la información de auditoría; el archivo permanece en Dri
    `teams.google_drive_id`. Opcionalmente, guardá su nombre en
    `teams.google_drive_name`.
 
-La primera carga de cada usuario abre el consentimiento de Google. Taska no
-recibe ni almacena contraseñas de Google y el token permanece temporalmente en
-el navegador. Si un usuario no pertenece a la unidad compartida, Drive rechazará
-la carga aunque sea integrante del espacio en Taska.
+Antes de su primera carga, cada usuario debe presionar **Conectar Drive** y
+aceptar el consentimiento de Google. Luego puede adjuntar archivos normalmente
+durante el resto de esa sesión. Taska no recibe ni almacena contraseñas de
+Google y el token permanece temporalmente en el navegador. Si un usuario no
+pertenece a la unidad compartida, Drive rechazará la carga aunque sea integrante
+del espacio en Taska.
 
 ## Conectar Supabase
 
