@@ -148,6 +148,7 @@ import type {
   AdvancedFilters,
   AppNotification,
   AppSettings,
+  EmailNotificationPreferences,
   ArchiveTaskInput,
   AttachmentApprovalStatus,
   Client,
@@ -8280,10 +8281,12 @@ function SettingsModal({
   members,
   invitations,
   settings,
+  emailPreferences,
   mode,
   onClose,
   onProfileUpdate,
   onSettingsUpdate,
+  onEmailPreferencesUpdate,
   onInvite,
   onInvitationRevoke,
   onRoleUpdate,
@@ -8300,6 +8303,7 @@ function SettingsModal({
   members: WorkspaceMember[];
   invitations: TeamInvitation[];
   settings: AppSettings;
+  emailPreferences: EmailNotificationPreferences;
   mode: "demo" | "supabase";
   onClose: () => void;
   onProfileUpdate: (
@@ -8308,6 +8312,9 @@ function SettingsModal({
     avatarFile?: File | null,
   ) => Promise<void>;
   onSettingsUpdate: (settings: Partial<AppSettings>) => void;
+  onEmailPreferencesUpdate: (
+    preferences: Partial<EmailNotificationPreferences>,
+  ) => Promise<void>;
   onInvite: (
     email: string,
     role: Exclude<TeamRole, "owner">,
@@ -8322,7 +8329,9 @@ function SettingsModal({
   onResetDemo: () => void;
   notify: (message: string) => void;
 }) {
-  const [tab, setTab] = useState<"general" | "team" | "workspace">("general");
+  const [tab, setTab] = useState<
+    "general" | "notifications" | "team" | "workspace"
+  >("general");
   const [name, setName] = useState(currentPerson?.name ?? "");
   const [profileTitle, setProfileTitle] = useState(
     currentPerson?.role ?? "Equipo creativo",
@@ -8420,6 +8429,7 @@ function SettingsModal({
 
   const tabs = [
     { id: "general" as const, label: "General", icon: Settings },
+    { id: "notifications" as const, label: "Notificaciones", icon: Bell },
     { id: "team" as const, label: "Integrantes", icon: Users },
     { id: "workspace" as const, label: "Espacio", icon: Building2 },
   ];
@@ -8769,6 +8779,114 @@ function SettingsModal({
                     Restaurar datos de demostración
                   </button>
                 )}
+              </div>
+            )}
+
+            {tab === "notifications" && (
+              <div className="space-y-7">
+                <section>
+                  <h3 className="text-[12px] font-bold text-slate-800">
+                    Correos de Taska
+                  </h3>
+                  <p className="mt-1 text-[9px] leading-relaxed text-slate-400">
+                    Elegí cuándo querés recibir por email los avisos que también
+                    aparecen en tu bandeja de entrada.
+                  </p>
+                  <div className="mt-4 grid grid-cols-3 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1.5">
+                    {(
+                      [
+                        ["instant", "Inmediatos"],
+                        ["daily", "Resumen diario"],
+                        ["off", "Desactivados"],
+                      ] as const
+                    ).map(([deliveryMode, label]) => (
+                      <button
+                        key={deliveryMode}
+                        type="button"
+                        onClick={() =>
+                          void onEmailPreferencesUpdate({ deliveryMode }).catch(
+                            (error: unknown) =>
+                              notify(
+                                error instanceof Error
+                                  ? error.message
+                                  : "No se pudieron guardar las preferencias",
+                              ),
+                          )
+                        }
+                        className={clsx(
+                          "focus-ring rounded-lg px-2 py-2.5 text-[9px] font-bold transition",
+                          emailPreferences.deliveryMode === deliveryMode
+                            ? "bg-[#0a84ff] text-white shadow-sm"
+                            : "text-slate-500 hover:bg-white",
+                        )}
+                        aria-pressed={
+                          emailPreferences.deliveryMode === deliveryMode
+                        }
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
+                <section>
+                  <h3 className="text-[12px] font-bold text-slate-800">
+                    Tipos de aviso
+                  </h3>
+                  <div className="mt-3 divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white">
+                    {(
+                      [
+                        ["assignments", "Asignaciones", "Cuando te asignan una tarea o subtarea."],
+                        ["comments", "Comentarios", "Cuando hay una actualización en tu tarea."],
+                        ["reviews", "Revisiones y aprobaciones", "Cuando un trabajo queda listo para revisar."],
+                        ["dueReminders", "Vencimientos", "Recordatorios de tareas que vencen hoy."],
+                        ["projectUpdates", "Proyectos compartidos", "Nuevas tareas en proyectos que seguís."],
+                        ["billing", "Facturación", "Procesos que requieren gestión administrativa."],
+                      ] as const
+                    ).map(([key, label, description]) => (
+                      <div key={key} className="flex items-center gap-3 p-4">
+                        <span className="flex-1">
+                          <span className="block text-[11px] font-semibold text-slate-700">
+                            {label}
+                          </span>
+                          <span className="mt-0.5 block text-[9px] text-slate-400">
+                            {description}
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={emailPreferences[key]}
+                          disabled={emailPreferences.deliveryMode === "off"}
+                          onClick={() =>
+                            void onEmailPreferencesUpdate({
+                              [key]: !emailPreferences[key],
+                            }).catch((error: unknown) =>
+                              notify(
+                                error instanceof Error
+                                  ? error.message
+                                  : "No se pudieron guardar las preferencias",
+                              ),
+                            )
+                          }
+                          className={clsx(
+                            "focus-ring relative h-6 w-11 shrink-0 rounded-full p-0.5 transition disabled:opacity-40",
+                            emailPreferences[key]
+                              ? "bg-[#0a84ff]"
+                              : "bg-slate-300",
+                          )}
+                        >
+                          <span
+                            className={clsx(
+                              "block size-5 rounded-full bg-white shadow-sm transition-transform",
+                              emailPreferences[key] && "translate-x-5",
+                            )}
+                          />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
               </div>
             )}
 
@@ -9158,6 +9276,7 @@ export function TaskaApp() {
     projectMembers,
     projectInvitations,
     notifications,
+    emailPreferences,
     timeEntries,
     currentUserId,
     activeWorkspaceId,
@@ -9202,6 +9321,7 @@ export function TaskaApp() {
     markAllNotificationsRead,
     updateProfile,
     updateSettings,
+    updateEmailPreferences,
     startTimer,
     stopTimer,
     createManualTimeEntry,
@@ -10776,10 +10896,12 @@ export function TaskaApp() {
           members={members}
           invitations={invitations}
           settings={settings}
+          emailPreferences={emailPreferences}
           mode={mode}
           onClose={() => setSettingsOpen(false)}
           onProfileUpdate={updateProfile}
           onSettingsUpdate={updateSettings}
+          onEmailPreferencesUpdate={updateEmailPreferences}
           onInvite={inviteMember}
           onInvitationRevoke={(id) => void revokeInvitation(id)}
           onRoleUpdate={(userId, role) =>

@@ -288,6 +288,19 @@ export type AppNotification = {
   taskId: string | null;
 };
 
+export type EmailDeliveryMode = "instant" | "daily" | "off";
+
+export type EmailNotificationPreferences = {
+  deliveryMode: EmailDeliveryMode;
+  assignments: boolean;
+  comments: boolean;
+  reviews: boolean;
+  billing: boolean;
+  projectUpdates: boolean;
+  dueReminders: boolean;
+  timezone: string;
+};
+
 export type AppSettings = {
   compactMode: boolean;
   showCompleted: boolean;

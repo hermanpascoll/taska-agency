@@ -51,6 +51,7 @@ import {
   updateRemoteProfile,
   updateRemoteProject,
   updateRemoteTask,
+  updateRemoteEmailPreferences,
   updateRemoteWorkspace,
   uploadRemoteAttachment,
   upsertRemoteProjectMember,
@@ -67,6 +68,7 @@ import type {
   ArchiveTaskInput,
   AttachmentApprovalStatus,
   AppSettings,
+  EmailNotificationPreferences,
   Client,
   CommentType,
   CommentVisibility,
@@ -108,6 +110,17 @@ const defaultSettings: AppSettings = {
   theme: "dark",
   warnTimerOverlaps: true,
   staleTimerHours: 8,
+};
+
+const defaultEmailPreferences: EmailNotificationPreferences = {
+  deliveryMode: "instant",
+  assignments: true,
+  comments: true,
+  reviews: true,
+  billing: true,
+  projectUpdates: true,
+  dueReminders: true,
+  timezone: "America/Montevideo",
 };
 
 function loadStoredSettings(): AppSettings {
@@ -282,6 +295,8 @@ export function useTaskWorkspace() {
   >([]);
   const [notifications, setNotifications] =
     useState<AppNotification[]>(supabaseConfigured ? [] : demoNotifications);
+  const [emailPreferences, setEmailPreferences] =
+    useState<EmailNotificationPreferences>(defaultEmailPreferences);
   const [allTimeEntries, setAllTimeEntries] =
     useState<TimeEntry[]>(supabaseConfigured ? [] : demoTimeEntries);
   const [peopleByWorkspace, setPeopleByWorkspace] = useState<
@@ -325,6 +340,7 @@ export function useTaskWorkspace() {
       setProjectMembers(workspace.projectMembers);
       setProjectInvitations(workspace.projectInvitations);
       setNotifications(workspace.notifications);
+      setEmailPreferences(workspace.emailPreferences);
       setAllTimeEntries(workspace.timeEntries);
       const sameUser = currentUserIdRef.current === workspace.currentUserId;
       currentUserIdRef.current = workspace.currentUserId;
@@ -373,6 +389,7 @@ export function useTaskWorkspace() {
             peopleByWorkspace?: Record<string, string[]>;
             activeWorkspaceId?: string;
             settings?: AppSettings;
+            emailPreferences?: EmailNotificationPreferences;
           };
           if (Array.isArray(snapshot.tasks)) {
             const demoDates = new Map(
@@ -496,6 +513,12 @@ export function useTaskWorkspace() {
               theme: current.theme,
             }));
           }
+          if (snapshot.emailPreferences) {
+            setEmailPreferences({
+              ...defaultEmailPreferences,
+              ...snapshot.emailPreferences,
+            });
+          }
         }
       } catch (error) {
         console.warn("No se pudo restaurar la demo guardada:", error);
@@ -549,6 +572,7 @@ export function useTaskWorkspace() {
         peopleByWorkspace,
         activeWorkspaceId,
         settings,
+        emailPreferences,
       }),
     );
   }, [
@@ -559,6 +583,7 @@ export function useTaskWorkspace() {
     allTasks,
     allTimeEntries,
     demoReady,
+    emailPreferences,
     invitations,
     projectInvitations,
     projectMembers,
@@ -2110,6 +2135,22 @@ export function useTaskWorkspace() {
     setSettings((current) => ({ ...current, ...input }));
   }, []);
 
+  const updateEmailPreferences = useCallback(
+    async (input: Partial<EmailNotificationPreferences>) => {
+      const previous = emailPreferences;
+      const next = { ...previous, ...input };
+      setEmailPreferences(next);
+      if (mode !== "supabase") return;
+      try {
+        await updateRemoteEmailPreferences(next);
+      } catch (error) {
+        setEmailPreferences(previous);
+        throw error;
+      }
+    },
+    [emailPreferences, mode],
+  );
+
   useEffect(() => {
     applyTheme(settings.theme);
     if (settings.theme !== "system") return;
@@ -2426,6 +2467,7 @@ export function useTaskWorkspace() {
     );
     setProjectInvitations([]);
     setNotifications(demoNotifications);
+    setEmailPreferences(defaultEmailPreferences);
     setAllTimeEntries(demoTimeEntries);
     setPeopleByWorkspace({
       [demoWorkspaces[0].id]: demoPeople.map((person) => person.id),
@@ -2445,6 +2487,7 @@ export function useTaskWorkspace() {
     projectMembers,
     projectInvitations,
     notifications,
+    emailPreferences,
     timeEntries,
     currentUserId,
     activeWorkspaceId,
@@ -2489,6 +2532,7 @@ export function useTaskWorkspace() {
     markAllNotificationsRead,
     updateProfile,
     updateSettings,
+    updateEmailPreferences,
     startTimer,
     stopTimer,
     createManualTimeEntry,

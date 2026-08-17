@@ -11,6 +11,7 @@ import type {
   Client,
   CommentType,
   CommentVisibility,
+  EmailNotificationPreferences,
   NewClientInput,
   NewManualTimeEntryInput,
   NewScopedTimeEntryInput,
@@ -249,6 +250,7 @@ export type LoadedWorkspace = {
   projectMembers: ProjectMember[];
   projectInvitations: ProjectInvitation[];
   notifications: AppNotification[];
+  emailPreferences: EmailNotificationPreferences;
   timeEntries: TimeEntry[];
   tasks: Task[];
 };
@@ -516,6 +518,7 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     projectMembersResult,
     projectInvitationsResult,
     notificationsResult,
+    emailPreferencesResult,
     timeEntriesResult,
     clientFinancialsResult,
   ] = await Promise.all([
@@ -572,6 +575,10 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
       .order("created_at", { ascending: false })
       .limit(50),
     supabase
+      .from("notification_preferences")
+      .select("delivery_mode, assignments, comments, reviews, billing, project_updates, due_reminders, timezone")
+      .maybeSingle(),
+    supabase
       .from("time_entries")
       .select(
         "id, team_id, task_id, project_id, client_id, description, started_at, ended_at, duration_seconds, billable, hourly_rate, created_at, task:tasks!time_entries_task_id_fkey(task_number, title, project:projects!tasks_project_id_fkey(id, name)), project:projects!time_entries_project_id_fkey(id, name), client:clients!time_entries_client_id_fkey(id, name), user:profiles!time_entries_user_id_fkey(id, full_name, email, role, avatar_url)",
@@ -592,6 +599,7 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     projectMembersResult,
     projectInvitationsResult,
     notificationsResult,
+    emailPreferencesResult,
     timeEntriesResult,
     clientFinancialsResult,
   ]) {
@@ -688,6 +696,16 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     created_at: string;
     read_at: string | null;
   }[];
+  const remoteEmailPreferences = emailPreferencesResult.data as {
+    delivery_mode: EmailNotificationPreferences["deliveryMode"];
+    assignments: boolean;
+    comments: boolean;
+    reviews: boolean;
+    billing: boolean;
+    project_updates: boolean;
+    due_reminders: boolean;
+    timezone: string;
+  } | null;
 
   return {
     currentUserId,
@@ -748,6 +766,16 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
       createdAt: relativeTime(notification.created_at),
       readAt: notification.read_at,
     })),
+    emailPreferences: {
+      deliveryMode: remoteEmailPreferences?.delivery_mode ?? "instant",
+      assignments: remoteEmailPreferences?.assignments ?? true,
+      comments: remoteEmailPreferences?.comments ?? true,
+      reviews: remoteEmailPreferences?.reviews ?? true,
+      billing: remoteEmailPreferences?.billing ?? true,
+      projectUpdates: remoteEmailPreferences?.project_updates ?? true,
+      dueReminders: remoteEmailPreferences?.due_reminders ?? true,
+      timezone: remoteEmailPreferences?.timezone ?? "America/Montevideo",
+    },
     timeEntries: (
       (timeEntriesResult.data ?? []) as unknown as RemoteTimeEntry[]
     ).map(mapTimeEntry),
@@ -1570,6 +1598,28 @@ export async function markAllRemoteNotificationsRead() {
     .update({ read_at: new Date().toISOString() })
     .eq("user_id", data.user.id)
     .is("read_at", null);
+  if (error) throw error;
+}
+
+export async function updateRemoteEmailPreferences(
+  preferences: EmailNotificationPreferences,
+) {
+  const supabase = createClient();
+  if (!supabase) return;
+  const { data } = await supabase.auth.getUser();
+  if (!data.user) throw new Error("No hay una sesión activa.");
+  const { error } = await supabase.from("notification_preferences").upsert({
+    user_id: data.user.id,
+    delivery_mode: preferences.deliveryMode,
+    assignments: preferences.assignments,
+    comments: preferences.comments,
+    reviews: preferences.reviews,
+    billing: preferences.billing,
+    project_updates: preferences.projectUpdates,
+    due_reminders: preferences.dueReminders,
+    timezone: preferences.timezone,
+    updated_at: new Date().toISOString(),
+  });
   if (error) throw error;
 }
 
