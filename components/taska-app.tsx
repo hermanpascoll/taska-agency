@@ -9693,6 +9693,23 @@ export function TaskaApp() {
     );
   }
 
+  if (mode === "supabase" && workspaces.length === 0) {
+    return (
+      <main className="mac-wallpaper grid min-h-screen place-items-center bg-[#f1f3f6] p-5">
+        <section className="mac-window w-full max-w-lg rounded-2xl border border-white/80 bg-white/90 p-8 text-center shadow-2xl backdrop-blur-xl">
+          <span className="mx-auto grid size-12 place-items-center rounded-2xl bg-[#0a84ff]/10 text-[#0879ea]"><Building2 className="size-6" /></span>
+          <h1 className="mt-5 text-xl font-bold text-slate-900">Todavía no tenés un espacio</h1>
+          <p className="mx-auto mt-2 max-w-sm text-[11px] leading-5 text-slate-500">Si te invitaron, pedí un enlace nuevo o recargá esta página. También podés crear un espacio propio sin cargar datos de demostración.</p>
+          <div className="mt-6 flex flex-col justify-center gap-2 sm:flex-row">
+            <button onClick={() => setShowNewWorkspace(true)} className="mac-button-primary rounded-lg px-4 py-2.5 text-[10px] font-bold text-white">Crear espacio</button>
+            <button onClick={() => void signOut()} className="rounded-lg border border-slate-200 px-4 py-2.5 text-[10px] font-semibold text-slate-600">Cerrar sesión</button>
+          </div>
+        </section>
+        {showNewWorkspace && <NewWorkspaceModal onClose={() => setShowNewWorkspace(false)} onCreate={(name) => void handleCreateWorkspace(name)} />}
+      </main>
+    );
+  }
+
   return (
     <div
       className="asana-clone-shell mac-wallpaper flex min-h-screen bg-[#f1f3f6]"
