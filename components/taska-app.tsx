@@ -181,6 +181,7 @@ import type {
 type View =
   | "home"
   | "my_tasks"
+  | "my_time"
   | "inbox"
   | "reporting"
   | "billing"
@@ -189,7 +190,8 @@ type View =
   | "all_tasks"
   | "board"
   | "gantt"
-  | "archive";
+  | "archive"
+  | "trash";
 type TaskScope = "mine" | "all";
 type ProjectTab =
   | "overview"
@@ -1954,6 +1956,7 @@ function Sidebar({
   const nav = [
     { id: "home" as const, label: "Inicio", icon: Home },
     { id: "my_tasks" as const, label: "Mis tareas", icon: CheckCircle2 },
+    { id: "my_time" as const, label: "Mis tiempos", icon: Clock3 },
     { id: "all_tasks" as const, label: "Todas las tareas", icon: ListTodo },
     { id: "inbox" as const, label: "Bandeja de entrada", icon: Inbox },
   ];
@@ -2133,6 +2136,16 @@ function Sidebar({
             <Archive className="size-[17px]" />
             Archivo de procesos
           </button>}
+          <button
+            onClick={() => select("trash")}
+            className={clsx(
+              "focus-ring mt-1 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium transition",
+              view === "trash" ? "bg-[#f06a6a]/12 text-[#cf4b4b]" : "text-slate-600 hover:bg-black/[0.045]",
+            )}
+          >
+            <Trash2 className="size-[17px]" />
+            Papelera
+          </button>
           {canViewTimeReports && (
             <button
               onClick={() => {
@@ -7802,6 +7815,232 @@ function NotificationsPopover({
   );
 }
 
+type MyTimePeriod = "today" | "week" | "month" | "all";
+
+function MyTimeHistoryView({
+  entries,
+  onOpenTask,
+  onStop,
+}: {
+  entries: TimeEntry[];
+  onOpenTask: (taskId: string) => void;
+  onStop: (entryId: string) => void;
+}) {
+  const [period, setPeriod] = useState<MyTimePeriod>("week");
+  const [search, setSearch] = useState("");
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    if (!entries.some((entry) => !entry.endedAt)) return;
+    const interval = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(interval);
+  }, [entries]);
+
+  const visibleEntries = useMemo(() => {
+    const threshold = new Date(now);
+    threshold.setHours(0, 0, 0, 0);
+    if (period === "week") threshold.setDate(threshold.getDate() - 6);
+    if (period === "month") threshold.setDate(1);
+    const normalizedSearch = search.trim().toLowerCase();
+
+    return [...entries]
+      .filter((entry) => {
+        const startedAt = new Date(entry.startedAt);
+        const inPeriod = period === "all" || startedAt >= threshold;
+        const haystack = [
+          entry.taskCode,
+          entry.taskTitle,
+          entry.projectName,
+          entry.clientName,
+          entry.description,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return inPeriod && (!normalizedSearch || haystack.includes(normalizedSearch));
+      })
+      .sort(
+        (first, second) =>
+          new Date(second.startedAt).getTime() -
+          new Date(first.startedAt).getTime(),
+      );
+  }, [entries, now, period, search]);
+
+  const totalSeconds = visibleEntries.reduce(
+    (total, entry) => total + elapsedSeconds(entry, now),
+    0,
+  );
+  const billableSeconds = visibleEntries.reduce(
+    (total, entry) =>
+      total + (entry.billable ? elapsedSeconds(entry, now) : 0),
+    0,
+  );
+  const activeCount = visibleEntries.filter((entry) => !entry.endedAt).length;
+  const dayCount = new Set(
+    visibleEntries.map((entry) => entry.startedAt.slice(0, 10)),
+  ).size;
+  const dateFormatter = new Intl.DateTimeFormat("es-UY", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+  const timeFormatter = new Intl.DateTimeFormat("es-UY", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  return (
+    <section className="animate-enter">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.13em] text-[#0a84ff]">
+            Registro personal
+          </p>
+          <h1 className="mt-1.5 text-[25px] font-bold tracking-[-0.035em] text-slate-900 sm:text-[30px]">
+            Mis tiempos
+          </h1>
+          <p className="mt-1 text-[11px] text-slate-500">
+            Tu historial de trabajo, incluyendo timers activos y cargas manuales.
+          </p>
+        </div>
+        <div className="flex rounded-lg border border-slate-200 bg-white p-1">
+          {(
+            [
+              ["today", "Hoy"],
+              ["week", "7 días"],
+              ["month", "Este mes"],
+              ["all", "Todo"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setPeriod(value)}
+              aria-pressed={period === value}
+              className={clsx(
+                "focus-ring rounded-md px-3 py-1.5 text-[10px] font-semibold transition",
+                period === value
+                  ? "bg-slate-100 text-slate-800 shadow-sm"
+                  : "text-slate-400 hover:text-slate-600",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[
+          { label: "Tiempo registrado", value: formatDuration(totalSeconds), icon: Clock3, tone: "text-[#0a84ff] bg-[#0a84ff]/10" },
+          { label: "Tiempo facturable", value: formatDuration(billableSeconds), icon: CircleDollarSign, tone: "text-emerald-600 bg-emerald-500/10" },
+          { label: "Timers activos", value: String(activeCount), icon: Play, tone: "text-violet-600 bg-violet-500/10" },
+          { label: "Días con actividad", value: String(dayCount), icon: CalendarDays, tone: "text-amber-600 bg-amber-500/10" },
+        ].map((metric) => {
+          const Icon = metric.icon;
+          return (
+            <article key={metric.label} className="rounded-2xl border border-[#e6e8ee] bg-white p-4 shadow-sm">
+              <span className={clsx("grid size-9 place-items-center rounded-xl", metric.tone)}>
+                <Icon className="size-[17px]" />
+              </span>
+              <p className="mt-4 text-[19px] font-bold tracking-[-0.03em] text-slate-900">
+                {metric.value}
+              </p>
+              <p className="mt-1 text-[10px] font-semibold text-slate-500">{metric.label}</p>
+            </article>
+          );
+        })}
+      </div>
+
+      <div className="mt-5 overflow-hidden rounded-2xl border border-[#e6e8ee] bg-white shadow-sm">
+        <div className="flex flex-col gap-3 border-b border-slate-100 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-[14px] font-bold text-slate-800">Historial de timers</h2>
+            <p className="mt-1 text-[9px] text-slate-400">
+              {visibleEntries.length} {visibleEntries.length === 1 ? "registro" : "registros"}
+            </p>
+          </div>
+          <label className="relative w-full sm:w-[290px]">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Buscar tarea, proyecto o detalle…"
+              className="focus-ring h-9 w-full rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 text-[10px] text-slate-700"
+              aria-label="Buscar en mi historial de timers"
+            />
+          </label>
+        </div>
+        <div className="divide-y divide-slate-100">
+          {visibleEntries.map((entry) => {
+            const startedAt = new Date(entry.startedAt);
+            const endedAt = entry.endedAt ? new Date(entry.endedAt) : null;
+            return (
+              <article key={entry.id} className="flex flex-col gap-3 p-4 transition hover:bg-slate-50/70 sm:flex-row sm:items-center">
+                <span className={clsx("grid size-9 shrink-0 place-items-center rounded-xl", entry.endedAt ? "bg-slate-100 text-slate-500" : "bg-emerald-500/10 text-emerald-600")}>
+                  {entry.endedAt ? <Clock3 className="size-4" /> : <Play className="size-4 fill-current" />}
+                </span>
+                <div className="min-w-0 flex-1">
+                  {entry.taskId ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenTask(entry.taskId!)}
+                      className="focus-ring block max-w-full truncate rounded text-left text-[11px] font-bold text-slate-800 hover:text-[#0879ea]"
+                    >
+                      {entry.taskTitle}
+                    </button>
+                  ) : (
+                    <p className="truncate text-[11px] font-bold text-slate-800">{entry.taskTitle}</p>
+                  )}
+                  <p className="mt-1 truncate text-[9px] text-slate-400">
+                    {entry.taskCode} · {entry.projectName}
+                    {entry.description ? ` · ${entry.description}` : ""}
+                  </p>
+                </div>
+                <div className="sm:w-[170px] sm:text-right">
+                  <p className="text-[10px] font-semibold text-slate-600">
+                    {dateFormatter.format(startedAt)}
+                  </p>
+                  <p className="mt-1 text-[9px] text-slate-400">
+                    {timeFormatter.format(startedAt)} – {endedAt ? timeFormatter.format(endedAt) : "en curso"}
+                  </p>
+                </div>
+                <div className="flex items-center justify-between gap-3 sm:w-[150px] sm:justify-end">
+                  <span className={clsx("rounded-md px-2 py-1 text-[9px] font-semibold", entry.billable ? "bg-emerald-500/10 text-emerald-600" : "bg-slate-100 text-slate-500")}>
+                    {entry.billable ? "Facturable" : "Interno"}
+                  </span>
+                  <span className="min-w-[62px] font-mono text-[11px] font-bold text-slate-700">
+                    {formatDuration(elapsedSeconds(entry, now))}
+                  </span>
+                  {!entry.endedAt && (
+                    <button
+                      type="button"
+                      onClick={() => onStop(entry.id)}
+                      className="focus-ring grid size-8 place-items-center rounded-lg bg-rose-500/10 text-rose-500 hover:bg-rose-500/15"
+                      aria-label={`Detener timer de ${entry.taskTitle}`}
+                    >
+                      <Pause className="size-3.5 fill-current" />
+                    </button>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+          {visibleEntries.length === 0 && (
+            <div className="grid min-h-52 place-items-center p-8 text-center">
+              <div>
+                <TimerReset className="mx-auto size-8 text-slate-300" />
+                <p className="mt-3 text-[11px] font-semibold text-slate-500">No hay registros en este período.</p>
+                <p className="mt-1 text-[9px] text-slate-400">Iniciá un timer desde una tarea para verlo acá.</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function TimeReportsModal({
   entries,
   people,
@@ -9824,6 +10063,8 @@ export function TaskaApp() {
   const viewTitle =
     view === "home"
       ? "Mis tareas"
+      : view === "my_time"
+        ? "Mis tiempos"
       : view === "my_tasks" || view === "all_tasks"
       ? taskScope === "mine"
         ? "Mis tareas"
@@ -9846,7 +10087,9 @@ export function TaskaApp() {
                   ? "Portafolios"
                   : view === "goals"
                     ? "Objetivos"
-                    : "Archivo de procesos";
+                    : view === "trash"
+                      ? "Papelera"
+                      : "Archivo de procesos";
 
   if (initializing) {
     return (
@@ -10124,6 +10367,18 @@ export function TaskaApp() {
               onUpdateTask={updateTask}
               notify={notify}
             />
+          ) : view === "my_time" ? (
+            <MyTimeHistoryView
+              entries={timeEntries.filter(
+                (entry) => entry.user.id === currentUserId,
+              )}
+              onOpenTask={setSelectedTaskId}
+              onStop={(entryId) => {
+                void stopTimer(entryId)
+                  .then(() => notify("Timer detenido"))
+                  .catch(() => notify("No se pudo detener el timer"));
+              }}
+            />
           ) : (
             <>
               {view === "home" && (
@@ -10223,7 +10478,7 @@ export function TaskaApp() {
               </section>
               )}
 
-              <section className={view === "archive" ? "mt-0" : "mt-8"}>
+              <section className={view === "archive" || view === "trash" ? "mt-0" : "mt-8"}>
             <div className="flex flex-col gap-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -10231,14 +10486,14 @@ export function TaskaApp() {
                     {viewTitle}
                   </h2>
                   <p className="mt-1 text-[10px] text-slate-400">
-                    {view === "archive"
-                      ? `${archivedTopLevelTasks.length} expedientes conservados`
+                    {view === "archive" || view === "trash"
+                      ? `${archivedTopLevelTasks.filter((task) => view === "trash" ? Boolean(task.deletedAt) : !task.deletedAt).length} ${view === "trash" ? "tareas eliminadas" : "expedientes conservados"}`
                       : `${filteredTasks.length} ${
                           filteredTasks.length === 1 ? "tarea" : "tareas"
                         } en esta vista`}
                   </p>
                 </div>
-                {view !== "archive" && (
+                {view !== "archive" && view !== "trash" && (
                   <div className="flex flex-wrap items-center justify-end gap-2">
                     <div
                       className="flex items-center rounded-lg border border-slate-200 bg-white p-1"
@@ -10349,7 +10604,7 @@ export function TaskaApp() {
                     className="focus-ring h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-[11px]"
                   />
                 </div>
-                {view !== "archive" && (
+                {view !== "archive" && view !== "trash" && (
                   <>
                 <label className="relative">
                   <span className="sr-only">Filtrar por prioridad</span>
@@ -10478,8 +10733,10 @@ export function TaskaApp() {
             </div>
 
             <div className="mt-4 animate-enter">
-              {view === "archive" ? (
+              {view === "archive" || view === "trash" ? (
                 <ArchiveView
+                  key={`${activeWorkspaceId}-${view}`}
+                  section={view === "trash" ? "trash" : "archive"}
                   tasks={archivedTopLevelTasks}
                   query={query}
                   onOpen={setSelectedTaskId}
@@ -10789,7 +11046,7 @@ export function TaskaApp() {
             void deleteTask(taskToDeleteId);
             setTaskToDeleteId(null);
             setSelectedTaskId(null);
-            setView("archive");
+            setView("trash");
             notify("Expediente movido a la papelera");
           }}
         />

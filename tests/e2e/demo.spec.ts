@@ -24,6 +24,24 @@ test("no presenta infracciones críticas de accesibilidad", async ({ page }) => 
   ).toEqual([]);
 });
 
+test("muestra la papelera y el historial personal de timers desde la barra lateral", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Mis tiempos", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Mis tiempos", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Todo", exact: true }).click();
+  await expect(page.getByText("Aprobar grilla de contenidos de agosto")).toBeVisible();
+  await expect(page.getByText("00:45:00").last()).toBeVisible();
+
+  await page.getByRole("button", { name: "Papelera", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Papelera", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("La papelera está vacía.")).toBeVisible();
+});
+
 test("crea una tarea y conserva el cambio al recargar", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: /Buenos días/i }),

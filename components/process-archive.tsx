@@ -643,19 +643,21 @@ export function ActivityHistory({
 export function ArchiveView({
   tasks,
   query,
+  section,
   onOpen,
   onRestore,
   onTrash,
 }: {
   tasks: Task[];
   query: string;
+  section: "archive" | "trash";
   onOpen: (taskId: string) => void;
   onRestore: (taskId: string) => void;
   onTrash: (taskId: string) => void;
 }) {
-  const [section, setSection] = useState<"archive" | "trash">("archive");
   const [clientFilter, setClientFilter] = useState("all");
   const [projectFilter, setProjectFilter] = useState("all");
+
   const normalizedQuery = query.trim().toLowerCase();
   const clients = [
     ...new Set(tasks.map((task) => task.client).filter(Boolean)),
@@ -700,30 +702,12 @@ export function ArchiveView({
   return (
     <div className="rounded-2xl border border-[#e6e8ee] bg-white shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-4 sm:px-5">
-        <div className="flex rounded-lg border border-slate-200 bg-slate-50 p-1">
-          <button
-            onClick={() => setSection("archive")}
-            className={clsx(
-              "rounded-md px-3 py-1.5 text-[10px] font-semibold",
-              section === "archive"
-                ? "bg-white text-slate-800 shadow-sm"
-                : "text-slate-400",
-            )}
-          >
-            Archivo
-          </button>
-          <button
-            onClick={() => setSection("trash")}
-            className={clsx(
-              "rounded-md px-3 py-1.5 text-[10px] font-semibold",
-              section === "trash"
-                ? "bg-white text-slate-800 shadow-sm"
-                : "text-slate-400",
-            )}
-          >
-            Papelera
-          </button>
-        </div>
+        <p className="flex items-center gap-2 text-[10px] text-slate-400">
+          <LockKeyhole className="size-3.5" />
+          {section === "trash"
+            ? "Las tareas eliminadas pueden restaurarse desde acá"
+            : "Los expedientes archivados son de solo lectura"}
+        </p>
         <div className="flex flex-wrap items-center gap-2">
           <select
             value={clientFilter}
@@ -751,12 +735,6 @@ export function ArchiveView({
               </option>
             ))}
           </select>
-          <p className="flex items-center gap-2 text-[10px] text-slate-400">
-            <LockKeyhole className="size-3.5" />
-            {section === "trash"
-              ? "La papelera conserva los expedientes durante 30 días"
-              : "Los expedientes archivados son de solo lectura"}
-          </p>
         </div>
       </div>
       <div className="divide-y divide-slate-100">
