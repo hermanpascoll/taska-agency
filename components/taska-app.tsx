@@ -6756,6 +6756,7 @@ function ClientsModal({
   workspaceId,
   canManage,
   canViewProfitability,
+  canManageFinancial,
   onClose,
   onCreate,
   onUpdate,
@@ -6769,6 +6770,7 @@ function ClientsModal({
   workspaceId: string;
   canManage: boolean;
   canViewProfitability: boolean;
+  canManageFinancial: boolean;
   onClose: () => void;
   onCreate: (input: NewClientInput) => Promise<unknown>;
   onUpdate: (clientId: string, input: UpdateClientInput) => Promise<void>;
@@ -6827,18 +6829,15 @@ function ClientsModal({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!name.trim() || !canManage) return;
+    if (!name.trim() || (!canManage && !canManageFinancial)) return;
     setSaving(true);
     try {
       if (editingId) {
         await onUpdate(editingId, {
-          name: name.trim(),
-          email: email.trim(),
-          notes: notes.trim(),
-          categories: categories
-            .split(",")
-            .map((category) => category.trim())
-            .filter(Boolean),
+          ...(canManage ? {
+            name: name.trim(), email: email.trim(), notes: notes.trim(),
+            categories: categories.split(",").map((category) => category.trim()).filter(Boolean),
+          } : {}),
           monthlyFee: Math.max(0, Number(monthlyFee) || 0),
           budgetedHours: Math.max(0, Number(budgetedHours) || 0),
           contractStart: contractStart || null,
@@ -6993,7 +6992,7 @@ function ClientsModal({
                 </button>
               )}
               <button
-                disabled={saving || !canManage || name.trim().length < 2}
+                disabled={saving || (!canManage && !canManageFinancial) || name.trim().length < 2}
                 className="mac-button-primary focus-ring flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-[10px] font-bold text-white disabled:opacity-45"
               >
                 {saving ? (
@@ -7136,7 +7135,7 @@ function ClientsModal({
                       ))}
                     </div>
                   )}
-                  {canManage && (
+                  {(canManage || canManageFinancial) && (
                     <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
                       <button
                         onClick={() => {
@@ -7156,6 +7155,8 @@ function ClientsModal({
                       >
                         Editar
                       </button>
+                      {!canManage && <span className="self-center text-[8px] text-slate-400">Sólo datos contractuales</span>}
+                      {canManage && <>
                       <button
                         onClick={() => {
                           void onUpdate(client.id, {
@@ -7172,6 +7173,7 @@ function ClientsModal({
                       >
                         Eliminar
                       </button>
+                      </>}
                     </div>
                   )}
                   <button onClick={() => { setTimeClientId(client.id); setTimeProjectId(projects.find((project) => project.clientId === client.id)?.id ?? ""); }} className="mt-3 rounded-lg border border-slate-200 px-3 py-2 text-[9px] font-semibold text-[#0879ea] hover:bg-slate-50">Registrar tiempo de gestión</button>
@@ -9317,6 +9319,7 @@ export function TaskaApp() {
         member.user.id === currentUserId,
     ) ?? null;
   const isWorkspaceOwner = activeWorkspace?.role === "owner";
+  const canManageCosts = isWorkspaceOwner || Boolean(currentMembership?.financialPermissions.manageCosts);
   const canManageBilling = isWorkspaceOwner || Boolean(currentMembership?.financialPermissions.manageBilling);
   const canViewProfitability = isWorkspaceOwner || Boolean(
     currentMembership?.financialPermissions.viewProfitability ||
@@ -10652,6 +10655,7 @@ export function TaskaApp() {
           workspaceId={activeWorkspace.id}
           canManage={["owner", "admin"].includes(activeWorkspace.role)}
           canViewProfitability={canViewProfitability}
+          canManageFinancial={canManageCosts || canManageBilling}
           onClose={() => setClientsOpen(false)}
           onCreate={async (input) => {
             try {

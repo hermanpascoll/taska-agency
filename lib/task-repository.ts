@@ -1049,13 +1049,25 @@ export async function updateRemoteClient(
   if (input.notes !== undefined) payload.notes = input.notes;
   if (input.categories !== undefined) payload.categories = input.categories;
   if (input.archived !== undefined) payload.archived = input.archived;
-  if (input.monthlyFee !== undefined) payload.monthly_fee = input.monthlyFee;
-  if (input.budgetedHours !== undefined) payload.budgeted_hours = input.budgetedHours;
-  if (input.contractStart !== undefined) payload.contract_start = input.contractStart || null;
-  if (input.contractEnd !== undefined) payload.contract_end = input.contractEnd || null;
-  if (input.currency !== undefined) payload.currency = input.currency || null;
-  const { error } = await supabase.from("clients").update(payload).eq("id", id);
-  if (error) throw error;
+  if (Object.keys(payload).length > 0) {
+    const { error } = await supabase.from("clients").update(payload).eq("id", id);
+    if (error) throw error;
+  }
+  if (
+    input.monthlyFee !== undefined || input.budgetedHours !== undefined ||
+    input.contractStart !== undefined || input.contractEnd !== undefined ||
+    input.currency !== undefined
+  ) {
+    const { error } = await supabase.rpc("update_client_financials", {
+      candidate_client_id: id,
+      candidate_monthly_fee: input.monthlyFee ?? 0,
+      candidate_budgeted_hours: input.budgetedHours ?? 0,
+      candidate_contract_start: input.contractStart || null,
+      candidate_contract_end: input.contractEnd || null,
+      candidate_currency: input.currency || "USD",
+    });
+    if (error) throw error;
+  }
 }
 
 export async function deleteRemoteClient(id: string) {
