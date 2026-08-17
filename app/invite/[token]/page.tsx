@@ -22,6 +22,8 @@ export default function AcceptInvitationPage() {
           setMessage(
             result.kind === "project"
               ? "Ya tenés acceso a la campaña compartida."
+              : result.kind === "group"
+                ? "Ya sos parte del equipo."
               : "Ya sos parte del espacio de trabajo.",
           );
           window.setTimeout(() => router.replace("/"), 1200);

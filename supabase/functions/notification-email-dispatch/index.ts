@@ -17,7 +17,7 @@ type InvitationPayload = {
   type: "invitation";
   recipientEmail: string;
   invitationUrl: string;
-  invitationKind: "workspace" | "project";
+  invitationKind: "workspace" | "project" | "group";
   targetName: string;
   idempotencyKey: string;
 };
@@ -52,7 +52,11 @@ function emailHtml(row: OutboxRow, appUrl: string) {
 }
 
 function invitationEmailHtml(payload: InvitationPayload) {
-  const kind = payload.invitationKind === "project" ? "proyecto" : "espacio de trabajo";
+  const kind = payload.invitationKind === "project"
+    ? "proyecto"
+    : payload.invitationKind === "group"
+      ? "equipo"
+      : "espacio de trabajo";
   return `<!doctype html>
 <html lang="es"><body style="margin:0;background:#f4f6f8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#172033">
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center" style="padding:32px 16px">
@@ -97,12 +101,16 @@ Deno.serve(async (request) => {
       !payload.invitationUrl ||
       !payload.targetName ||
       !payload.idempotencyKey ||
-      !["workspace", "project"].includes(payload.invitationKind ?? "")
+      !["workspace", "project", "group"].includes(payload.invitationKind ?? "")
     ) {
       return Response.json({ error: "Invalid invitation payload" }, { status: 400 });
     }
     const invitation = payload as InvitationPayload;
-    const kind = invitation.invitationKind === "project" ? "proyecto" : "espacio de trabajo";
+    const kind = invitation.invitationKind === "project"
+      ? "proyecto"
+      : invitation.invitationKind === "group"
+        ? "equipo"
+        : "espacio de trabajo";
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {

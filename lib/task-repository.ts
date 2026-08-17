@@ -1438,6 +1438,13 @@ export async function acceptRemoteInvitation(token: string) {
     await syncRemoteDriveMemberships();
     return { kind: "project" as const, id: projectResult.data as string };
   }
+  const groupResult = await supabase.rpc("accept_workspace_group_invitation", {
+    invitation_token: token,
+  });
+  if (!groupResult.error) {
+    await syncRemoteDriveMemberships();
+    return { kind: "group" as const, id: groupResult.data as string };
+  }
   const teamResult = await supabase.rpc("accept_team_invitation", {
     invitation_token: token,
   });

@@ -3,7 +3,7 @@ import "server-only";
 type InvitationEmailInput = {
   recipientEmail: string;
   invitationUrl: string;
-  invitationKind: "workspace" | "project";
+  invitationKind: "workspace" | "project" | "group";
   targetName: string;
   idempotencyKey: string;
 };

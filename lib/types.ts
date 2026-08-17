@@ -69,6 +69,37 @@ export type Workspace = {
   googleDriveName?: string | null;
 };
 
+export type WorkspaceGroupRole = "owner" | "member";
+
+export type WorkspaceGroupMember = {
+  groupId: string;
+  user: Person;
+  role: WorkspaceGroupRole;
+  joinedAt: string;
+};
+
+export type WorkspaceGroupInvitation = {
+  id: string;
+  groupId: string;
+  email: string;
+  token: string;
+  createdAt: string;
+  expiresAt: string;
+  acceptedAt: string | null;
+};
+
+export type WorkspaceGroup = {
+  id: string;
+  workspaceId: string;
+  name: string;
+  description: string;
+  color: string;
+  createdBy: string;
+  createdAt: string;
+  members: WorkspaceGroupMember[];
+  invitations: WorkspaceGroupInvitation[];
+};
+
 export type Client = {
   id: string;
   name: string;

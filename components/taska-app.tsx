@@ -92,6 +92,7 @@ import {
 } from "react";
 import { clsx } from "clsx";
 import { AdminPanel } from "@/components/admin-panel";
+import { WorkspaceGroupsModal } from "@/components/workspace-groups-modal";
 import { BillingView, TaskBillingPanel } from "@/components/task-billing";
 import { GanttChart } from "@/components/gantt-chart";
 import {
@@ -1910,6 +1911,7 @@ function Sidebar({
   onProjectSettings,
   onSettings,
   onInviteWorkspace,
+  onTeams,
   onAdmin,
   onClients,
   onSignOut,
@@ -1938,6 +1940,7 @@ function Sidebar({
   onProjectSettings: (projectId: string) => void;
   onSettings: () => void;
   onInviteWorkspace: () => void;
+  onTeams: () => void;
   onAdmin: () => void;
   onClients: () => void;
   onSignOut: () => void;
@@ -2102,9 +2105,35 @@ function Sidebar({
               </button>
             );
           })}
+          <div className="mb-2 mt-5 flex items-center justify-between px-3">
+            <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-slate-500">
+              Proyectos
+            </p>
+            {!isProjectLimited && (
+              <button
+                onClick={onCreateProject}
+                className="focus-ring rounded-md p-1 text-slate-400 hover:bg-black/5 hover:text-slate-800"
+                aria-label="Crear proyecto"
+              >
+                <Plus className="size-3.5" />
+              </button>
+            )}
+          </div>
+          <div className="max-h-[28vh] space-y-0.5 overflow-y-auto">
+            {projects.map((project) => (
+              <div key={project.id} className={clsx("group flex items-center rounded-lg text-slate-600 transition hover:bg-black/[0.045] hover:text-slate-900", project.archived && "opacity-55")}>
+                <button onClick={() => { onProjectSelect(project.id); onClose(); }} className="focus-ring flex min-w-0 flex-1 items-center gap-3 rounded-lg px-3 py-2 text-left text-[12px]">
+                  {project.archived ? <Archive className="size-3 text-slate-400" /> : <span className="size-2 rounded-[3px]" style={{ background: project.color }} />}
+                  <span className="truncate">{project.name}</span>
+                </button>
+                {!isProjectLimited && <button onClick={() => onProjectSettings(project.id)} className="focus-ring mr-1 rounded-md p-1.5 text-slate-400 opacity-0 hover:bg-white group-hover:opacity-100 focus:opacity-100" aria-label={`Configurar ${project.name}`}><MoreHorizontal className="size-3.5" /></button>}
+              </div>
+            ))}
+            {projects.length === 0 && <p className="px-3 py-2 text-[10px] text-slate-500">Todavía no hay proyectos.</p>}
+          </div>
           {!isProjectLimited && (
             <p className="mb-2 mt-5 px-3 text-[9px] font-bold uppercase tracking-[0.16em] text-slate-400">
-              Información estratégica
+              Información y estrategia
             </p>
           )}
           {!isProjectLimited && insights.map((item) => {
@@ -2168,6 +2197,13 @@ function Sidebar({
             <ContactRound className="size-[17px] text-[#0a84ff]" />
             Clientes
           </button>}
+          {!isProjectLimited && <button
+            onClick={() => { onTeams(); onClose(); }}
+            className="focus-ring flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium text-slate-600 transition hover:bg-black/[0.045] hover:text-slate-900"
+          >
+            <UsersRound className="size-[17px] text-[#0a84ff]" />
+            Equipos
+          </button>}
           {canManageWorkspace && (
             <button
               onClick={() => {
@@ -2182,67 +2218,7 @@ function Sidebar({
           )}
         </nav>
 
-        <div className="my-5 h-px bg-black/[0.06]" />
-
-        <div className="min-h-0 flex-1">
-          <div className="mb-2 flex items-center justify-between px-3">
-            <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-slate-500">
-              Clientes y campañas
-            </p>
-            {!isProjectLimited && (
-              <button
-                onClick={onCreateProject}
-                className="focus-ring rounded-md p-1 text-slate-400 hover:bg-black/5 hover:text-slate-800"
-                aria-label="Crear proyecto"
-              >
-                <Plus className="size-3.5" />
-              </button>
-            )}
-          </div>
-          <div className="space-y-0.5">
-            {projects.map((project) => (
-              <div
-                key={project.id}
-                className={clsx(
-                  "group flex items-center rounded-lg text-slate-600 transition hover:bg-black/[0.045] hover:text-slate-900",
-                  project.archived && "opacity-55",
-                )}
-              >
-                <button
-                  onClick={() => {
-                    onProjectSelect(project.id);
-                    onClose();
-                  }}
-                  className="focus-ring flex min-w-0 flex-1 items-center gap-3 rounded-lg px-3 py-2 text-left text-[12px]"
-                >
-                  {project.archived ? (
-                    <Archive className="size-3 text-slate-400" />
-                  ) : (
-                    <span
-                      className="size-2 rounded-[3px]"
-                      style={{ background: project.color }}
-                    />
-                  )}
-                  <span className="truncate">{project.name}</span>
-                </button>
-                {!isProjectLimited && (
-                  <button
-                    onClick={() => onProjectSettings(project.id)}
-                    className="focus-ring mr-1 rounded-md p-1.5 text-slate-400 opacity-0 hover:bg-white group-hover:opacity-100 focus:opacity-100"
-                    aria-label={`Configurar ${project.name}`}
-                  >
-                    <MoreHorizontal className="size-3.5" />
-                  </button>
-                )}
-              </div>
-            ))}
-            {projects.length === 0 && (
-              <p className="px-3 py-3 text-[10px] leading-5 text-slate-500">
-                Este espacio todavía no tiene proyectos.
-              </p>
-            )}
-          </div>
-        </div>
+        <div className="min-h-3 flex-1" />
 
         {mode === "demo" && (
           <div className="mb-3 rounded-xl border border-[#0a84ff]/15 bg-[#0a84ff]/8 p-3">
@@ -9626,6 +9602,7 @@ export function TaskaApp() {
   >("general");
   const [adminOpen, setAdminOpen] = useState(false);
   const [clientsOpen, setClientsOpen] = useState(false);
+  const [groupsOpen, setGroupsOpen] = useState(false);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [timersOpen, setTimersOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -10163,6 +10140,7 @@ export function TaskaApp() {
           setSettingsInitialTab("team");
           setSettingsOpen(true);
         }}
+        onTeams={() => setGroupsOpen(true)}
         onAdmin={() => setAdminOpen(true)}
         onClients={() => setClientsOpen(true)}
         onSignOut={() => void signOut()}
@@ -11096,6 +11074,18 @@ export function TaskaApp() {
         <NewWorkspaceModal
           onClose={() => setShowNewWorkspace(false)}
           onCreate={(name) => void handleCreateWorkspace(name)}
+        />
+      )}
+
+      {groupsOpen && activeWorkspace && (
+        <WorkspaceGroupsModal
+          workspaceId={activeWorkspace.id}
+          workspaceName={activeWorkspace.name}
+          people={people}
+          currentUserId={currentUserId}
+          canAdminister={canAdministerWorkspace}
+          onClose={() => setGroupsOpen(false)}
+          notify={notify}
         />
       )}
 

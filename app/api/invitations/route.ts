@@ -33,6 +33,16 @@ type ProjectInvitationRow = {
   accepted_at: string | null;
 };
 
+type WorkspaceGroupInvitationRow = {
+  id: string;
+  group_id: string;
+  email: string;
+  token: string;
+  created_at: string;
+  expires_at: string;
+  accepted_at: string | null;
+};
+
 export async function POST(request: Request) {
   const supabase = await createClient();
   if (!supabase) {
@@ -56,6 +66,7 @@ export async function POST(request: Request) {
     projectId?: string;
     projectRole?: ProjectRole;
     notifyOnNewTasks?: boolean;
+    workspaceGroupId?: string;
   };
   const role = body.role ?? "agent";
   if (
@@ -67,6 +78,20 @@ export async function POST(request: Request) {
       { error: "Datos de invitación inválidos." },
       { status: 400 },
     );
+  }
+
+  if (body.workspaceGroupId) {
+    const { data, error } = await supabase.rpc("create_workspace_group_invitation", {
+      candidate_group_id: body.workspaceGroupId,
+      candidate_email: body.email,
+    });
+    if (error) return NextResponse.json({ error: error.message }, { status: 403 });
+    const row = (Array.isArray(data) ? data[0] : data) as WorkspaceGroupInvitationRow;
+    const groupName = await getTargetName("workspace_groups", row.group_id, "Equipo");
+    const emailed = await sendInvitationEmail(
+      request, row.email, row.token, "group", groupName, row.id,
+    );
+    return NextResponse.json({ groupInvitation: row, emailed });
   }
 
   if (body.projectId) {
@@ -149,7 +174,7 @@ async function sendInvitationEmail(
   request: Request,
   email: string,
   token: string,
-  invitationKind: "workspace" | "project",
+  invitationKind: "workspace" | "project" | "group",
   targetName: string,
   invitationId: string,
 ) {
@@ -191,7 +216,7 @@ async function sendInvitationEmail(
 }
 
 async function getTargetName(
-  table: "teams" | "projects",
+  table: "teams" | "projects" | "workspace_groups",
   id: string,
   fallback: string,
 ) {
