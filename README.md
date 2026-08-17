@@ -102,24 +102,20 @@ Taska puede guardar los archivos de un espacio directamente en una unidad
 compartida de Google Workspace. La base de datos conserva únicamente el vínculo,
 el tipo, el tamaño y la información de auditoría; el archivo permanece en Drive.
 
-1. Creá una unidad compartida y agregá como integrantes a las mismas personas
-   que participan del espacio de Taska. Se recomienda administrar ambos accesos
-   mediante un Google Group del equipo.
-2. En el cliente OAuth web usado por Supabase Auth, habilitá Google Drive API y
-   autorizá el alcance `https://www.googleapis.com/auth/drive.file`.
-3. Agregá los orígenes de la aplicación, por ejemplo `http://localhost:3000` y
-   el dominio productivo de Vercel.
-4. Guardá el ID público del cliente en
-   `NEXT_PUBLIC_GOOGLE_DRIVE_CLIENT_ID` y el ID de la unidad en
-   `teams.google_drive_id`. Opcionalmente, guardá su nombre en
-   `teams.google_drive_name`.
+1. Creá una unidad compartida para cada espacio y agregá la cuenta administradora
+   delegada configurada en Taska.
+2. Habilitá Google Drive API y la delegación de dominio para la cuenta de
+   servicio con el alcance `https://www.googleapis.com/auth/drive`.
+3. Configurá `GOOGLE_DRIVE_SERVICE_ACCOUNT_EMAIL`,
+   `GOOGLE_DRIVE_SERVICE_ACCOUNT_PRIVATE_KEY` y
+   `GOOGLE_WORKSPACE_ADMIN_EMAIL` únicamente en el servidor.
+4. Guardá el ID de la unidad en `teams.google_drive_id`. Opcionalmente, guardá
+   su nombre en `teams.google_drive_name`.
 
-El permiso de Drive se solicita junto con el SSO de Google. Los usuarios que ya
-tenían una sesión abierta pueden presionar **Conectar Drive**: Taska los lleva a
-Google, conserva la tarea actual y regresa al mismo lugar sin depender de una
-ventana emergente. Taska no recibe ni almacena contraseñas de Google y el token
-permanece temporalmente en el navegador. Si un usuario no pertenece a la unidad
-compartida, Drive rechazará la carga aunque sea integrante del espacio en Taska.
+Taska inicia una sesión reanudable desde el servidor y el navegador transfiere
+el archivo directamente a Google. El usuario no necesita conectar Drive ni
+otorgar permisos adicionales. La sincronización de integrantes mantiene el
+acceso a la unidad y Taska registra quién realizó cada carga.
 
 ## Conectar Supabase
 

@@ -1492,7 +1492,7 @@ export async function uploadRemoteAttachment(
   if (!userData.user) throw new Error("No hay una sesión activa.");
 
   if (googleDriveId) {
-    const driveFile = await uploadTaskFileToGoogleDrive(task, file, googleDriveId);
+    const driveFile = await uploadTaskFileToGoogleDrive(task, file);
     const webUrl = driveFile.webViewLink || googleDrivePreviewUrl(driveFile.id);
     const { data, error } = await supabase
       .from("task_attachments")

@@ -45,20 +45,16 @@ function LoginContent() {
       .filter(Boolean)
       .join("; ");
     const redirectTo = `${window.location.origin}/auth/callback`;
-    window.sessionStorage.setItem("taska-google-drive-scope-v2", "pending");
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
         redirectTo,
-        scopes: "https://www.googleapis.com/auth/drive.file",
         queryParams: {
-          access_type: "offline",
           prompt: "select_account",
         },
       },
     });
     if (error) {
-      window.sessionStorage.removeItem("taska-google-drive-scope-v2");
       setMessage(error.message);
       setLoading(false);
     }

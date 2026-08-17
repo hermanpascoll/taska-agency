@@ -100,6 +100,71 @@ async function getGoogleAccessToken() {
   return cachedAccessToken.value;
 }
 
+export async function createGoogleDriveUploadSession(input: {
+  driveId: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  taskId: string;
+  taskCode: string;
+  taskTitle: string;
+  workspaceId: string;
+  projectId: string;
+  origin: string;
+}) {
+  const accessToken = await getGoogleAccessToken();
+  const fields = [
+    "id",
+    "name",
+    "mimeType",
+    "size",
+    "webViewLink",
+    "webContentLink",
+    "thumbnailLink",
+    "createdTime",
+  ].join(",");
+  const query = new URLSearchParams({
+    uploadType: "resumable",
+    supportsAllDrives: "true",
+    fields,
+  });
+  const response = await fetch(
+    `https://www.googleapis.com/upload/drive/v3/files?${query}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Origin: input.origin,
+        "Content-Type": "application/json; charset=UTF-8",
+        "X-Upload-Content-Type": input.mimeType,
+        "X-Upload-Content-Length": String(input.size),
+      },
+      body: JSON.stringify({
+        name: input.fileName,
+        parents: [input.driveId],
+        description: `Taska · ${input.taskCode} · ${input.taskTitle}`,
+        appProperties: {
+          taskaTaskId: input.taskId,
+          taskaWorkspaceId: input.workspaceId,
+          taskaProjectId: input.projectId,
+        },
+      }),
+      signal: AbortSignal.timeout(15_000),
+    },
+  );
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(
+      `Google Drive no pudo iniciar la carga (${response.status}). ${detail}`,
+    );
+  }
+  const uploadUrl = response.headers.get("location");
+  if (!uploadUrl) {
+    throw new Error("Google Drive no devolvió una sesión de carga válida.");
+  }
+  return uploadUrl;
+}
+
 async function googleDriveRequest(path: string, init: RequestInit = {}) {
   const accessToken = await getGoogleAccessToken();
   const response = await fetch(`${DRIVE_API}${path}`, {

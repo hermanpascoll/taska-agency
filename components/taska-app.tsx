@@ -17,7 +17,6 @@ import {
   ChevronRight,
   Circle,
   Clock3,
-  Cloud,
   Columns3,
   CircleDollarSign,
   ContactRound,
@@ -131,11 +130,6 @@ import {
   descriptionWithoutDraftImages,
 } from "@/lib/pending-task-description";
 import { createClient } from "@/lib/supabase/client";
-import {
-  connectGoogleDrive,
-  hasGoogleDriveToken,
-  preloadGoogleDriveIdentityServices,
-} from "@/lib/google-drive-client";
 import {
   buildTimeReportCsv,
   elapsedSeconds,
@@ -4237,7 +4231,6 @@ function TaskDrawer({
   canManageBilling,
   canEditTask,
   canCommentTask,
-  googleDriveId,
   onClose,
   onTaskUpdate,
   onTaskArchive,
@@ -4277,7 +4270,6 @@ function TaskDrawer({
   canManageBilling: boolean;
   canEditTask: boolean;
   canCommentTask: boolean;
-  googleDriveId?: string | null;
   onClose: () => void;
   onTaskUpdate: (input: UpdateTaskInput) => Promise<void> | void;
   onTaskArchive: () => void;
@@ -4327,10 +4319,6 @@ function TaskDrawer({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
-  const [driveConnected, setDriveConnected] = useState(() =>
-    hasGoogleDriveToken(),
-  );
-  const [connectingDrive, setConnectingDrive] = useState(false);
   const [subtaskTitle, setSubtaskTitle] = useState("");
   const [subtaskAssigneeId, setSubtaskAssigneeId] = useState(
     task.assignee?.id ?? currentPerson?.id ?? "",
@@ -4376,33 +4364,7 @@ function TaskDrawer({
     onCloseRef.current = onClose;
   }, [onClose]);
 
-  useEffect(() => {
-    if (!googleDriveId) return;
-    void preloadGoogleDriveIdentityServices()
-      .then(() => setDriveConnected(hasGoogleDriveToken()))
-      .catch(() => setDriveConnected(false));
-  }, [googleDriveId]);
-
   async function requestAttachmentSelection() {
-    if (googleDriveId && !hasGoogleDriveToken()) {
-      if (connectingDrive) return;
-      setConnectingDrive(true);
-      try {
-        await connectGoogleDrive();
-        setDriveConnected(true);
-        notify("Google Drive conectado. Volvé a presionar Adjuntar.");
-      } catch (error: unknown) {
-        notify(
-          error instanceof Error
-            ? error.message
-            : "No se pudo conectar Google Drive",
-        );
-      } finally {
-        setConnectingDrive(false);
-      }
-      return;
-    }
-    setDriveConnected(hasGoogleDriveToken());
     attachmentInput.current?.click();
   }
 
@@ -5759,18 +5721,8 @@ function TaskDrawer({
                     onClick={() => void requestAttachmentSelection()}
                     className="focus-ring flex items-center gap-1.5 rounded-lg bg-[#0a84ff]/10 px-3 py-2 text-[10px] font-semibold text-[#5aa7ff] hover:bg-[#0a84ff]/15"
                   >
-                    {connectingDrive ? (
-                      <LoaderCircle className="size-3.5 animate-spin" />
-                    ) : googleDriveId && !driveConnected ? (
-                      <Cloud className="size-3.5" />
-                    ) : (
-                      <Plus className="size-3.5" />
-                    )}
-                    {googleDriveId && !driveConnected
-                      ? connectingDrive
-                        ? "Conectando…"
-                        : "Conectar Drive"
-                      : "Adjuntar"}
+                    <Plus className="size-3.5" />
+                    Adjuntar
                   </button>}
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2">
@@ -10662,7 +10614,6 @@ export function TaskaApp() {
           }
           canEditTask={canEditSelectedTask}
           canCommentTask={canCommentSelectedTask}
-          googleDriveId={activeWorkspace?.googleDriveId}
           onClose={() => setSelectedTaskId(null)}
           onTaskSelect={setSelectedTaskId}
           onTaskArchive={() => setTaskToArchiveId(selectedTask.id)}
@@ -10869,7 +10820,6 @@ export function TaskaApp() {
             projectId === "todos" ? undefined : projectId
           }
           defaultStatus={newTaskStatus}
-          googleDriveId={activeWorkspace?.googleDriveId}
           onClose={() => setShowNewTask(false)}
           onCreate={handleCreate}
         />
