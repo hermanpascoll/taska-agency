@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { sendTransactionalInvitationEmail } from "@/lib/invitation-email";
 import type {
   ProjectInvitation,
   ProjectRole,
@@ -98,11 +99,14 @@ export async function POST(request: Request) {
       expiresAt: row.expires_at,
       acceptedAt: row.accepted_at,
     };
+    const projectName = await getTargetName("projects", row.project_id, "Proyecto");
     const emailed = await sendInvitationEmail(
       request,
       row.email,
       row.token,
-      { project_invitation_token: row.token },
+      "project",
+      projectName,
+      row.id,
     );
     return NextResponse.json({ projectInvitation, emailed });
   }
@@ -128,9 +132,15 @@ export async function POST(request: Request) {
     acceptedAt: row.accepted_at,
   };
 
-  const emailed = await sendInvitationEmail(request, row.email, row.token, {
-    workspace_invitation_token: row.token,
-  });
+  const workspaceName = await getTargetName("teams", row.team_id, "Espacio de trabajo");
+  const emailed = await sendInvitationEmail(
+    request,
+    row.email,
+    row.token,
+    "workspace",
+    workspaceName,
+    row.id,
+  );
 
   return NextResponse.json({ invitation, emailed });
 }
@@ -139,7 +149,9 @@ async function sendInvitationEmail(
   request: Request,
   email: string,
   token: string,
-  data: Record<string, string>,
+  invitationKind: "workspace" | "project",
+  targetName: string,
+  invitationId: string,
 ) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const secret = process.env.SUPABASE_SECRET_KEY;
@@ -169,9 +181,26 @@ async function sendInvitationEmail(
       .eq("id", existingProfile.data.id);
     if (restored.error) return false;
   }
-  const inviteResult = await admin.auth.admin.inviteUserByEmail(email, {
-    redirectTo: `${origin}/invite/${token}`,
-    data,
+  return sendTransactionalInvitationEmail({
+    recipientEmail: email,
+    invitationUrl: `${origin}/invite/${token}`,
+    invitationKind,
+    targetName,
+    idempotencyKey: `taska-invitation-${invitationId}-${token}`,
   });
-  return !inviteResult.error;
+}
+
+async function getTargetName(
+  table: "teams" | "projects",
+  id: string,
+  fallback: string,
+) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const secret = process.env.SUPABASE_SECRET_KEY;
+  if (!url || !secret) return fallback;
+  const admin = createAdminClient(url, secret, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const result = await admin.from(table).select("name").eq("id", id).maybeSingle();
+  return (result.data as { name?: string } | null)?.name || fallback;
 }

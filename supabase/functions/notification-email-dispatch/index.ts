@@ -13,6 +13,15 @@ type OutboxRow = {
   attempts: number;
 };
 
+type InvitationPayload = {
+  type: "invitation";
+  recipientEmail: string;
+  invitationUrl: string;
+  invitationKind: "workspace" | "project";
+  targetName: string;
+  idempotencyKey: string;
+};
+
 const escapeHtml = (value: string) =>
   value
     .replaceAll("&", "&amp;")
@@ -42,6 +51,25 @@ function emailHtml(row: OutboxRow, appUrl: string) {
 </body></html>`;
 }
 
+function invitationEmailHtml(payload: InvitationPayload) {
+  const kind = payload.invitationKind === "project" ? "proyecto" : "espacio de trabajo";
+  return `<!doctype html>
+<html lang="es"><body style="margin:0;background:#f4f6f8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#172033">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center" style="padding:32px 16px">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#ffffff;border:1px solid #e5e9f0;border-radius:18px;overflow:hidden">
+      <tr><td style="padding:22px 28px;background:#15171b;color:#ffffff;font-size:18px;font-weight:700">Taska</td></tr>
+      <tr><td style="padding:30px 28px">
+        <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#0a84ff">Invitación</div>
+        <h1 style="margin:10px 0 12px;font-size:24px;line-height:1.25">Te invitaron a ${escapeHtml(payload.targetName)}</h1>
+        <p style="margin:0 0 24px;color:#596273;font-size:15px;line-height:1.6">Ingresá con Google para sumarte al ${kind} y empezar a trabajar con el equipo.</p>
+        <a href="${escapeHtml(payload.invitationUrl)}" style="display:inline-block;background:#0a84ff;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:12px 18px;border-radius:10px">Aceptar invitación</a>
+      </td></tr>
+      <tr><td style="padding:18px 28px;border-top:1px solid #eef1f5;color:#8a93a3;font-size:11px;line-height:1.5">Si no esperabas esta invitación, podés ignorar este correo.</td></tr>
+    </table>
+  </td></tr></table>
+</body></html>`;
+}
+
 Deno.serve(async (request) => {
   if (request.method !== "POST") {
     return new Response("Method not allowed", { status: 405 });
@@ -60,6 +88,48 @@ Deno.serve(async (request) => {
 
   if (!supabaseUrl || !serviceRoleKey || !resendApiKey || !emailFrom) {
     return Response.json({ error: "Email service is not configured" }, { status: 503 });
+  }
+
+  const payload = await request.json().catch(() => ({})) as Partial<InvitationPayload>;
+  if (payload.type === "invitation") {
+    if (
+      !payload.recipientEmail ||
+      !payload.invitationUrl ||
+      !payload.targetName ||
+      !payload.idempotencyKey ||
+      !["workspace", "project"].includes(payload.invitationKind ?? "")
+    ) {
+      return Response.json({ error: "Invalid invitation payload" }, { status: 400 });
+    }
+    const invitation = payload as InvitationPayload;
+    const kind = invitation.invitationKind === "project" ? "proyecto" : "espacio de trabajo";
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${resendApiKey}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": invitation.idempotencyKey,
+      },
+      body: JSON.stringify({
+        from: emailFrom,
+        to: [invitation.recipientEmail],
+        subject: `Te invitaron a ${invitation.targetName} en Taska`,
+        html: invitationEmailHtml(invitation),
+        text: `Te invitaron al ${kind} ${invitation.targetName} en Taska.\n\nAceptar invitación: ${invitation.invitationUrl}`,
+        tags: [
+          { name: "category", value: `${invitation.invitationKind}_invitation` },
+          { name: "environment", value: "production" },
+        ],
+      }),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      return Response.json(
+        { error: result?.message || `Resend error ${response.status}` },
+        { status: response.status },
+      );
+    }
+    return Response.json({ sent: true, providerId: result.id });
   }
 
   const supabase = createClient(supabaseUrl, serviceRoleKey, {

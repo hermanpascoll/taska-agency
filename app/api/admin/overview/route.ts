@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { User } from "@supabase/supabase-js";
 import { processDriveMembershipJobs } from "@/lib/google-drive-membership";
+import { sendTransactionalInvitationEmail } from "@/lib/invitation-email";
 import type {
   PlatformAdminOverview,
   PlatformAdminUser,
@@ -623,7 +624,7 @@ export async function PATCH(request: Request) {
     }
     const workspace = await admin
       .from("teams")
-      .select("id")
+      .select("id, name")
       .eq("id", body.workspaceId)
       .single();
     if (workspace.error) {
@@ -697,13 +698,16 @@ export async function PATCH(request: Request) {
     const origin =
       process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin;
     const invitationUrl = `${origin}/invite/${invitationResult.data.token}`;
-    const emailResult = await admin.auth.admin.inviteUserByEmail(email, {
-      redirectTo: invitationUrl,
-      data: { workspace_invitation_token: invitationResult.data.token },
+    const emailed = await sendTransactionalInvitationEmail({
+      recipientEmail: email,
+      invitationUrl,
+      invitationKind: "workspace",
+      targetName: workspace.data.name,
+      idempotencyKey: `taska-admin-invitation-${invitationResult.data.id}-${invitationResult.data.token}`,
     });
     return NextResponse.json({
       ok: true,
-      emailed: !emailResult.error,
+      emailed,
       invitationUrl,
     });
   }

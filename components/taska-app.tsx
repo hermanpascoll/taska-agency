@@ -3245,6 +3245,28 @@ function ProjectShareModal({
                         Pendiente · {projectRoleLabels[invitation.role]}
                       </span>
                     </span>
+                    {canManage && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void onInvite(
+                            project.id,
+                            invitation.email,
+                            invitation.role,
+                            invitation.notifyOnNewTasks,
+                          ).catch((error: unknown) =>
+                            notify(
+                              error instanceof Error
+                                ? error.message
+                                : "No se pudo reenviar la invitación",
+                            ),
+                          );
+                        }}
+                        className="focus-ring rounded-lg px-2 py-1.5 text-[9px] font-semibold text-[#0879ea] hover:bg-[#0a84ff]/10"
+                      >
+                        Reenviar
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => {
@@ -9141,6 +9163,23 @@ function SettingsModal({
                                 }).format(new Date(invitation.expiresAt))}
                               </span>
                             </span>
+                            <button
+                              onClick={() => {
+                                void onInvite(
+                                  invitation.email,
+                                  invitation.role,
+                                ).catch((error: unknown) =>
+                                  notify(
+                                    error instanceof Error
+                                      ? error.message
+                                      : "No se pudo reenviar la invitación",
+                                  ),
+                                );
+                              }}
+                              className="focus-ring rounded-md px-2 py-1.5 text-[9px] font-semibold text-[#0879ea] hover:bg-[#0a84ff]/10"
+                            >
+                              Reenviar correo
+                            </button>
                             <button
                               onClick={() => {
                                 const url = `${window.location.origin}/invite/${invitation.token}`;
