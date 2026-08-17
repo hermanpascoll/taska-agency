@@ -136,9 +136,6 @@ export function AdminPanel({
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] =
     useState<Exclude<TeamRole, "owner">>("agent");
-  const [directUserId, setDirectUserId] = useState("");
-  const [directRole, setDirectRole] =
-    useState<Exclude<TeamRole, "owner">>("agent");
   const [removingMember, setRemovingMember] = useState<{
     workspaceId: string;
     userId: string;
@@ -341,27 +338,6 @@ export function AdminPanel({
     overview?.workspaces.find(
       (workspace) => workspace.id === managingPermissionsWorkspaceId,
     ) ?? null;
-  const usersOutsideWorkspace = (overview?.users ?? []).filter(
-    (user) =>
-      !managingWorkspace?.members.some((member) => member.userId === user.id),
-  );
-
-  async function submitDirectMembership(event: FormEvent) {
-    event.preventDefault();
-    if (!managingWorkspace || !directUserId) return;
-    const result = await mutate(
-      "PATCH",
-      {
-        action: "workspace-member-add",
-        workspaceId: managingWorkspace.id,
-        userId: directUserId,
-        role: directRole,
-      },
-      "Usuario agregado directamente al espacio",
-    );
-    if (result) setDirectUserId("");
-  }
-
   async function submitWorkspaceInvitation(event: FormEvent) {
     event.preventDefault();
     if (!managingWorkspace || !inviteEmail.trim()) return;
@@ -632,7 +608,18 @@ export function AdminPanel({
                       <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
                         <div className="flex min-w-0 flex-1 items-start gap-3">
                           <span className="relative grid size-11 shrink-0 place-items-center rounded-xl bg-[linear-gradient(145deg,#0a84ff,#6659e8)] text-[11px] font-bold text-white shadow-sm">
-                            {initials(user.name)}
+                            {user.avatarUrl ? (
+                              // Google profile photos are remote and can use varying hosts.
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={user.avatarUrl}
+                                alt=""
+                                className="size-full rounded-xl object-cover"
+                                referrerPolicy="no-referrer"
+                              />
+                            ) : (
+                              initials(user.name)
+                            )}
                             <span
                               className={clsx(
                                 "absolute -bottom-1 -right-1 size-3 rounded-full border-2 border-white",
@@ -905,8 +892,6 @@ export function AdminPanel({
                             setManagingWorkspaceId(workspace.id);
                             setInviteEmail("");
                             setInviteRole("agent");
-                            setDirectUserId("");
-                            setDirectRole("agent");
                           }}
                           disabled={saving}
                           className="focus-ring flex items-center gap-2 rounded-lg border border-[#0a84ff]/20 bg-[#0a84ff]/5 px-3 py-2 text-[9px] font-semibold text-[#0879ea] hover:bg-[#0a84ff]/10 disabled:opacity-50"
@@ -1118,65 +1103,6 @@ export function AdminPanel({
 
             <div className="soft-scrollbar min-h-0 overflow-y-auto p-4 sm:p-6">
               <form
-                onSubmit={(event) => void submitDirectMembership(event)}
-                className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4"
-              >
-                <div className="flex items-center gap-2">
-                  <UserPlus className="size-4 text-emerald-700" />
-                  <div>
-                    <h4 className="text-[11px] font-bold text-slate-800">
-                      Agregar usuario directamente
-                    </h4>
-                    <p className="mt-0.5 text-[9px] text-slate-500">
-                      Otorga acceso inmediato, sin invitación ni aceptación.
-                    </p>
-                  </div>
-                </div>
-                <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_140px_auto]">
-                  <select
-                    required
-                    value={directUserId}
-                    onChange={(event) => setDirectUserId(event.target.value)}
-                    aria-label="Usuario para agregar directamente"
-                    className="mac-input focus-ring rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-[10px]"
-                  >
-                    <option value="">Seleccionar usuario…</option>
-                    {usersOutsideWorkspace.map((user) => (
-                      <option key={user.id} value={user.id}>
-                        {user.name} · {user.email}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={directRole}
-                    onChange={(event) =>
-                      setDirectRole(
-                        event.target.value as Exclude<TeamRole, "owner">,
-                      )
-                    }
-                    aria-label="Rol del acceso directo"
-                    className="mac-input focus-ring rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-[10px]"
-                  >
-                    <option value="admin">Administrador</option>
-                    <option value="agent">Integrante</option>
-                    <option value="viewer">Sólo lectura</option>
-                  </select>
-                  <button
-                    disabled={saving || !directUserId}
-                    className="focus-ring flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-[10px] font-bold text-white disabled:opacity-45"
-                  >
-                    <UserPlus className="size-3.5" />
-                    Agregar ahora
-                  </button>
-                </div>
-                {!usersOutsideWorkspace.length && (
-                  <p className="mt-3 text-[9px] text-emerald-800/70">
-                    Todos los usuarios registrados ya pertenecen a este espacio.
-                  </p>
-                )}
-              </form>
-
-              <form
                 onSubmit={(event) =>
                   void submitWorkspaceInvitation(event)
                 }
@@ -1252,7 +1178,17 @@ export function AdminPanel({
                       className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center"
                     >
                       <span className="relative grid size-9 shrink-0 place-items-center rounded-xl bg-[linear-gradient(145deg,#0a84ff,#6659e8)] text-[9px] font-bold text-white">
-                        {initials(member.name)}
+                        {member.avatarUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={member.avatarUrl}
+                            alt=""
+                            className="size-full rounded-xl object-cover"
+                            referrerPolicy="no-referrer"
+                          />
+                        ) : (
+                          initials(member.name)
+                        )}
                         <span
                           className={clsx(
                             "absolute -bottom-1 -right-1 size-3 rounded-full border-2 border-white",

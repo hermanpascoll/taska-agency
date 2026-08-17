@@ -14,6 +14,7 @@ export type PlatformAdminUser = {
   name: string;
   email: string;
   title: string;
+  avatarUrl: string | null;
   superAdmin: boolean;
   rootAdmin: boolean;
   createdAt: string;
@@ -30,6 +31,7 @@ export type PlatformAdminWorkspaceMember = {
   name: string;
   email: string;
   title: string;
+  avatarUrl: string | null;
   role: TeamRole;
   projectLimited: boolean;
   online: boolean;

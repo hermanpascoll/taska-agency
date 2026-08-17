@@ -13,6 +13,7 @@ const overview: PlatformAdminOverview = {
       name: "Admin Root",
       email: "root@taska.test",
       title: "Dirección",
+      avatarUrl: null,
       superAdmin: true,
       rootAdmin: true,
       createdAt: "2026-07-20T10:00:00.000Z",
@@ -35,6 +36,7 @@ const overview: PlatformAdminOverview = {
       name: "Ana Equipo",
       email: "ana@taska.test",
       title: "Diseño",
+      avatarUrl: null,
       superAdmin: false,
       rootAdmin: false,
       createdAt: "2026-07-21T10:00:00.000Z",
@@ -57,6 +59,7 @@ const overview: PlatformAdminOverview = {
       name: "Bruno Nuevo",
       email: "bruno@taska.test",
       title: "Producción",
+      avatarUrl: null,
       superAdmin: false,
       rootAdmin: false,
       createdAt: "2026-07-22T10:00:00.000Z",
@@ -93,6 +96,7 @@ const overview: PlatformAdminOverview = {
           name: "Admin Root",
           email: "root@taska.test",
           title: "Dirección",
+          avatarUrl: null,
           role: "owner",
           projectLimited: false,
           online: true,
@@ -102,6 +106,7 @@ const overview: PlatformAdminOverview = {
           name: "Ana Equipo",
           email: "ana@taska.test",
           title: "Diseño",
+          avatarUrl: null,
           role: "agent",
           projectLimited: true,
           online: false,
@@ -201,34 +206,9 @@ describe("Panel global de administración", () => {
       screen.getByLabelText("Rol de Ana Equipo en Agencia Test"),
     ).toHaveValue("agent");
 
-    await user.selectOptions(
-      screen.getByLabelText("Usuario para agregar directamente"),
-      "user-3",
-    );
-    await user.selectOptions(
-      screen.getByLabelText("Rol del acceso directo"),
-      "admin",
-    );
-    await user.click(screen.getByRole("button", { name: "Agregar ahora" }));
-    await waitFor(() => {
-      const directAddCall = fetchMock.mock.calls.find(([, options]) => {
-        const body = String((options as RequestInit | undefined)?.body ?? "");
-        return body.includes('"workspace-member-add"');
-      });
-      expect(directAddCall).toBeTruthy();
-      expect(
-        JSON.parse(
-          String(
-            (directAddCall?.[1] as RequestInit | undefined)?.body,
-          ),
-        ),
-      ).toMatchObject({
-        action: "workspace-member-add",
-        workspaceId: "workspace-1",
-        userId: "user-3",
-        role: "admin",
-      });
-    });
+    expect(
+      screen.queryByText("Agregar usuario directamente"),
+    ).not.toBeInTheDocument();
 
     await user.type(
       screen.getByLabelText("Correo para invitar"),
