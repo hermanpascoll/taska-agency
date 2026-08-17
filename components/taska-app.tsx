@@ -9450,7 +9450,7 @@ export function TaskaApp() {
   const filteredTasks = useMemo(
     () => {
       const sourceTasks =
-        view === "gantt" || taskScope === "mine"
+        view === "gantt" || taskScope === "mine" || advancedFilters.assigneeId !== "todos"
           ? activeTasks
           : activeTopLevelTasks;
       return sourceTasks.filter((task) => {
@@ -10064,6 +10064,12 @@ export function TaskaApp() {
                           key={scope}
                           onClick={() => {
                             setTaskScope(scope);
+                            if (scope === "mine") {
+                              setAdvancedFilters((current) => ({
+                                ...current,
+                                assigneeId: "todos",
+                              }));
+                            }
                             if (
                               view === "my_tasks" ||
                               view === "all_tasks"
@@ -10193,6 +10199,36 @@ export function TaskaApp() {
                   </select>
                   <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3 -translate-y-1/2 text-slate-400" />
                 </label>
+                <label className="relative">
+                  <span className="sr-only">Filtrar por responsable</span>
+                  <select
+                    value={advancedFilters.assigneeId}
+                    onChange={(event) => {
+                      const assigneeId = event.target.value;
+                      setAdvancedFilters((current) => ({ ...current, assigneeId }));
+                      if (assigneeId !== "todos") {
+                        setTaskScope("all");
+                        if (view === "my_tasks") setView("all_tasks");
+                      }
+                    }}
+                    className={clsx(
+                      "focus-ring appearance-none rounded-lg border bg-white py-2 pl-3 pr-8 text-[10px] font-semibold",
+                      advancedFilters.assigneeId !== "todos"
+                        ? "border-[#0a84ff]/40 text-[#0879ea]"
+                        : "border-slate-200 text-slate-500",
+                    )}
+                  >
+                    <option value="todos">Todas las personas</option>
+                    <option value="sin_asignar">Sin responsable</option>
+                    {people.map((person) => (
+                      <option key={person.id} value={person.id}>
+                        {person.name} · {activeTasks.filter((task) => task.assignee?.id === person.id).length}
+                      </option>
+                    ))}
+                  </select>
+                  <UserRound className="pointer-events-none absolute left-2.5 top-1/2 hidden size-3 -translate-y-1/2 text-slate-400" />
+                  <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3 -translate-y-1/2 text-slate-400" />
+                </label>
                 <div className="relative">
                   <button
                     onClick={() => setFiltersOpen((current) => !current)}
@@ -10213,7 +10249,13 @@ export function TaskaApp() {
                     <AdvancedFilterPopover
                       filters={advancedFilters}
                       people={people}
-                      onChange={setAdvancedFilters}
+                      onChange={(nextFilters) => {
+                        setAdvancedFilters(nextFilters);
+                        if (nextFilters.assigneeId !== "todos") {
+                          setTaskScope("all");
+                          if (view === "my_tasks") setView("all_tasks");
+                        }
+                      }}
                       onClose={() => setFiltersOpen(false)}
                     />
                   )}
