@@ -37,6 +37,15 @@ max_frequency = "1m"
 otp_length = 8
 otp_expiry = 3600
 
+[auth.email.smtp]
+enabled = true
+host = "smtp.resend.com"
+port = 465
+user = "resend"
+pass = "env(RESEND_SMTP_PASSWORD)"
+admin_email = "notificaciones@taska.amenmccann.com"
+sender_name = "Taska"
+
 [auth.mfa]
 max_enrolled_factors = 10
 
