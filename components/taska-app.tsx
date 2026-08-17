@@ -327,11 +327,12 @@ function Avatar({
   return (
     <span
       className={clsx(
-        "grid shrink-0 place-items-center overflow-hidden rounded-full font-bold text-white shadow-sm",
+        "relative grid shrink-0 place-items-center overflow-hidden rounded-full font-bold text-white shadow-sm",
         sizes[size],
+        person.deactivated && "grayscale opacity-55",
       )}
       style={{ background: person.color }}
-      title={person.name}
+      title={person.deactivated ? `${person.name} · usuario dado de baja` : person.name}
     >
       {person.avatarUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
@@ -342,6 +343,9 @@ function Avatar({
         />
       ) : (
         person.initials
+      )}
+      {person.deactivated && (
+        <span className="pointer-events-none absolute h-0.5 w-[140%] rotate-[-38deg] bg-rose-500" />
       )}
     </span>
   );

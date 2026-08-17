@@ -23,6 +23,7 @@ export type PlatformAdminUser = {
   online: boolean;
   providers: string[];
   suspended: boolean;
+  deactivated: boolean;
   memberships: PlatformAdminMembership[];
 };
 

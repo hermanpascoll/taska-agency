@@ -19,6 +19,7 @@ type ProfileRow = {
   email: string | null;
   role: string | null;
   avatar_url: string | null;
+  deactivated_at: string | null;
   created_at: string;
   last_seen_at: string | null;
 };
@@ -142,7 +143,9 @@ export async function GET() {
     admin.auth.admin.listUsers({ page: 1, perPage: 1000 }),
     admin
       .from("profiles")
-      .select("id, full_name, email, role, avatar_url, created_at, last_seen_at"),
+      .select(
+        "id, full_name, email, role, avatar_url, deactivated_at, created_at, last_seen_at",
+      ),
     admin
       .from("teams")
       .select("id, name, slug, created_by, archived, currency, created_at"),
@@ -223,6 +226,7 @@ export async function GET() {
           ? user.app_metadata.providers.map(String)
           : [],
         suspended: isSuspended(user),
+        deactivated: Boolean(profile?.deactivated_at),
         memberships: memberships
           .filter((membership) => membership.user_id === user.id)
           .map((membership) => ({
@@ -412,6 +416,12 @@ export async function PATCH(request: Request) {
     );
     if (result.error) {
       return NextResponse.json({ error: result.error.message }, { status: 400 });
+    }
+    if (!body.suspended) {
+      await admin
+        .from("profiles")
+        .update({ deactivated_at: null, deactivated_by: null })
+        .eq("id", body.userId);
     }
     return NextResponse.json({ ok: true });
   }
@@ -613,10 +623,26 @@ export async function PATCH(request: Request) {
     }
     const existingProfile = await admin
       .from("profiles")
-      .select("id")
+      .select("id, deactivated_at")
       .eq("email", email)
       .maybeSingle();
     if (existingProfile.data) {
+      if (existingProfile.data.deactivated_at) {
+        const reactivated = await admin.auth.admin.updateUserById(
+          existingProfile.data.id,
+          { ban_duration: "none" },
+        );
+        if (reactivated.error) {
+          return NextResponse.json(
+            { error: "No se pudo reactivar la cuenta para invitarla." },
+            { status: 400 },
+          );
+        }
+        await admin
+          .from("profiles")
+          .update({ deactivated_at: null, deactivated_by: null })
+          .eq("id", existingProfile.data.id);
+      }
       const existingMembership = await admin
         .from("team_members")
         .select("user_id")
@@ -795,21 +821,36 @@ export async function DELETE(request: Request) {
       return NextResponse.json(
         {
           error:
-            "Este usuario es propietario de uno o más espacios. Transferí la propiedad antes de eliminarlo.",
+            "Este usuario es propietario de uno o más espacios. Transferí la propiedad antes de darle de baja.",
         },
         { status: 400 },
       );
     }
 
-    if (email) {
-      await Promise.all([
-        admin.from("team_invitations").delete().eq("email", email),
-        admin.from("project_invitations").delete().eq("email", email),
-      ]);
+    const blocked = await admin.auth.admin.updateUserById(body.userId, {
+      ban_duration: "876000h",
+    });
+    if (blocked.error) {
+      return NextResponse.json({ error: blocked.error.message }, { status: 400 });
     }
-    const deleted = await admin.auth.admin.deleteUser(body.userId, false);
-    if (deleted.error) {
-      return NextResponse.json({ error: deleted.error.message }, { status: 400 });
+
+    const cleanupResults = await Promise.all([
+      admin.from("project_members").delete().eq("user_id", body.userId),
+      admin.from("team_members").delete().eq("user_id", body.userId),
+      admin.from("profiles").update({
+        deactivated_at: new Date().toISOString(),
+        deactivated_by: authorization.user.id,
+      }).eq("id", body.userId),
+      ...(email
+        ? [
+            admin.from("team_invitations").delete().eq("email", email),
+            admin.from("project_invitations").delete().eq("email", email),
+          ]
+        : []),
+    ]);
+    const cleanupError = cleanupResults.find((result) => result.error)?.error;
+    if (cleanupError) {
+      return NextResponse.json({ error: cleanupError.message }, { status: 400 });
     }
     return NextResponse.json({ ok: true });
   }

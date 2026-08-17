@@ -55,6 +55,7 @@ export type Person = {
   avatarUrl?: string;
   role?: string;
   email?: string;
+  deactivated?: boolean;
 };
 
 export type Workspace = {

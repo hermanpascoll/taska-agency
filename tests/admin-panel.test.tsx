@@ -22,6 +22,7 @@ const overview: PlatformAdminOverview = {
       online: true,
       providers: ["google"],
       suspended: false,
+      deactivated: false,
       memberships: [
         {
           workspaceId: "workspace-1",
@@ -45,6 +46,7 @@ const overview: PlatformAdminOverview = {
       online: false,
       providers: ["email"],
       suspended: false,
+      deactivated: false,
       memberships: [
         {
           workspaceId: "workspace-1",
@@ -68,6 +70,7 @@ const overview: PlatformAdminOverview = {
       online: false,
       providers: ["google"],
       suspended: false,
+      deactivated: false,
       memberships: [],
     },
   ],
@@ -276,7 +279,7 @@ describe("Panel global de administración", () => {
     expect(anaCard).not.toBeNull();
     await user.click(
       within(anaCard as HTMLElement).getByRole("button", {
-        name: "Eliminar usuario",
+        name: "Dar de baja",
       }),
     );
     await user.type(
@@ -285,8 +288,14 @@ describe("Panel global de administración", () => {
       }),
       "ana@taska.test",
     );
+    const deactivationForm = screen
+      .getByRole("heading", { name: "Dar de baja y conservar historial" })
+      .closest("form");
+    expect(deactivationForm).not.toBeNull();
     await user.click(
-      screen.getByRole("button", { name: "Eliminar definitivamente" }),
+      within(deactivationForm as HTMLElement).getByRole("button", {
+        name: "Dar de baja",
+      }),
     );
     await waitFor(() => {
       const deleteCall = fetchMock.mock.calls.find(

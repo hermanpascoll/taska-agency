@@ -152,6 +152,23 @@ async function sendInvitationEmail(
     },
   });
   const origin = process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin;
+  const existingProfile = await admin
+    .from("profiles")
+    .select("id, deactivated_at")
+    .eq("email", email.toLowerCase())
+    .maybeSingle();
+  if (existingProfile.data?.deactivated_at) {
+    const reactivated = await admin.auth.admin.updateUserById(
+      existingProfile.data.id,
+      { ban_duration: "none" },
+    );
+    if (reactivated.error) return false;
+    const restored = await admin
+      .from("profiles")
+      .update({ deactivated_at: null, deactivated_by: null })
+      .eq("id", existingProfile.data.id);
+    if (restored.error) return false;
+  }
   const inviteResult = await admin.auth.admin.inviteUserByEmail(email, {
     redirectTo: `${origin}/invite/${token}`,
     data,

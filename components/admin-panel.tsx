@@ -296,7 +296,7 @@ export function AdminPanel({
         ? await mutate(
             "DELETE",
             { userId: user.id, confirmation: user.email },
-            "Usuario eliminado definitivamente",
+            "Usuario dado de baja; historial conservado",
           )
         : kind === "superadmin"
         ? await mutate(
@@ -603,7 +603,10 @@ export function AdminPanel({
                   {filteredUsers.map((user) => (
                     <article
                       key={user.id}
-                      className="rounded-2xl border border-black/[0.07] bg-white p-4 shadow-sm sm:p-5"
+                      className={clsx(
+                        "rounded-2xl border border-black/[0.07] bg-white p-4 shadow-sm sm:p-5",
+                        user.deactivated && "opacity-70",
+                      )}
                     >
                       <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
                         <div className="flex min-w-0 flex-1 items-start gap-3">
@@ -635,7 +638,10 @@ export function AdminPanel({
                           </span>
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
-                              <h4 className="truncate text-[13px] font-bold text-slate-900">
+                              <h4 className={clsx(
+                                "truncate text-[13px] font-bold text-slate-900",
+                                user.deactivated && "line-through decoration-slate-500",
+                              )}>
                                 {user.name}
                               </h4>
                               <span
@@ -646,7 +652,11 @@ export function AdminPanel({
                                     : "bg-emerald-50 text-emerald-700",
                                 )}
                               >
-                                {user.suspended ? "Suspendido" : "Activo"}
+                                {user.deactivated
+                                  ? "Baja · historial conservado"
+                                  : user.suspended
+                                    ? "Suspendido"
+                                    : "Activo"}
                               </span>
                               {user.superAdmin && (
                                 <span className="flex items-center gap-1 rounded-full bg-violet-50 px-2 py-1 text-[8px] font-bold uppercase tracking-wide text-violet-700">
@@ -739,7 +749,7 @@ export function AdminPanel({
                             onClick={() =>
                               requestSensitiveAction("status", user)
                             }
-                            disabled={saving || user.superAdmin}
+                            disabled={saving || user.superAdmin || user.deactivated}
                             className={clsx(
                               "focus-ring flex items-center gap-2 rounded-lg border px-3 py-2 text-[9px] font-semibold disabled:opacity-50",
                               user.suspended
@@ -759,6 +769,7 @@ export function AdminPanel({
                             disabled={
                               saving ||
                               user.superAdmin ||
+                              user.deactivated ||
                               user.id === overview?.currentUserId
                             }
                             title={
@@ -766,12 +777,16 @@ export function AdminPanel({
                                 ? "Primero quitá el acceso de superadministrador"
                                 : user.id === overview?.currentUserId
                                   ? "No podés eliminar tu propio usuario"
-                                  : "Eliminar definitivamente el usuario"
+                                  : user.deactivated
+                                    ? "El historial de este usuario está conservado"
+                                    : "Dar de baja conservando todo el historial"
                             }
                             className="focus-ring flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-[9px] font-semibold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
                           >
                             <Trash2 className="size-3.5" />
-                            Eliminar usuario
+                            {user.deactivated
+                              ? "Historial conservado"
+                              : "Dar de baja"}
                           </button>
                         </div>
                       </div>
@@ -1347,7 +1362,7 @@ export function AdminPanel({
             </span>
             <h3 className="mt-4 text-[15px] font-bold text-slate-900">
               {sensitiveAction.kind === "delete"
-                ? "Eliminar usuario definitivamente"
+                ? "Dar de baja y conservar historial"
                 : sensitiveAction.kind === "superadmin"
                 ? sensitiveAction.user.superAdmin
                   ? "Revocar acceso global"
@@ -1358,7 +1373,7 @@ export function AdminPanel({
             </h3>
             <p className="mt-2 text-[10px] leading-5 text-slate-500">
               {sensitiveAction.kind === "delete"
-                ? "Esta acción no se puede deshacer. Se eliminará el acceso y también pueden desaparecer comentarios, registros de tiempo y archivos creados por esta persona. Si es propietaria de un espacio, primero tendrás que transferir la propiedad."
+                ? "Se bloqueará el acceso y se quitará a la persona de sus espacios y proyectos. Su perfil, tareas, comentarios, adjuntos y registros de tiempo permanecerán intactos y visibles como historial. Si es propietaria de un espacio, primero tendrás que transferir la propiedad."
                 : sensitiveAction.kind === "superadmin"
                 ? "Este permiso permite administrar todos los usuarios, espacios y roles de la plataforma."
                 : sensitiveAction.user.suspended
@@ -1409,7 +1424,7 @@ export function AdminPanel({
                 {saving
                   ? "Aplicando…"
                   : sensitiveAction.kind === "delete"
-                    ? "Eliminar definitivamente"
+                    ? "Dar de baja"
                     : "Confirmar cambio"}
               </button>
             </div>

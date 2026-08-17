@@ -48,6 +48,7 @@ type RemotePerson = {
   email: string | null;
   role: string | null;
   avatar_url: string | null;
+  deactivated_at: string | null;
 };
 
 type RemoteProjectMember = {
@@ -309,6 +310,7 @@ function personFromRemote(person: RemotePerson | null, index = 0): Person | null
     avatarUrl: person.avatar_url ?? undefined,
     role: person.role || "Equipo creativo",
     email: person.email ?? undefined,
+    deactivated: Boolean(person.deactivated_at),
   };
 }
 
@@ -533,7 +535,7 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     supabase
       .from("team_members")
       .select(
-        "team_id, user_id, role, project_limited, joined_at, hourly_rate, can_manage_costs, can_manage_billing, can_view_profitability, can_administer, can_track_time, can_audit_time, profiles(id, full_name, email, role, avatar_url)",
+        "team_id, user_id, role, project_limited, joined_at, hourly_rate, can_manage_costs, can_manage_billing, can_view_profitability, can_administer, can_track_time, can_audit_time, profiles(id, full_name, email, role, avatar_url, deactivated_at)",
       ),
     supabase
       .from("clients")
@@ -547,12 +549,12 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
       .order("name"),
     supabase
       .from("profiles")
-      .select("id, full_name, email, role, avatar_url")
+      .select("id, full_name, email, role, avatar_url, deactivated_at")
       .order("full_name"),
     supabase
       .from("tasks")
       .select(
-        "id, task_number, title, description, brief, closure_summary, lessons_learned, archived_at, archived_by, deleted_at, deleted_by, status, priority, start_date, due_date, due_time, client_name, client_email, client_id, client_category, recurrence_rule, recurrence_interval, recurrence_origin_id, recurrence_generated_at, created_at, resolved_at, updated_at, tags, parent_task_id, projects!tasks_project_id_fkey(id, name, color, team_id, description, archived, client_id, client_category, client:clients(id, team_id, name, email, notes, categories, archived)), client:clients!tasks_client_id_fkey(id, team_id, name, email, notes, categories, archived), task_projects(project:projects(id, name, color, team_id, description, archived, client_id, client_category, client:clients(id, team_id, name, email, notes, categories, archived))), assignee:profiles!tasks_assignee_id_fkey(id, full_name, email, role, avatar_url), billing:task_billing_records(commercial_condition, billing_status, amount, external_cost, currency, invoice_number, purchase_order, notes, invoiced_at, collected_at, updated_at, billing_assignee:profiles!task_billing_records_billing_assignee_id_fkey(id, full_name, email, role, avatar_url)), comments(id, body, comment_type, visibility, deleted_at, created_at, author:profiles!comments_author_id_fkey(id, full_name, email, role, avatar_url)), attachments:task_attachments(id, task_id, name, size_bytes, mime_type, storage_path, storage_provider, external_file_id, external_web_url, external_thumbnail_url, version_group_id, version_number, approval_status, deleted_at, created_at, uploader:profiles!task_attachments_uploaded_by_fkey(id, full_name, email, role, avatar_url)), events:task_events(id, event_type, summary, metadata, created_at, actor:profiles!task_events_actor_id_fkey(id, full_name, email, role, avatar_url))",
+        "id, task_number, title, description, brief, closure_summary, lessons_learned, archived_at, archived_by, deleted_at, deleted_by, status, priority, start_date, due_date, due_time, client_name, client_email, client_id, client_category, recurrence_rule, recurrence_interval, recurrence_origin_id, recurrence_generated_at, created_at, resolved_at, updated_at, tags, parent_task_id, projects!tasks_project_id_fkey(id, name, color, team_id, description, archived, client_id, client_category, client:clients(id, team_id, name, email, notes, categories, archived)), client:clients!tasks_client_id_fkey(id, team_id, name, email, notes, categories, archived), task_projects(project:projects(id, name, color, team_id, description, archived, client_id, client_category, client:clients(id, team_id, name, email, notes, categories, archived))), assignee:profiles!tasks_assignee_id_fkey(id, full_name, email, role, avatar_url, deactivated_at), billing:task_billing_records(commercial_condition, billing_status, amount, external_cost, currency, invoice_number, purchase_order, notes, invoiced_at, collected_at, updated_at, billing_assignee:profiles!task_billing_records_billing_assignee_id_fkey(id, full_name, email, role, avatar_url, deactivated_at)), comments(id, body, comment_type, visibility, deleted_at, created_at, author:profiles!comments_author_id_fkey(id, full_name, email, role, avatar_url, deactivated_at)), attachments:task_attachments(id, task_id, name, size_bytes, mime_type, storage_path, storage_provider, external_file_id, external_web_url, external_thumbnail_url, version_group_id, version_number, approval_status, deleted_at, created_at, uploader:profiles!task_attachments_uploaded_by_fkey(id, full_name, email, role, avatar_url, deactivated_at)), events:task_events(id, event_type, summary, metadata, created_at, actor:profiles!task_events_actor_id_fkey(id, full_name, email, role, avatar_url, deactivated_at))",
       )
       .order("created_at", { ascending: true }),
     supabase
@@ -564,7 +566,7 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     supabase
       .from("project_members")
       .select(
-        "project_id, user_id, role, notify_on_new_tasks, joined_at, profiles(id, full_name, email, role, avatar_url)",
+        "project_id, user_id, role, notify_on_new_tasks, joined_at, profiles(id, full_name, email, role, avatar_url, deactivated_at)",
       ),
     supabase
       .from("project_invitations")
@@ -584,7 +586,7 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     supabase
       .from("time_entries")
       .select(
-        "id, team_id, task_id, project_id, client_id, description, started_at, ended_at, duration_seconds, billable, hourly_rate, created_at, task:tasks!time_entries_task_id_fkey(task_number, title, project:projects!tasks_project_id_fkey(id, name)), project:projects!time_entries_project_id_fkey(id, name), client:clients!time_entries_client_id_fkey(id, name), user:profiles!time_entries_user_id_fkey(id, full_name, email, role, avatar_url)",
+        "id, team_id, task_id, project_id, client_id, description, started_at, ended_at, duration_seconds, billable, hourly_rate, created_at, task:tasks!time_entries_task_id_fkey(task_number, title, project:projects!tasks_project_id_fkey(id, name)), project:projects!time_entries_project_id_fkey(id, name), client:clients!time_entries_client_id_fkey(id, name), user:profiles!time_entries_user_id_fkey(id, full_name, email, role, avatar_url, deactivated_at)",
       )
       .order("started_at", { ascending: false })
       .limit(2000),
