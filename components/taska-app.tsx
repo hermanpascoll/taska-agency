@@ -1909,6 +1909,7 @@ function Sidebar({
   onProjectSelect,
   onProjectSettings,
   onSettings,
+  onInviteWorkspace,
   onAdmin,
   onClients,
   onSignOut,
@@ -1917,6 +1918,7 @@ function Sidebar({
   isPlatformAdmin,
   isProjectLimited,
   canCreateTasks,
+  canManageWorkspace,
 }: {
   view: View;
   onViewChange: (view: View) => void;
@@ -1935,6 +1937,7 @@ function Sidebar({
   onProjectSelect: (projectId: string) => void;
   onProjectSettings: (projectId: string) => void;
   onSettings: () => void;
+  onInviteWorkspace: () => void;
   onAdmin: () => void;
   onClients: () => void;
   onSignOut: () => void;
@@ -1943,6 +1946,7 @@ function Sidebar({
   isPlatformAdmin: boolean;
   isProjectLimited: boolean;
   canCreateTasks: boolean;
+  canManageWorkspace: boolean;
 }) {
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -2153,6 +2157,18 @@ function Sidebar({
             <ContactRound className="size-[17px] text-[#0a84ff]" />
             Clientes
           </button>}
+          {canManageWorkspace && (
+            <button
+              onClick={() => {
+                onInviteWorkspace();
+                onClose();
+              }}
+              className="focus-ring flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-semibold text-[#0879ea] transition hover:bg-[#0a84ff]/10"
+            >
+              <UserPlus className="size-[17px]" />
+              Invitar al espacio
+            </button>
+          )}
         </nav>
 
         <div className="my-5 h-px bg-black/[0.06]" />
@@ -8301,6 +8317,7 @@ function SettingsModal({
   onWorkspaceDelete,
   onResetDemo,
   notify,
+  initialTab = "general",
 }: {
   workspace: Workspace;
   currentPerson: Person | null;
@@ -8332,10 +8349,11 @@ function SettingsModal({
   onWorkspaceDelete: () => void;
   onResetDemo: () => void;
   notify: (message: string) => void;
+  initialTab?: "general" | "notifications" | "team" | "workspace";
 }) {
   const [tab, setTab] = useState<
     "general" | "notifications" | "team" | "workspace"
-  >("general");
+  >(initialTab);
   const [name, setName] = useState(currentPerson?.name ?? "");
   const [profileTitle, setProfileTitle] = useState(
     currentPerson?.role ?? "Equipo creativo",
@@ -8959,6 +8977,14 @@ function SettingsModal({
                     onSubmit={submitInvitation}
                     className="mt-5 grid gap-2 rounded-xl border border-[#0a84ff]/15 bg-[#0a84ff]/5 p-3 sm:grid-cols-[1fr_110px_auto]"
                   >
+                    <div className="sm:col-span-3">
+                      <p className="text-[11px] font-bold text-slate-700">
+                        Invitar al espacio {workspace.name}
+                      </p>
+                      <p className="mt-0.5 text-[9px] text-slate-400">
+                        La persona recibirá un enlace y deberá ingresar con Google.
+                      </p>
+                    </div>
                     <label>
                       <span className="sr-only">Correo</span>
                       <input
@@ -9350,6 +9376,9 @@ export function TaskaApp() {
   const [showNewProject, setShowNewProject] = useState(false);
   const [showNewWorkspace, setShowNewWorkspace] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<
+    "general" | "notifications" | "team" | "workspace"
+  >("general");
   const [adminOpen, setAdminOpen] = useState(false);
   const [clientsOpen, setClientsOpen] = useState(false);
   const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
@@ -9877,7 +9906,14 @@ export function TaskaApp() {
         onCreateProject={() => setShowNewProject(true)}
         onCreateTask={() => openNewTask()}
         onProjectSettings={setProjectSettingsId}
-        onSettings={() => setSettingsOpen(true)}
+        onSettings={() => {
+          setSettingsInitialTab("general");
+          setSettingsOpen(true);
+        }}
+        onInviteWorkspace={() => {
+          setSettingsInitialTab("team");
+          setSettingsOpen(true);
+        }}
         onAdmin={() => setAdminOpen(true)}
         onClients={() => setClientsOpen(true)}
         onSignOut={() => void signOut()}
@@ -9886,6 +9922,7 @@ export function TaskaApp() {
         isPlatformAdmin={isPlatformAdmin}
         isProjectLimited={isProjectLimited}
         canCreateTasks={editableProjects.length > 0}
+        canManageWorkspace={canAdministerWorkspace}
         onProjectSelect={(nextProjectId) => {
           setTaskScope("all");
           setProjectId(nextProjectId);
@@ -10933,6 +10970,7 @@ export function TaskaApp() {
           }}
           onResetDemo={resetDemo}
           notify={notify}
+          initialTab={settingsInitialTab}
         />
       )}
 
