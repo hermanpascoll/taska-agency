@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { User } from "@supabase/supabase-js";
+import { processDriveMembershipJobs } from "@/lib/google-drive-membership";
 import type {
   PlatformAdminOverview,
   PlatformAdminUser,
@@ -549,7 +550,12 @@ export async function PATCH(request: Request) {
         { status: 400 },
       );
     }
-    return NextResponse.json({ ok: true });
+    const drive = await processDriveMembershipJobs(admin, {
+      userId: body.userId,
+      teamIds: [body.workspaceId],
+      limit: 5,
+    });
+    return NextResponse.json({ ok: true, drive });
   }
 
   if (
@@ -593,7 +599,12 @@ export async function PATCH(request: Request) {
         { status: 400 },
       );
     }
-    return NextResponse.json({ ok: true });
+    const drive = await processDriveMembershipJobs(admin, {
+      userId: body.userId,
+      teamIds: [body.workspaceId],
+      limit: 5,
+    });
+    return NextResponse.json({ ok: true, drive });
   }
 
   if (
@@ -852,7 +863,11 @@ export async function DELETE(request: Request) {
     if (cleanupError) {
       return NextResponse.json({ error: cleanupError.message }, { status: 400 });
     }
-    return NextResponse.json({ ok: true });
+    const drive = await processDriveMembershipJobs(admin, {
+      userId: body.userId,
+      limit: 100,
+    });
+    return NextResponse.json({ ok: true, drive });
   }
 
   if (!body.workspaceId || !body.confirmation) {

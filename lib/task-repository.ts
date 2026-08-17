@@ -510,6 +510,7 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
 
   const bootstrap = await supabase.rpc("bootstrap_workspace");
   if (bootstrap.error) throw bootstrap.error;
+  await syncRemoteDriveMemberships();
 
   const [
     { data: sessionData },
@@ -1168,14 +1169,13 @@ export async function updateRemoteMemberRole(
   userId: string,
   role: TeamRole,
 ) {
-  const supabase = createClient();
-  if (!supabase) return;
-  const { error } = await supabase.rpc("update_member_role", {
-    candidate_team_id: workspaceId,
-    candidate_user_id: userId,
-    candidate_role: role,
+  const response = await fetch("/api/drive-memberships", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ workspaceId, userId, role }),
   });
-  if (error) throw error;
+  const result = (await response.json()) as { error?: string };
+  if (!response.ok) throw new Error(result.error || "No se pudo actualizar el rol.");
 }
 
 export async function updateRemoteMemberHourlyRate(
@@ -1308,13 +1308,21 @@ export async function removeRemoteMember(
   workspaceId: string,
   userId: string,
 ) {
-  const supabase = createClient();
-  if (!supabase) return;
-  const { error } = await supabase.rpc("remove_team_member", {
-    candidate_team_id: workspaceId,
-    candidate_user_id: userId,
+  const response = await fetch("/api/drive-memberships", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ workspaceId, userId }),
   });
-  if (error) throw error;
+  const result = (await response.json()) as { error?: string };
+  if (!response.ok) throw new Error(result.error || "No se pudo quitar al integrante.");
+}
+
+export async function syncRemoteDriveMemberships() {
+  try {
+    await fetch("/api/drive-memberships", { method: "POST" });
+  } catch {
+    // La cola conserva el cambio y otro inicio de sesión volverá a intentarlo.
+  }
 }
 
 export async function createRemoteInvitation(
@@ -1427,12 +1435,14 @@ export async function acceptRemoteInvitation(token: string) {
     invitation_token: token,
   });
   if (!projectResult.error) {
+    await syncRemoteDriveMemberships();
     return { kind: "project" as const, id: projectResult.data as string };
   }
   const teamResult = await supabase.rpc("accept_team_invitation", {
     invitation_token: token,
   });
   if (teamResult.error) throw teamResult.error;
+  await syncRemoteDriveMemberships();
   return { kind: "workspace" as const, id: teamResult.data as string };
 }
 
