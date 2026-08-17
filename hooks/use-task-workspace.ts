@@ -18,6 +18,7 @@ import {
   createRemoteClient,
   createRemoteInvitation,
   createRemoteManualTimeEntry,
+  createRemoteScopedTimeEntry,
   createRemoteProjectInvitation,
   createRemoteProject,
   createRemoteTask,
@@ -45,6 +46,7 @@ import {
   updateRemoteClient,
   updateRemoteAttachmentStatus,
   updateRemoteMemberHourlyRate,
+  updateRemoteMemberFinancialPermissions,
   updateRemoteMemberRole,
   updateRemoteProfile,
   updateRemoteProject,
@@ -52,6 +54,8 @@ import {
   updateRemoteWorkspace,
   uploadRemoteAttachment,
   upsertRemoteProjectMember,
+  submitRemoteTaskForReview,
+  approveRemoteTaskCompletion,
 } from "@/lib/task-repository";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 import { defaultTaskBilling } from "@/lib/billing-utils";
@@ -68,6 +72,7 @@ import type {
   CommentVisibility,
   NewClientInput,
   NewManualTimeEntryInput,
+  NewScopedTimeEntryInput,
   NewProjectInput,
   NewTaskInput,
   Person,
@@ -89,6 +94,7 @@ import type {
   UpdateWorkspaceInput,
   Workspace,
   WorkspaceMember,
+  FinancialPermissions,
 } from "@/lib/types";
 
 const demoStorageKey = "taska-demo-workspace-v2";
@@ -1301,7 +1307,7 @@ export function useTaskWorkspace() {
           }),
       );
       setAllTimeEntries((current) =>
-        current.filter((entry) => !deletedTaskIds.has(entry.taskId)),
+        current.filter((entry) => !entry.taskId || !deletedTaskIds.has(entry.taskId)),
       );
       if (mode === "supabase") {
         try {
@@ -1330,6 +1336,11 @@ export function useTaskWorkspace() {
         categories: input.categories,
         workspaceId: input.workspaceId,
         archived: false,
+        monthlyFee: input.monthlyFee ?? 0,
+        budgetedHours: input.budgetedHours ?? 0,
+        contractStart: input.contractStart ?? null,
+        contractEnd: input.contractEnd ?? null,
+        currency: input.currency ?? null,
       };
       setAllClients((current) => [...current, client]);
       return client;
@@ -1447,6 +1458,11 @@ export function useTaskWorkspace() {
           projectLimited: false,
           joinedAt: "Ahora",
           hourlyRate: 0,
+          financialPermissions: {
+            manageCosts: true,
+            manageBilling: true,
+            viewProfitability: true,
+          },
         },
       ]);
       setActiveWorkspaceId(workspace.id);
@@ -1565,6 +1581,30 @@ export function useTaskWorkspace() {
             userId,
             hourlyRate,
           );
+        } catch (error) {
+          await refresh();
+          throw error;
+        }
+      }
+    },
+    [activeWorkspaceId, mode, refresh],
+  );
+
+  const updateMemberFinancialPermissions = useCallback(
+    async (userId: string, financialPermissions: FinancialPermissions) => {
+      setMembers((current) => current.map((member) =>
+        member.workspaceId === activeWorkspaceId && member.user.id === userId
+          ? { ...member, financialPermissions }
+          : member,
+      ));
+      if (mode === "supabase") {
+        try {
+          await updateRemoteMemberFinancialPermissions(
+            activeWorkspaceId,
+            userId,
+            financialPermissions,
+          );
+          await refresh();
         } catch (error) {
           await refresh();
           throw error;
@@ -2290,6 +2330,62 @@ export function useTaskWorkspace() {
     ],
   );
 
+  const createScopedTimeEntry = useCallback(
+    async (input: NewScopedTimeEntryInput) => {
+      const project = allProjects.find((item) => item.id === input.projectId);
+      const client = allClients.find((item) => item.id === input.clientId);
+      if (!project && !client) throw new Error("Elegí un cliente o proyecto.");
+      const user = allPeople.find((person) => person.id === currentUserId) ?? demoPeople[0];
+      const hourlyRate = members.find((member) =>
+        member.workspaceId === activeWorkspaceId && member.user.id === currentUserId
+      )?.hourlyRate ?? 0;
+      const startedAt = new Date(`${input.date}T12:00:00`);
+      const entry: TimeEntry = {
+        id: localId("time"), workspaceId: activeWorkspaceId, taskId: null,
+        taskCode: "GESTIÓN", taskTitle: input.description.trim() || "Gestión de cuenta",
+        projectId: project?.id ?? "", projectName: project?.name ?? client?.name ?? "Cliente",
+        clientId: client?.id ?? project?.clientId ?? null,
+        clientName: client?.name ?? project?.clientName ?? null,
+        user, description: input.description.trim(), startedAt: startedAt.toISOString(),
+        endedAt: new Date(startedAt.getTime() + input.durationSeconds * 1000).toISOString(),
+        durationSeconds: input.durationSeconds, billable: input.billable, hourlyRate,
+        createdAt: "Ahora",
+      };
+      setAllTimeEntries((current) => [entry, ...current]);
+      if (mode === "supabase") {
+        try { await createRemoteScopedTimeEntry(input); await refresh(); }
+        catch (error) { await refresh(); throw error; }
+      }
+      return entry;
+    },
+    [activeWorkspaceId, allClients, allPeople, allProjects, currentUserId, members, mode, refresh],
+  );
+
+  const submitTaskForReview = useCallback(async (
+    taskId: string,
+    input: { durationSeconds: number; description: string; billable: boolean; waivedReason: string },
+  ) => {
+    if (mode === "supabase") {
+      await submitRemoteTaskForReview(taskId, input);
+      await refresh();
+      return;
+    }
+    setAllTasks((current) => current.map((task) =>
+      task.id === taskId ? { ...task, status: "en_revision" as const, resolvedAt: null } : task,
+    ));
+  }, [mode, refresh]);
+
+  const approveTaskCompletion = useCallback(async (taskId: string) => {
+    if (mode === "supabase") {
+      await approveRemoteTaskCompletion(taskId);
+      await refresh();
+      return;
+    }
+    setAllTasks((current) => current.map((task) =>
+      task.id === taskId ? { ...task, status: "resuelto" as const, resolvedAt: new Date().toISOString() } : task,
+    ));
+  }, [mode, refresh]);
+
   const deleteTimeEntry = useCallback(
     async (entryId: string) => {
       setAllTimeEntries((current) =>
@@ -2376,6 +2472,7 @@ export function useTaskWorkspace() {
     deleteWorkspace,
     updateMemberRole,
     updateMemberHourlyRate,
+    updateMemberFinancialPermissions,
     removeMember,
     inviteMember,
     revokeInvitation,
@@ -2395,6 +2492,9 @@ export function useTaskWorkspace() {
     startTimer,
     stopTimer,
     createManualTimeEntry,
+    createScopedTimeEntry,
+    submitTaskForReview,
+    approveTaskCompletion,
     deleteTimeEntry,
     resetDemo,
   };

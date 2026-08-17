@@ -1,4 +1,9 @@
-export type TaskStatus = "nuevo" | "en_progreso" | "esperando" | "resuelto";
+export type TaskStatus =
+  | "nuevo"
+  | "en_progreso"
+  | "esperando"
+  | "en_revision"
+  | "resuelto";
 export type TaskPriority = "urgente" | "alta" | "media" | "baja";
 export type TaskRecurrence =
   | "none"
@@ -71,6 +76,11 @@ export type Client = {
   categories: string[];
   workspaceId: string;
   archived: boolean;
+  monthlyFee?: number;
+  budgetedHours?: number;
+  contractStart?: string | null;
+  contractEnd?: string | null;
+  currency?: string | null;
 };
 
 export type Project = {
@@ -190,6 +200,13 @@ export type WorkspaceMember = {
   projectLimited: boolean;
   joinedAt: string;
   hourlyRate: number;
+  financialPermissions: FinancialPermissions;
+};
+
+export type FinancialPermissions = {
+  manageCosts: boolean;
+  manageBilling: boolean;
+  viewProfitability: boolean;
 };
 
 export type ProjectMember = {
@@ -216,11 +233,13 @@ export type ProjectInvitation = {
 export type TimeEntry = {
   id: string;
   workspaceId: string;
-  taskId: string;
+  taskId: string | null;
   taskCode: string;
   taskTitle: string;
   projectId: string;
   projectName: string;
+  clientId?: string | null;
+  clientName?: string | null;
   user: Person;
   description: string;
   startedAt: string;
@@ -233,6 +252,16 @@ export type TimeEntry = {
 
 export type NewManualTimeEntryInput = {
   taskId: string;
+  description: string;
+  date: string;
+  durationSeconds: number;
+  billable: boolean;
+};
+
+export type NewScopedTimeEntryInput = {
+  workspaceId: string;
+  projectId: string | null;
+  clientId: string | null;
   description: string;
   date: string;
   durationSeconds: number;
@@ -343,6 +372,11 @@ export type NewClientInput = {
   notes: string;
   categories: string[];
   workspaceId: string;
+  monthlyFee?: number;
+  budgetedHours?: number;
+  contractStart?: string | null;
+  contractEnd?: string | null;
+  currency?: string | null;
 };
 
 export type UpdateClientInput = {
@@ -351,6 +385,11 @@ export type UpdateClientInput = {
   notes?: string;
   categories?: string[];
   archived?: boolean;
+  monthlyFee?: number;
+  budgetedHours?: number;
+  contractStart?: string | null;
+  contractEnd?: string | null;
+  currency?: string | null;
 };
 
 export type UpdateWorkspaceInput = {

@@ -399,6 +399,11 @@ export const workspaceMembers: WorkspaceMember[] = people.map(
     projectLimited: false,
     joinedAt: "Julio de 2026",
     hourlyRate: [65, 52, 42, 48][index],
+    financialPermissions: {
+      manageCosts: index < 2,
+      manageBilling: index < 2,
+      viewProfitability: index < 2,
+    },
   }),
 );
 

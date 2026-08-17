@@ -47,6 +47,11 @@ const statusMeta: Record<
     bar: "bg-sky-500",
     text: "text-sky-700",
   },
+  en_revision: {
+    label: "Pendiente de aprobación",
+    bar: "bg-cyan-500",
+    text: "text-cyan-700",
+  },
   resuelto: {
     label: "Completada",
     bar: "bg-emerald-500",

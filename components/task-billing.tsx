@@ -79,6 +79,7 @@ export function TaskBillingPanel({
   entries,
   people,
   currency,
+  canView = true,
   canEdit,
   onUpdate,
   notify,
@@ -88,6 +89,7 @@ export function TaskBillingPanel({
   entries: TimeEntry[];
   people: Person[];
   currency: string;
+  canView?: boolean;
   canEdit: boolean;
   onUpdate: (input: UpdateTaskInput) => Promise<void> | void;
   notify: (message: string) => void;
@@ -102,7 +104,7 @@ export function TaskBillingPanel({
   const marginPercent = draft.amount > 0 ? (margin / draft.amount) * 100 : 0;
   const effectiveCurrency = draft.currency || currency;
 
-  if (!canEdit) {
+  if (!canView) {
     return (
       <section className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
         <div className="flex items-center gap-3">
@@ -112,7 +114,7 @@ export function TaskBillingPanel({
           <span>
             <strong className="block text-[11px] text-slate-700">Etapa administrativa</strong>
             <span className="text-[9px] text-slate-500">
-              Los datos de facturación y rentabilidad son visibles sólo para administradores.
+              Esta información está disponible sólo para personas autorizadas.
             </span>
           </span>
         </div>
@@ -183,6 +185,7 @@ export function TaskBillingPanel({
           </p>
         )}
 
+        <fieldset disabled={!canEdit} className={!canEdit ? "opacity-80" : undefined}>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-[9px] font-semibold text-slate-600">
             Condición comercial
@@ -289,12 +292,13 @@ export function TaskBillingPanel({
           Notas administrativas
           <textarea value={draft.notes} onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))} placeholder="Información para facturar, condiciones acordadas o seguimiento de cobro…" className="mt-1.5 min-h-20 w-full rounded-lg border border-slate-200 p-3 text-[10px] leading-5" />
         </label>
+        </fieldset>
         {error && <p role="alert" className="mt-3 text-[9px] font-semibold text-rose-600">{error}</p>}
-        <div className="mt-4 flex justify-end">
+        {canEdit && <div className="mt-4 flex justify-end">
           <button disabled={saving} className="focus-ring flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-[10px] font-bold text-white hover:bg-emerald-700 disabled:opacity-50">
             <Save className="size-3.5" />{saving ? "Guardando…" : "Guardar facturación"}
           </button>
-        </div>
+        </div>}
       </form>
     </details>
   );
@@ -307,6 +311,7 @@ export function BillingView({
   currency,
   onUpdateTask,
   notify,
+  canEdit = true,
 }: {
   tasks: Task[];
   entries: TimeEntry[];
@@ -314,6 +319,7 @@ export function BillingView({
   currency: string;
   onUpdateTask: (taskId: string, input: UpdateTaskInput) => Promise<void>;
   notify: (message: string) => void;
+  canEdit?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [condition, setCondition] = useState<CommercialCondition | "all">("all");
@@ -400,7 +406,8 @@ export function BillingView({
               entries={entries.filter((entry) => entry.taskId === selectedTask.id)}
               people={people}
               currency={currency}
-              canEdit
+              canEdit={canEdit}
+              canView
               onUpdate={(input) => onUpdateTask(selectedTask.id, input)}
               notify={notify}
               compact

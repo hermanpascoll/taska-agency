@@ -42,6 +42,7 @@ const statusLabels: Record<TaskStatus, string> = {
   nuevo: "Por hacer",
   en_progreso: "En curso",
   esperando: "En revisión",
+  en_revision: "Pendiente de aprobación",
   resuelto: "Completada",
 };
 

@@ -13,6 +13,7 @@ import type {
   CommentVisibility,
   NewClientInput,
   NewManualTimeEntryInput,
+  NewScopedTimeEntryInput,
   NewProjectInput,
   NewTaskInput,
   Person,
@@ -77,6 +78,11 @@ type RemoteClient = {
   notes: string | null;
   categories: string[] | null;
   archived: boolean;
+  monthly_fee?: number | string;
+  budgeted_hours?: number | string;
+  contract_start?: string | null;
+  contract_end?: string | null;
+  currency?: string | null;
 };
 
 type RemoteComment = {
@@ -183,13 +189,18 @@ type RemoteMembership = {
   project_limited: boolean;
   joined_at: string;
   hourly_rate: number;
+  can_manage_costs: boolean;
+  can_manage_billing: boolean;
+  can_view_profitability: boolean;
   profiles: RemotePerson | RemotePerson[] | null;
 };
 
 type RemoteTimeEntry = {
   id: string;
   team_id: string;
-  task_id: string;
+  task_id: string | null;
+  project_id: string | null;
+  client_id: string | null;
   description: string;
   started_at: string;
   ended_at: string | null;
@@ -214,6 +225,14 @@ type RemoteTimeEntry = {
           | { id: string; name: string }[]
           | null;
       }[]
+    | null;
+  project:
+    | { id: string; name: string }
+    | { id: string; name: string }[]
+    | null;
+  client:
+    | { id: string; name: string }
+    | { id: string; name: string }[]
     | null;
   user: RemotePerson | RemotePerson[] | null;
 };
@@ -256,6 +275,11 @@ function mapClient(row: RemoteClient): Client {
     categories: row.categories ?? [],
     workspaceId: row.team_id,
     archived: row.archived,
+    monthlyFee: Number(row.monthly_fee ?? 0),
+    budgetedHours: Number(row.budgeted_hours ?? 0),
+    contractStart: row.contract_start ?? null,
+    contractEnd: row.contract_end ?? null,
+    currency: row.currency ?? null,
   };
 }
 
@@ -448,7 +472,8 @@ function mapTask(row: RemoteTask, index: number): Task {
 
 function mapTimeEntry(row: RemoteTimeEntry, index: number): TimeEntry {
   const task = one(row.task);
-  const project = task ? one(task.project) : null;
+  const project = (task ? one(task.project) : null) ?? one(row.project);
+  const client = one(row.client);
   return {
     id: row.id,
     workspaceId: row.team_id,
@@ -459,6 +484,8 @@ function mapTimeEntry(row: RemoteTimeEntry, index: number): TimeEntry {
     taskTitle: task?.title ?? "Tarea eliminada",
     projectId: project?.id ?? "unknown",
     projectName: project?.name ?? "Sin proyecto",
+    clientId: row.client_id,
+    clientName: client?.name ?? null,
     user: personFromRemote(one(row.user), index) ?? fallbackPerson(),
     description: row.description,
     startedAt: row.started_at,
@@ -490,6 +517,7 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     projectInvitationsResult,
     notificationsResult,
     timeEntriesResult,
+    clientFinancialsResult,
   ] = await Promise.all([
     supabase.auth.getSession(),
     supabase
@@ -499,7 +527,7 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     supabase
       .from("team_members")
       .select(
-        "team_id, user_id, role, project_limited, joined_at, hourly_rate, profiles(id, full_name, email, role, avatar_url)",
+        "team_id, user_id, role, project_limited, joined_at, hourly_rate, can_manage_costs, can_manage_billing, can_view_profitability, profiles(id, full_name, email, role, avatar_url)",
       ),
     supabase
       .from("clients")
@@ -546,10 +574,11 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     supabase
       .from("time_entries")
       .select(
-        "id, team_id, task_id, description, started_at, ended_at, duration_seconds, billable, hourly_rate, created_at, task:tasks!time_entries_task_id_fkey(task_number, title, project:projects!tasks_project_id_fkey(id, name)), user:profiles!time_entries_user_id_fkey(id, full_name, email, role, avatar_url)",
+        "id, team_id, task_id, project_id, client_id, description, started_at, ended_at, duration_seconds, billable, hourly_rate, created_at, task:tasks!time_entries_task_id_fkey(task_number, title, project:projects!tasks_project_id_fkey(id, name)), project:projects!time_entries_project_id_fkey(id, name), client:clients!time_entries_client_id_fkey(id, name), user:profiles!time_entries_user_id_fkey(id, full_name, email, role, avatar_url)",
       )
       .order("started_at", { ascending: false })
       .limit(2000),
+    supabase.rpc("get_client_financials"),
   ]);
 
   for (const result of [
@@ -564,11 +593,18 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     projectInvitationsResult,
     notificationsResult,
     timeEntriesResult,
+    clientFinancialsResult,
   ]) {
     if (result.error) throw result.error;
   }
 
   const currentUserId = sessionData.session?.user.id ?? "";
+  const clientFinancials = new Map(
+    ((clientFinancialsResult.data ?? []) as Array<{
+      client_id: string; monthly_fee: number | string; budgeted_hours: number | string;
+      contract_start: string | null; contract_end: string | null; currency: string | null;
+    }>).map((row) => [row.client_id, row]),
+  );
   const memberships = (membershipsResult.data ?? []) as unknown as RemoteMembership[];
   const people = ((profilesResult.data ?? []) as RemotePerson[]).map(
     (person, index) => personFromRemote(person, index)!,
@@ -591,6 +627,11 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     role: membership.role,
     projectLimited: membership.project_limited,
     hourlyRate: Number(membership.hourly_rate),
+    financialPermissions: {
+      manageCosts: Boolean(membership.can_manage_costs),
+      manageBilling: Boolean(membership.can_manage_billing),
+      viewProfitability: Boolean(membership.can_view_profitability),
+    },
     joinedAt: new Intl.DateTimeFormat("es-UY", {
       month: "long",
       year: "numeric",
@@ -660,7 +701,9 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
       googleDriveId: workspace.google_drive_id,
       googleDriveName: workspace.google_drive_name,
     })),
-    clients: ((clientsResult.data ?? []) as RemoteClient[]).map(mapClient),
+    clients: ((clientsResult.data ?? []) as RemoteClient[]).map((client) =>
+      mapClient({ ...client, ...(clientFinancials.get(client.id) ?? {}) }),
+    ),
     projects: ((projectsResult.data ?? []) as RemoteProject[]).map(mapProject),
     people,
     peopleByWorkspace,
@@ -859,7 +902,7 @@ export async function updateRemoteTask(id: string, input: UpdateTaskInput) {
     }
   }
   if (input.billing !== undefined) {
-    const { error } = await supabase.rpc("upsert_task_billing_record", {
+    const { error } = await supabase.rpc("upsert_task_billing_record_v2", {
       candidate_task_id: id,
       candidate_billing: input.billing,
     });
@@ -982,6 +1025,11 @@ export async function createRemoteClient(input: NewClientInput) {
       email: input.email || null,
       notes: input.notes,
       categories: input.categories,
+      monthly_fee: input.monthlyFee ?? 0,
+      budgeted_hours: input.budgetedHours ?? 0,
+      contract_start: input.contractStart || null,
+      contract_end: input.contractEnd || null,
+      currency: input.currency || null,
     })
     .select("id, team_id, name, email, notes, categories, archived")
     .single();
@@ -995,7 +1043,18 @@ export async function updateRemoteClient(
 ) {
   const supabase = createClient();
   if (!supabase) return;
-  const { error } = await supabase.from("clients").update(input).eq("id", id);
+  const payload: Record<string, string | number | string[] | boolean | null> = {};
+  if (input.name !== undefined) payload.name = input.name;
+  if (input.email !== undefined) payload.email = input.email || null;
+  if (input.notes !== undefined) payload.notes = input.notes;
+  if (input.categories !== undefined) payload.categories = input.categories;
+  if (input.archived !== undefined) payload.archived = input.archived;
+  if (input.monthlyFee !== undefined) payload.monthly_fee = input.monthlyFee;
+  if (input.budgetedHours !== undefined) payload.budgeted_hours = input.budgetedHours;
+  if (input.contractStart !== undefined) payload.contract_start = input.contractStart || null;
+  if (input.contractEnd !== undefined) payload.contract_end = input.contractEnd || null;
+  if (input.currency !== undefined) payload.currency = input.currency || null;
+  const { error } = await supabase.from("clients").update(payload).eq("id", id);
   if (error) throw error;
 }
 
@@ -1077,6 +1136,23 @@ export async function updateRemoteMemberHourlyRate(
   if (error) throw error;
 }
 
+export async function updateRemoteMemberFinancialPermissions(
+  workspaceId: string,
+  userId: string,
+  permissions: { manageCosts: boolean; manageBilling: boolean; viewProfitability: boolean },
+) {
+  const supabase = createClient();
+  if (!supabase) return;
+  const { error } = await supabase.rpc("update_member_financial_permissions", {
+    candidate_team_id: workspaceId,
+    candidate_user_id: userId,
+    candidate_manage_costs: permissions.manageCosts,
+    candidate_manage_billing: permissions.manageBilling,
+    candidate_view_profitability: permissions.viewProfitability,
+  });
+  if (error) throw error;
+}
+
 export async function startRemoteTimer(
   taskId: string,
   description: string,
@@ -1117,6 +1193,48 @@ export async function createRemoteManualTimeEntry(
   });
   if (error) throw error;
   return data as string;
+}
+
+export async function createRemoteScopedTimeEntry(input: NewScopedTimeEntryInput) {
+  const supabase = createClient();
+  if (!supabase) return null;
+  const startedAt = new Date(`${input.date}T12:00:00`).toISOString();
+  const { data, error } = await supabase.rpc("create_scoped_time_entry", {
+    candidate_team_id: input.workspaceId,
+    candidate_project_id: input.projectId,
+    candidate_client_id: input.clientId,
+    candidate_description: input.description,
+    candidate_started_at: startedAt,
+    candidate_duration_seconds: input.durationSeconds,
+    candidate_billable: input.billable,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+export async function submitRemoteTaskForReview(
+  taskId: string,
+  input: { durationSeconds: number; description: string; billable: boolean; waivedReason: string },
+) {
+  const supabase = createClient();
+  if (!supabase) return;
+  const { error } = await supabase.rpc("submit_task_for_review", {
+    candidate_task_id: taskId,
+    candidate_duration_seconds: input.durationSeconds,
+    candidate_description: input.description,
+    candidate_billable: input.billable,
+    candidate_waived_reason: input.waivedReason,
+  });
+  if (error) throw error;
+}
+
+export async function approveRemoteTaskCompletion(taskId: string) {
+  const supabase = createClient();
+  if (!supabase) return;
+  const { error } = await supabase.rpc("approve_task_completion", {
+    candidate_task_id: taskId,
+  });
+  if (error) throw error;
 }
 
 export async function deleteRemoteTimeEntry(entryId: string) {

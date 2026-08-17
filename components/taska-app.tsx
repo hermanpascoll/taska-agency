@@ -134,7 +134,6 @@ import {
 } from "@/lib/google-drive-client";
 import {
   buildTimeReportCsv,
-  canAuditTimeReports,
   elapsedSeconds,
   formatBytes,
   formatDuration,
@@ -156,6 +155,7 @@ import type {
   CommentVisibility,
   NewClientInput,
   NewManualTimeEntryInput,
+  NewScopedTimeEntryInput,
   NewProjectInput,
   NewTaskInput,
   Person,
@@ -259,6 +259,12 @@ const statusMeta: Record<
     dot: "#3C8FD5",
     surface: "bg-sky-50",
     text: "text-sky-700",
+  },
+  en_revision: {
+    label: "Pendiente de aprobación",
+    dot: "#22A6B3",
+    surface: "bg-cyan-50",
+    text: "text-cyan-700",
   },
   resuelto: {
     label: "Completada",
@@ -1640,7 +1646,8 @@ function ActiveTimersMenu({
                 </div>
                 <div className="mt-2.5 flex justify-end gap-1.5">
                   <button
-                    onClick={() => onOpen(entry.taskId)}
+                    onClick={() => entry.taskId && onOpen(entry.taskId)}
+                    disabled={!entry.taskId}
                     className="focus-ring rounded-lg px-2.5 py-1.5 text-[9px] font-semibold text-[#0879ea] hover:bg-[#0a84ff]/10"
                     aria-label={`Abrir ${entry.taskTitle}`}
                   >
@@ -1948,8 +1955,6 @@ function Sidebar({
     ...(canViewTimeReports
       ? [{ id: "billing" as const, label: "Facturación", icon: CircleDollarSign }]
       : []),
-    { id: "portfolios" as const, label: "Portafolios", icon: Briefcase },
-    { id: "goals" as const, label: "Objetivos", icon: Target },
   ];
 
   function select(nextView: View) {
@@ -2150,7 +2155,7 @@ function Sidebar({
         <div className="min-h-0 flex-1">
           <div className="mb-2 flex items-center justify-between px-3">
             <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-slate-500">
-              Campañas
+              Clientes y campañas
             </p>
             {!isProjectLimited && (
               <button
@@ -4181,6 +4186,8 @@ function TaskDrawer({
   currency,
   canTrackTime,
   canAuditTime,
+  canApproveTask,
+  canManageBilling,
   canEditTask,
   canCommentTask,
   googleDriveId,
@@ -4192,7 +4199,6 @@ function TaskDrawer({
   onComment,
   onCommentDelete,
   onSubtaskCreate,
-  onSubtaskUpdate,
   onAttachmentUpload,
   onAttachmentDelete,
   onAttachmentRestore,
@@ -4203,6 +4209,8 @@ function TaskDrawer({
   onTimerStop,
   onManualTimeCreate,
   onTimeEntryDelete,
+  onSubmitForReview,
+  onApproveCompletion,
   embedded = false,
 }: {
   task: Task;
@@ -4218,6 +4226,8 @@ function TaskDrawer({
   currency: string;
   canTrackTime: boolean;
   canAuditTime: boolean;
+  canApproveTask: boolean;
+  canManageBilling: boolean;
   canEditTask: boolean;
   canCommentTask: boolean;
   googleDriveId?: string | null;
@@ -4233,7 +4243,6 @@ function TaskDrawer({
   ) => void;
   onCommentDelete: (commentId: string) => void;
   onSubtaskCreate: (title: string, assigneeId: string) => void;
-  onSubtaskUpdate: (taskId: string, input: UpdateTaskInput) => void;
   onAttachmentUpload: (files: File[]) => Promise<TaskAttachment[]>;
   onAttachmentDelete: (attachment: TaskAttachment) => void;
   onAttachmentRestore: (attachment: TaskAttachment) => void;
@@ -4247,9 +4256,17 @@ function TaskDrawer({
   onTimerStop: (entryId: string) => void;
   onManualTimeCreate: (input: NewManualTimeEntryInput) => void;
   onTimeEntryDelete: (entryId: string) => void;
+  onSubmitForReview: (input: { durationSeconds: number; description: string; billable: boolean; waivedReason: string }) => Promise<void>;
+  onApproveCompletion: () => Promise<void>;
   embedded?: boolean;
 }) {
   const [comment, setComment] = useState("");
+  const [completionOpen, setCompletionOpen] = useState(false);
+  const [completionHours, setCompletionHours] = useState("");
+  const [completionDescription, setCompletionDescription] = useState("");
+  const [completionBillable, setCompletionBillable] = useState(true);
+  const [completionWaivedReason, setCompletionWaivedReason] = useState("");
+  const [completionSaving, setCompletionSaving] = useState(false);
   const [commentType, setCommentType] = useState<CommentType>("comment");
   const [commentVisibility, setCommentVisibility] =
     useState<CommentVisibility>("team");
@@ -4439,24 +4456,41 @@ function TaskDrawer({
       >
         <header className="task-detail-toolbar relative flex min-h-16 shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 sm:gap-3 sm:px-5">
           <button
-            disabled={!canEditTask}
-            onClick={() =>
-              onTaskUpdate({
-                status:
-                  task.status === "resuelto" ? "en_progreso" : "resuelto",
-              })
+            disabled={
+              task.status === "en_revision"
+                ? !canApproveTask
+                : task.status !== "resuelto" && task.assignee?.id !== currentUserId
             }
+            onClick={() => {
+              if (task.status === "en_revision") {
+                if (!canApproveTask) return;
+                setCompletionSaving(true);
+                void onApproveCompletion().finally(() => setCompletionSaving(false));
+                return;
+              }
+              if (task.status === "resuelto") {
+                void onTaskUpdate({ status: "en_progreso" });
+                return;
+              }
+              if (task.assignee?.id === currentUserId) setCompletionOpen(true);
+            }}
             className={clsx(
               "focus-ring flex shrink-0 items-center gap-2 rounded-lg border px-2.5 py-2 text-[11px] font-semibold transition sm:px-3",
               task.status === "resuelto"
                 ? "border-emerald-500 bg-emerald-500 text-white"
+                : task.status === "en_revision"
+                ? "border-cyan-400 bg-cyan-50 text-cyan-700"
                 : "border-slate-300 text-slate-600 hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-700",
-              !canEditTask && "cursor-default opacity-60",
+              completionSaving && "cursor-wait opacity-60",
             )}
           >
             <CheckCircle2 className="size-4" />
             <span className="hidden sm:inline">
-              {task.status === "resuelto" ? "Completada" : "Completar tarea"}
+              {task.status === "resuelto"
+                ? "Completada"
+                : task.status === "en_revision"
+                ? canApproveTask ? "Aprobar y cerrar" : "En revisión"
+                : task.assignee?.id === currentUserId ? "Terminé mi trabajo" : "La cierra el responsable"}
             </span>
           </button>
 
@@ -4691,7 +4725,7 @@ function TaskDrawer({
                 Estado
               </span>
               <select
-                disabled={!canEditTask}
+                disabled={!canEditTask || task.status === "en_revision" || task.status === "resuelto"}
                 value={task.status}
                 onChange={(event) =>
                   onTaskUpdate({ status: event.target.value as TaskStatus })
@@ -4699,7 +4733,9 @@ function TaskDrawer({
                 className="focus-ring w-full border-0 bg-transparent p-0 text-[12px] font-semibold text-slate-700"
                 aria-label="Estado"
               >
-                {(Object.keys(statusMeta) as TaskStatus[]).map((status) => (
+                {(["nuevo", "en_progreso", "esperando"] as TaskStatus[]).concat(
+                  task.status === "en_revision" || task.status === "resuelto" ? [task.status] : [],
+                ).map((status) => (
                   <option value={status} key={status}>
                     {statusMeta[status].label}
                   </option>
@@ -4909,13 +4945,16 @@ function TaskDrawer({
               Estado
             </span>
             <select
+              disabled={!canEditTask || task.status === "en_revision" || task.status === "resuelto"}
               value={task.status}
               onChange={(event) =>
                 onTaskUpdate({ status: event.target.value as TaskStatus })
               }
               className="focus-ring w-fit rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 font-semibold text-slate-700"
             >
-              {(Object.keys(statusMeta) as TaskStatus[]).map((status) => (
+              {(["nuevo", "en_progreso", "esperando"] as TaskStatus[]).concat(
+                task.status === "en_revision" || task.status === "resuelto" ? [task.status] : [],
+              ).map((status) => (
                 <option value={status} key={status}>
                   {statusMeta[status].label}
                 </option>
@@ -5224,7 +5263,8 @@ function TaskDrawer({
               entries={timeEntries}
               people={people}
               currency={currency}
-              canEdit={canAuditTime}
+              canView={canAuditTime}
+              canEdit={canManageBilling}
               onUpdate={onTaskUpdate}
               notify={notify}
             />
@@ -5494,14 +5534,7 @@ function TaskDrawer({
                 >
                   <button
                     disabled={!canEditTask}
-                    onClick={() =>
-                      onSubtaskUpdate(subtask.id, {
-                        status:
-                          subtask.status === "resuelto"
-                            ? "en_progreso"
-                            : "resuelto",
-                      })
-                    }
+                    onClick={() => onTaskSelect(subtask.id)}
                     className={clsx(
                       "focus-ring grid size-5 shrink-0 place-items-center rounded-full border-2",
                       subtask.status === "resuelto"
@@ -5923,6 +5956,36 @@ function TaskDrawer({
           </div>
         )}
       </aside>
+      {completionOpen && (
+        <div className="absolute inset-0 z-20 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              const durationSeconds = Math.round((Number(completionHours) || 0) * 3600);
+              if (durationSeconds <= 0 && !completionWaivedReason.trim()) {
+                notify("Ingresá las horas trabajadas o explicá por qué no corresponde imputarlas");
+                return;
+              }
+              setCompletionSaving(true);
+              void onSubmitForReview({
+                durationSeconds,
+                description: completionDescription.trim(),
+                billable: completionBillable,
+                waivedReason: completionWaivedReason.trim(),
+              }).then(() => setCompletionOpen(false)).finally(() => setCompletionSaving(false));
+            }}
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl"
+          >
+            <h3 className="text-[15px] font-bold text-slate-900">Entregar trabajo para revisión</h3>
+            <p className="mt-1 text-[10px] leading-4 text-slate-500">Registrá el esfuerzo real. El referente del proyecto aprobará el cierre definitivo.</p>
+            <label className="mt-4 block text-[10px] font-semibold text-slate-600">Horas dedicadas<input type="number" min="0" step="0.25" value={completionHours} onChange={(event) => setCompletionHours(event.target.value)} placeholder="Ej. 2,5" className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 px-3 text-[11px]" /></label>
+            <label className="mt-3 block text-[10px] font-semibold text-slate-600">Descripción del trabajo<input value={completionDescription} onChange={(event) => setCompletionDescription(event.target.value)} placeholder="Qué hiciste…" className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 px-3 text-[11px]" /></label>
+            <label className="mt-3 flex items-center gap-2 text-[10px] font-semibold text-slate-600"><input type="checkbox" checked={completionBillable} onChange={(event) => setCompletionBillable(event.target.checked)} /> Tiempo facturable</label>
+            <label className="mt-3 block text-[10px] font-semibold text-slate-600">Si no corresponde cargar horas<textarea value={completionWaivedReason} onChange={(event) => setCompletionWaivedReason(event.target.value)} placeholder="Motivo excepcional…" className="mt-1.5 min-h-16 w-full rounded-lg border border-slate-200 p-3 text-[10px]" /></label>
+            <div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => setCompletionOpen(false)} className="rounded-lg px-3 py-2 text-[10px] font-semibold text-slate-500">Cancelar</button><button disabled={completionSaving} className="rounded-lg bg-[#0a84ff] px-4 py-2 text-[10px] font-bold text-white disabled:opacity-50">{completionSaving ? "Entregando…" : "Enviar a revisión"}</button></div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
@@ -6689,22 +6752,28 @@ function ClientsModal({
   clients,
   projects,
   tasks,
+  timeEntries,
   workspaceId,
   canManage,
+  canViewProfitability,
   onClose,
   onCreate,
   onUpdate,
   onDelete,
+  onTimeCreate,
 }: {
   clients: Client[];
   projects: Project[];
   tasks: Task[];
+  timeEntries: TimeEntry[];
   workspaceId: string;
   canManage: boolean;
+  canViewProfitability: boolean;
   onClose: () => void;
   onCreate: (input: NewClientInput) => Promise<unknown>;
   onUpdate: (clientId: string, input: UpdateClientInput) => Promise<void>;
   onDelete: (clientId: string) => Promise<void>;
+  onTimeCreate: (input: NewScopedTimeEntryInput) => Promise<unknown>;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -6716,6 +6785,16 @@ function ClientsModal({
   const [email, setEmail] = useState("");
   const [notes, setNotes] = useState("");
   const [categories, setCategories] = useState("");
+  const [monthlyFee, setMonthlyFee] = useState("");
+  const [budgetedHours, setBudgetedHours] = useState("");
+  const [contractStart, setContractStart] = useState("");
+  const [contractEnd, setContractEnd] = useState("");
+  const [clientCurrency, setClientCurrency] = useState("USD");
+  const [timeClientId, setTimeClientId] = useState<string | null>(null);
+  const [timeProjectId, setTimeProjectId] = useState("");
+  const [timeHours, setTimeHours] = useState("");
+  const [timeDescription, setTimeDescription] = useState("");
+  const [timeDate, setTimeDate] = useState(new Date().toISOString().slice(0, 10));
   const [saving, setSaving] = useState(false);
   const [deletingClient, setDeletingClient] = useState<Client | null>(null);
   const visibleClients = clients.filter((client) => {
@@ -6739,6 +6818,10 @@ function ClientsModal({
     setEmail("");
     setNotes("");
     setCategories("");
+    setMonthlyFee("");
+    setBudgetedHours("");
+    setContractStart("");
+    setContractEnd("");
     setFormOpen(false);
   }
 
@@ -6756,6 +6839,11 @@ function ClientsModal({
             .split(",")
             .map((category) => category.trim())
             .filter(Boolean),
+          monthlyFee: Math.max(0, Number(monthlyFee) || 0),
+          budgetedHours: Math.max(0, Number(budgetedHours) || 0),
+          contractStart: contractStart || null,
+          contractEnd: contractEnd || null,
+          currency: clientCurrency,
         });
       } else {
         await onCreate({
@@ -6767,6 +6855,11 @@ function ClientsModal({
             .map((category) => category.trim())
             .filter(Boolean),
           workspaceId,
+          monthlyFee: Math.max(0, Number(monthlyFee) || 0),
+          budgetedHours: Math.max(0, Number(budgetedHours) || 0),
+          contractStart: contractStart || null,
+          contractEnd: contractEnd || null,
+          currency: clientCurrency,
         });
       }
       clearForm();
@@ -6855,6 +6948,15 @@ function ClientsModal({
                 Separalas con comas. Quedarán disponibles en proyectos y tareas.
               </span>
             </label>
+            {canViewProfitability && (
+              <div className="mt-4 grid grid-cols-2 gap-2 rounded-xl border border-emerald-100 bg-emerald-50/50 p-3">
+                <label className="text-[9px] font-bold text-slate-600">Fee mensual<input type="number" min="0" step="0.01" value={monthlyFee} onChange={(event) => setMonthlyFee(event.target.value)} className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-[10px]" /></label>
+                <label className="text-[9px] font-bold text-slate-600">Horas presupuestadas<input type="number" min="0" step="0.25" value={budgetedHours} onChange={(event) => setBudgetedHours(event.target.value)} className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-[10px]" /></label>
+                <label className="text-[9px] font-bold text-slate-600">Inicio<input type="date" value={contractStart} onChange={(event) => setContractStart(event.target.value)} className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-[10px]" /></label>
+                <label className="text-[9px] font-bold text-slate-600">Fin<input type="date" value={contractEnd} onChange={(event) => setContractEnd(event.target.value)} className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-[10px]" /></label>
+                <label className="col-span-2 text-[9px] font-bold text-slate-600">Moneda<select value={clientCurrency} onChange={(event) => setClientCurrency(event.target.value)} className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-[10px]"><option>USD</option><option>UYU</option><option>ARS</option><option>EUR</option></select></label>
+              </div>
+            )}
             <label className="mt-4 block">
               <span className="mb-2 block text-[10px] font-bold text-slate-600">
                 Correo de contacto
@@ -6953,6 +7055,8 @@ function ClientsModal({
                 const clientTasks = tasks.filter(
                   (task) => task.clientId === client.id,
                 );
+                const clientEntries = timeEntries.filter((entry) => entry.clientId === client.id);
+                const clientCost = clientEntries.reduce((total, entry) => total + entry.durationSeconds / 3600 * entry.hourlyRate, 0);
                 return (
                 <article
                   key={client.id}
@@ -7013,6 +7117,13 @@ function ClientsModal({
                       </p>
                     </div>
                   </div>
+                  {canViewProfitability && (
+                    <div className="mt-3 grid grid-cols-3 gap-2 rounded-xl bg-emerald-50 p-3">
+                      <span><strong className="block text-[10px] text-emerald-800">{client.currency ?? "USD"} {(client.monthlyFee ?? 0).toFixed(2)}</strong><small className="text-[7px] uppercase text-emerald-600">Fee mensual</small></span>
+                      <span><strong className="block text-[10px] text-emerald-800">{(client.budgetedHours ?? 0).toFixed(1)} h</strong><small className="text-[7px] uppercase text-emerald-600">Presupuesto</small></span>
+                      <span><strong className="block text-[10px] text-emerald-800">{client.currency ?? "USD"} {clientCost.toFixed(2)}</strong><small className="text-[7px] uppercase text-emerald-600">Costo real</small></span>
+                    </div>
+                  )}
                   {client.categories.length > 0 && (
                     <div className="mt-3 flex flex-wrap gap-1.5">
                       {client.categories.map((category) => (
@@ -7034,6 +7145,11 @@ function ClientsModal({
                           setEmail(client.email);
                           setNotes(client.notes);
                           setCategories(client.categories.join(", "));
+                          setMonthlyFee(String(client.monthlyFee ?? 0));
+                          setBudgetedHours(String(client.budgetedHours ?? 0));
+                          setContractStart(client.contractStart ?? "");
+                          setContractEnd(client.contractEnd ?? "");
+                          setClientCurrency(client.currency ?? "USD");
                           setFormOpen(true);
                         }}
                         className="focus-ring rounded-lg border border-slate-200 px-3 py-2 text-[9px] font-semibold text-slate-600 hover:bg-slate-50"
@@ -7058,6 +7174,7 @@ function ClientsModal({
                       </button>
                     </div>
                   )}
+                  <button onClick={() => { setTimeClientId(client.id); setTimeProjectId(projects.find((project) => project.clientId === client.id)?.id ?? ""); }} className="mt-3 rounded-lg border border-slate-200 px-3 py-2 text-[9px] font-semibold text-[#0879ea] hover:bg-slate-50">Registrar tiempo de gestión</button>
                 </article>
                 );
               })}
@@ -7086,6 +7203,18 @@ function ClientsModal({
             if (editingId === deletingClient.id) clearForm();
           }}
         />
+      )}
+      {timeClientId && (
+        <div className="fixed inset-0 z-[100] grid place-items-center bg-slate-950/45 p-4">
+          <form onSubmit={(event) => { event.preventDefault(); const seconds = Math.round((Number(timeHours) || 0) * 3600); if (seconds <= 0) return; void onTimeCreate({ workspaceId, clientId: timeClientId, projectId: timeProjectId || null, description: timeDescription.trim(), date: timeDate, durationSeconds: seconds, billable: true }).then(() => { setTimeClientId(null); setTimeHours(""); setTimeDescription(""); }); }} className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+            <h3 className="text-[14px] font-bold text-slate-900">Tiempo de gestión de cuenta</h3>
+            <p className="mt-1 text-[9px] text-slate-500">Para reuniones, seguimiento y coordinación que no nacen de una tarea.</p>
+            <select value={timeProjectId} onChange={(event) => setTimeProjectId(event.target.value)} className="mt-4 h-10 w-full rounded-lg border border-slate-200 px-3 text-[10px]"><option value="">Cliente general</option>{projects.filter((project) => project.clientId === timeClientId).map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select>
+            <div className="mt-3 grid grid-cols-2 gap-2"><input type="number" required min="0.25" step="0.25" value={timeHours} onChange={(event) => setTimeHours(event.target.value)} placeholder="Horas" className="h-10 rounded-lg border border-slate-200 px-3 text-[10px]" /><input type="date" value={timeDate} onChange={(event) => setTimeDate(event.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-[10px]" /></div>
+            <textarea value={timeDescription} onChange={(event) => setTimeDescription(event.target.value)} placeholder="Reunión, seguimiento, coordinación…" className="mt-3 min-h-20 w-full rounded-lg border border-slate-200 p-3 text-[10px]" />
+            <div className="mt-4 flex justify-end gap-2"><button type="button" onClick={() => setTimeClientId(null)} className="px-3 py-2 text-[10px] text-slate-500">Cancelar</button><button className="rounded-lg bg-[#0a84ff] px-4 py-2 text-[10px] font-bold text-white">Guardar tiempo</button></div>
+          </form>
+        </div>
       )}
     </div>
   );
@@ -8157,6 +8286,7 @@ function SettingsModal({
   onInvitationRevoke,
   onRoleUpdate,
   onMemberHourlyRateUpdate,
+  onMemberFinancialPermissionsUpdate,
   onMemberRemove,
   onWorkspaceUpdate,
   onWorkspaceDelete,
@@ -8183,6 +8313,7 @@ function SettingsModal({
   onInvitationRevoke: (id: string) => void;
   onRoleUpdate: (userId: string, role: TeamRole) => void;
   onMemberHourlyRateUpdate: (userId: string, hourlyRate: number) => void;
+  onMemberFinancialPermissionsUpdate: (userId: string, permissions: WorkspaceMember["financialPermissions"]) => void;
   onMemberRemove: (userId: string) => void;
   onWorkspaceUpdate: (input: UpdateWorkspaceInput) => void;
   onWorkspaceDelete: () => void;
@@ -8210,6 +8341,9 @@ function SettingsModal({
   >(null);
   const [removeUserId, setRemoveUserId] = useState<string | null>(null);
   const canManage = workspace.role === "owner" || workspace.role === "admin";
+  const currentMember = members.find((member) => member.user.id === currentPerson?.id);
+  const canManageCosts = workspace.role === "owner" || Boolean(currentMember?.financialPermissions.manageCosts);
+  const canAssignFinancialPermissions = workspace.role === "owner";
 
   useEffect(
     () => () => {
@@ -8686,7 +8820,7 @@ function SettingsModal({
                     </tbody>
                   </table>
                 </div>
-                {canManage &&
+                {canManageCosts &&
                   members.some((member) => member.hourlyRate <= 0) && (
                     <p className="mt-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[9px] font-semibold leading-4 text-amber-700">
                       <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
@@ -8754,7 +8888,7 @@ function SettingsModal({
                           min="0"
                           step="0.01"
                           defaultValue={member.hourlyRate}
-                          disabled={!canManage}
+                          disabled={!canManageCosts}
                           onBlur={(event) => {
                             const hourlyRate = Number(event.target.value);
                             if (
@@ -8789,6 +8923,33 @@ function SettingsModal({
                         <option value="agent">Integrante</option>
                         <option value="viewer">Solo lectura</option>
                       </select>
+                      <details className="relative">
+                        <summary className="focus-ring cursor-pointer list-none rounded-lg border border-slate-200 px-2 py-1.5 text-[8px] font-bold text-slate-500 hover:bg-slate-50">Finanzas</summary>
+                        <div className="absolute right-0 top-9 z-20 w-56 space-y-2 rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
+                          {([
+                            ["manageCosts", "Administrar costos y tarifas"],
+                            ["manageBilling", "Administrar facturación"],
+                            ["viewProfitability", "Ver rentabilidad"],
+                          ] as const).map(([key, label]) => (
+                            <label key={key} className="flex items-center gap-2 text-[9px] font-semibold text-slate-600">
+                              <input
+                                type="checkbox"
+                                disabled={!canAssignFinancialPermissions || member.role === "owner"}
+                                checked={member.role === "owner" || member.financialPermissions[key]}
+                                onChange={(event) => {
+                                  onMemberFinancialPermissionsUpdate(member.user.id, {
+                                    ...member.financialPermissions,
+                                    [key]: event.target.checked,
+                                  });
+                                  notify("Permisos financieros actualizados");
+                                }}
+                              />
+                              {label}
+                            </label>
+                          ))}
+                          {!canAssignFinancialPermissions && <p className="text-[8px] leading-3 text-slate-400">Sólo el dueño del espacio puede delegar estos permisos.</p>}
+                        </div>
+                      </details>
                       {canManage && member.role !== "owner" && (
                         <button
                           onClick={() => {
@@ -9022,6 +9183,7 @@ export function TaskaApp() {
     deleteWorkspace,
     updateMemberRole,
     updateMemberHourlyRate,
+    updateMemberFinancialPermissions,
     removeMember,
     inviteMember,
     revokeInvitation,
@@ -9041,6 +9203,9 @@ export function TaskaApp() {
     startTimer,
     stopTimer,
     createManualTimeEntry,
+    createScopedTimeEntry,
+    submitTaskForReview,
+    approveTaskCompletion,
     deleteTimeEntry,
     resetDemo,
   } = useTaskWorkspace();
@@ -9146,8 +9311,19 @@ export function TaskaApp() {
   const currentPerson =
     people.find((person) => person.id === currentUserId) ?? people[0] ?? null;
   const currentMembership =
-    members.find((member) => member.user.id === currentUserId) ?? null;
-  const canAuditTime = canAuditTimeReports(activeWorkspace?.role);
+    members.find(
+      (member) =>
+        member.workspaceId === activeWorkspaceId &&
+        member.user.id === currentUserId,
+    ) ?? null;
+  const isWorkspaceOwner = activeWorkspace?.role === "owner";
+  const canManageBilling = isWorkspaceOwner || Boolean(currentMembership?.financialPermissions.manageBilling);
+  const canViewProfitability = isWorkspaceOwner || Boolean(
+    currentMembership?.financialPermissions.viewProfitability ||
+    currentMembership?.financialPermissions.manageCosts ||
+    currentMembership?.financialPermissions.manageBilling,
+  );
+  const canAuditTime = canViewProfitability;
   const isProjectLimited = currentMembership?.projectLimited ?? false;
   const editableProjectIds = useMemo(() => {
     if (!isProjectLimited) {
@@ -9702,18 +9878,17 @@ export function TaskaApp() {
                   notify("No tenés permiso para editar este proyecto");
                   return;
                 }
-                const next =
-                  task.status === "resuelto" ? "en_progreso" : "resuelto";
-                void updateStatus(task.id, next);
-                notify(
-                  next === "resuelto"
-                    ? "Tarea completada"
-                    : "Tarea reabierta",
-                );
+                setSelectedTaskId(task.id);
+                notify("Abrí la tarea para registrar horas y entregarla");
               }}
               onMove={(taskId, status) => {
                 if (!editableProjectIds.has(focusedProject.id)) {
                   notify("No tenés permiso para mover tareas de este proyecto");
+                  return;
+                }
+                if (status === "resuelto" || status === "en_revision") {
+                  setSelectedTaskId(taskId);
+                  notify("Registrá las horas y entregá la tarea desde su detalle");
                   return;
                 }
                 void updateStatus(taskId, status);
@@ -9752,6 +9927,7 @@ export function TaskaApp() {
               entries={timeEntries}
               people={people}
               currency={activeWorkspace?.currency ?? "USD"}
+              canEdit={canManageBilling}
               onUpdateTask={updateTask}
               notify={notify}
             />
@@ -10086,6 +10262,11 @@ export function TaskaApp() {
                   onSelect={(task) => setSelectedTaskId(task.id)}
                   onCreate={openNewTask}
                   onMove={(id, status) => {
+                    if (status === "resuelto" || status === "en_revision") {
+                      setSelectedTaskId(id);
+                      notify("Registrá las horas y entregá la tarea desde su detalle");
+                      return;
+                    }
                     void updateStatus(id, status);
                     notify(`Tarea movida a ${statusMeta[status].label}`);
                   }}
@@ -10106,14 +10287,8 @@ export function TaskaApp() {
                   compact={settings.compactMode}
                   onSelect={(task) => setSelectedTaskId(task.id)}
                   onComplete={(task) => {
-                    const next =
-                      task.status === "resuelto" ? "en_progreso" : "resuelto";
-                    void updateStatus(task.id, next);
-                    notify(
-                      next === "resuelto"
-                        ? "Tarea completada"
-                        : "Tarea reabierta",
-                    );
+                    setSelectedTaskId(task.id);
+                    notify("Abrí la tarea para registrar horas y entregarla");
                   }}
                 />
               )}
@@ -10132,8 +10307,7 @@ export function TaskaApp() {
           { id: "home" as const, label: "Inicio", icon: Home },
           { id: "all_tasks" as const, label: "Tareas", icon: ListTodo },
           { id: "inbox" as const, label: "Bandeja", icon: Inbox },
-          { id: "portfolios" as const, label: "Portafolios", icon: Briefcase },
-          { id: "goals" as const, label: "Objetivos", icon: Target },
+          { id: "my_tasks" as const, label: "Mis tareas", icon: CheckCircle2 },
         ].map((item) => {
           const Icon = item.icon;
           return (
@@ -10195,6 +10369,15 @@ export function TaskaApp() {
           currency={activeWorkspace?.currency ?? "USD"}
           canTrackTime={canTrackTime}
           canAuditTime={canAuditTime}
+          canManageBilling={canManageBilling}
+          canApproveTask={
+            activeWorkspace?.role === "owner" ||
+            activeWorkspace?.role === "admin" ||
+            projectMembers.some((member) =>
+              selectedTask.projects.some((project) => project.id === member.projectId) &&
+              member.user.id === currentUserId && member.role === "admin"
+            )
+          }
           canEditTask={canEditSelectedTask}
           canCommentTask={canCommentSelectedTask}
           googleDriveId={activeWorkspace?.googleDriveId}
@@ -10273,10 +10456,6 @@ export function TaskaApp() {
               }
             })();
           }}
-          onSubtaskUpdate={(taskId, input) => {
-            void updateTask(taskId, input);
-            notify("Subtarea actualizada");
-          }}
           onAttachmentUpload={async (files) => {
             const uploaded: TaskAttachment[] = [];
             if (!canCommentSelectedTask) {
@@ -10353,6 +10532,14 @@ export function TaskaApp() {
           onTimeEntryDelete={(entryId) => {
             void deleteTimeEntry(entryId);
             notify("Registro de tiempo eliminado");
+          }}
+          onSubmitForReview={async (input) => {
+            await submitTaskForReview(selectedTask.id, input);
+            notify("Trabajo enviado a revisión");
+          }}
+          onApproveCompletion={async () => {
+            await approveTaskCompletion(selectedTask.id);
+            notify("Tarea aprobada y cerrada");
           }}
           embedded
           notify={notify}
@@ -10461,8 +10648,10 @@ export function TaskaApp() {
           clients={clients}
           projects={projects}
           tasks={activeTasks}
+          timeEntries={timeEntries}
           workspaceId={activeWorkspace.id}
           canManage={["owner", "admin"].includes(activeWorkspace.role)}
+          canViewProfitability={canViewProfitability}
           onClose={() => setClientsOpen(false)}
           onCreate={async (input) => {
             try {
@@ -10504,6 +10693,16 @@ export function TaskaApp() {
               throw error;
             }
           }}
+          onTimeCreate={async (input) => {
+            try {
+              const entry = await createScopedTimeEntry(input);
+              notify("Tiempo de gestión registrado");
+              return entry;
+            } catch (error) {
+              notify(error instanceof Error ? error.message : "No se pudo registrar el tiempo");
+              throw error;
+            }
+          }}
         />
       )}
 
@@ -10525,6 +10724,9 @@ export function TaskaApp() {
           }
           onMemberHourlyRateUpdate={(userId, hourlyRate) =>
             void updateMemberHourlyRate(userId, hourlyRate)
+          }
+          onMemberFinancialPermissionsUpdate={(userId, permissions) =>
+            void updateMemberFinancialPermissions(userId, permissions)
           }
           onMemberRemove={(userId) => void removeMember(userId)}
           onWorkspaceUpdate={(input) =>
