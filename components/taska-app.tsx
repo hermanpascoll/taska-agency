@@ -96,6 +96,10 @@ import { AdminPanel } from "@/components/admin-panel";
 import { BillingView, TaskBillingPanel } from "@/components/task-billing";
 import { GanttChart } from "@/components/gantt-chart";
 import {
+  MentionedText,
+  MentionTextarea,
+} from "@/components/mention-textarea";
+import {
   NewTaskModal,
   type PendingTaskImage,
 } from "@/components/new-task-modal";
@@ -5257,6 +5261,7 @@ function TaskDrawer({
             <TaskRichTextEditor
               key={task.id}
               task={task}
+              people={people}
               editable={canEditTask}
               onUpdate={(description) => onTaskUpdate({ description })}
               onUpload={onAttachmentUpload}
@@ -5886,9 +5891,11 @@ function TaskDrawer({
                           item.deletedAt && "italic text-slate-400",
                         )}
                       >
-                        {item.deletedAt
-                          ? "Comentario retirado. Su registro se conserva en el historial."
-                          : item.body}
+                        {item.deletedAt ? (
+                          "Comentario retirado. Su registro se conserva en el historial."
+                        ) : (
+                          <MentionedText text={item.body} people={people} />
+                        )}
                       </p>
                     </div>
                   </div>
@@ -5911,9 +5918,10 @@ function TaskDrawer({
           <div className="flex items-center gap-3">
             <Avatar person={currentPerson} size="sm" />
             <div className="flex-1 rounded-lg border border-slate-300 bg-white px-2.5 py-2 shadow-sm focus-within:border-violet-400 focus-within:ring-2 focus-within:ring-violet-100">
-              <textarea
+              <MentionTextarea
                 value={comment}
-                onChange={(event) => setComment(event.target.value)}
+                onChange={setComment}
+                people={people}
                 onFocus={() => setCommentComposerOpen(true)}
                 onKeyDown={(event) => {
                   if (
@@ -6597,11 +6605,13 @@ export function LegacyNewTaskModal({
 function NewProjectModal({
   workspaceId,
   clients,
+  people,
   onClose,
   onCreate,
 }: {
   workspaceId: string;
   clients: Client[];
+  people: Person[];
   onClose: () => void;
   onCreate: (input: NewProjectInput) => Promise<void> | void;
 }) {
@@ -6731,17 +6741,18 @@ function NewProjectModal({
             ))}
           </select>
         </label>
-        <label className="mt-4 block">
+        <div className="mt-4 block">
           <span className="mb-2 block text-[11px] font-bold text-slate-600">
             Descripción
           </span>
-          <textarea
+          <MentionTextarea
             value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            placeholder="Objetivo, cliente o alcance del proyecto"
+            onChange={setDescription}
+            people={people}
+            placeholder="Objetivo, alcance o @integrante"
             className="focus-ring min-h-20 w-full resize-none rounded-xl border border-slate-200 px-4 py-3 text-[13px] text-slate-800"
           />
-        </label>
+        </div>
         <fieldset className="mt-5">
           <legend className="text-[11px] font-bold text-slate-600">
             Color
@@ -7398,6 +7409,7 @@ function ConfirmDialog({
 function ProjectSettingsModal({
   project,
   clients,
+  people,
   onClose,
   onSave,
   onArchive,
@@ -7405,6 +7417,7 @@ function ProjectSettingsModal({
 }: {
   project: Project;
   clients: Client[];
+  people: Person[];
   onClose: () => void;
   onSave: (input: UpdateProjectInput) => void;
   onArchive: () => void;
@@ -7515,16 +7528,18 @@ function ProjectSettingsModal({
               ))}
             </select>
           </label>
-          <label className="block">
+          <div className="block">
             <span className="mb-2 block text-[11px] font-semibold text-slate-600">
               Descripción
             </span>
-            <textarea
+            <MentionTextarea
               value={description}
-              onChange={(event) => setDescription(event.target.value)}
+              onChange={setDescription}
+              people={people}
+              placeholder="Escribí @ para mencionar a alguien"
               className="mac-input focus-ring min-h-20 w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-[12px]"
             />
-          </label>
+          </div>
           <fieldset>
             <legend className="text-[11px] font-semibold text-slate-600">
               Etiqueta de color
@@ -10864,6 +10879,7 @@ export function TaskaApp() {
         <NewProjectModal
           workspaceId={activeWorkspaceId}
           clients={clients}
+          people={people}
           onClose={() => setShowNewProject(false)}
           onCreate={(input) => void handleCreateProject(input)}
         />
@@ -10883,6 +10899,7 @@ export function TaskaApp() {
               projects.find((project) => project.id === projectSettingsId)!
             }
             clients={clients}
+            people={people}
             onClose={() => setProjectSettingsId(null)}
             onSave={(input) => {
               void updateProject(projectSettingsId, input);

@@ -408,6 +408,7 @@ export function NewTaskModal({
             )}
             <TaskRichTextEditor
               task={draftDocument}
+              people={people}
               onUpdate={setDescription}
               onUpload={uploadDraftImages}
               onOpen={() => undefined}

@@ -42,7 +42,7 @@ import {
   linkProviderLabels,
 } from "@/lib/link-provider";
 import { createClient } from "@/lib/supabase/client";
-import type { Task, TaskAttachment } from "@/lib/types";
+import type { Person, Task, TaskAttachment } from "@/lib/types";
 
 type TaskDocument = Pick<Task, "id" | "description" | "attachments">;
 
@@ -191,6 +191,7 @@ export function TaskRichTextEditor({
   onUpload,
   onOpen,
   onCreateSubtask,
+  people = [],
   updateDelay = 450,
   editable = true,
 }: {
@@ -199,6 +200,7 @@ export function TaskRichTextEditor({
   onUpload: (files: File[]) => Promise<TaskAttachment[]>;
   onOpen: (attachment: TaskAttachment) => void;
   onCreateSubtask?: (title: string) => void;
+  people?: Person[];
   updateDelay?: number;
   editable?: boolean;
 }) {
@@ -217,6 +219,53 @@ export function TaskRichTextEditor({
   const lastSubmittedRef = useRef("");
   const loadedTaskIdRef = useRef("");
   const loadedSourceDescriptionRef = useRef("");
+  const mentionRangeRef = useRef<{ from: number; to: number } | null>(null);
+  const mentionCandidatesRef = useRef<Person[]>([]);
+  const mentionIndexRef = useRef(0);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
+
+  const mentionCandidates = useMemo(() => {
+    if (mentionQuery === null) return [];
+    const query = mentionQuery.toLocaleLowerCase("es");
+    return people
+      .filter(
+        (person) =>
+          !person.deactivated &&
+          (!query ||
+            person.name.toLocaleLowerCase("es").includes(query) ||
+            person.email?.toLocaleLowerCase("es").includes(query)),
+      )
+      .slice(0, 6);
+  }, [mentionQuery, people]);
+
+  useEffect(() => {
+    mentionCandidatesRef.current = mentionCandidates;
+    mentionIndexRef.current = mentionIndex;
+  }, [mentionCandidates, mentionIndex]);
+
+  const detectMention = useCallback((currentEditor: Editor) => {
+    const { from, empty } = currentEditor.state.selection;
+    if (!empty) {
+      mentionRangeRef.current = null;
+      setMentionQuery(null);
+      return;
+    }
+    const start = Math.max(0, from - 100);
+    const beforeCursor = currentEditor.state.doc.textBetween(start, from, "\n", "\0");
+    const match = beforeCursor.match(/(?:^|\s)@([^\s@]*)$/u);
+    if (!match) {
+      mentionRangeRef.current = null;
+      setMentionQuery(null);
+      return;
+    }
+    mentionRangeRef.current = {
+      from: from - match[1].length - 1,
+      to: from,
+    };
+    setMentionQuery(match[1]);
+    setMentionIndex(0);
+  }, []);
 
   useEffect(() => {
     onUpdateRef.current = onUpdate;
@@ -350,8 +399,45 @@ export function TaskRichTextEditor({
         }
         return false;
       },
+      handleKeyDown: (_view, event) => {
+        const candidates = mentionCandidatesRef.current;
+        if (!mentionRangeRef.current || !candidates.length) return false;
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          setMentionIndex((current) =>
+            event.key === "ArrowDown"
+              ? (current + 1) % candidates.length
+              : (current - 1 + candidates.length) % candidates.length,
+          );
+          return true;
+        }
+        if (event.key === "Enter" || event.key === "Tab") {
+          event.preventDefault();
+          const person = candidates[mentionIndexRef.current] ?? candidates[0];
+          const range = mentionRangeRef.current;
+          if (person && range) {
+            editor
+              ?.chain()
+              .focus()
+              .deleteRange(range)
+              .insertContent(`@${person.name} `)
+              .run();
+            mentionRangeRef.current = null;
+            setMentionQuery(null);
+          }
+          return true;
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          mentionRangeRef.current = null;
+          setMentionQuery(null);
+          return true;
+        }
+        return false;
+      },
     },
     onUpdate: ({ editor: currentEditor }) => {
+      detectMention(currentEditor);
       const html = currentEditor.getHTML();
       latestHtmlRef.current = html;
       lastEmittedRef.current = html;
@@ -368,6 +454,9 @@ export function TaskRichTextEditor({
         saveTimerRef.current = null;
       }, updateDelay);
     },
+    onSelectionUpdate: ({ editor: currentEditor }) => {
+      detectMention(currentEditor);
+    },
     onBlur: ({ editor: currentEditor }) => {
       if (!dirtyRef.current) return;
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -377,7 +466,7 @@ export function TaskRichTextEditor({
       lastEmittedRef.current = html;
       submitDescription(html);
     },
-  }, [submitDescription]);
+  }, [detectMention, submitDescription]);
 
   useEffect(() => {
     editor?.setEditable(editable);
@@ -544,6 +633,58 @@ export function TaskRichTextEditor({
         />
       </div>}
       <EditorContent editor={editor} />
+      {mentionQuery !== null && mentionCandidates.length > 0 && (
+        <div className="relative z-30 mx-3 mb-2 max-w-sm overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 shadow-2xl">
+          <p className="px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-slate-400">
+            Mencionar a
+          </p>
+          {mentionCandidates.map((person, index) => (
+            <button
+              key={person.id}
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                const range = mentionRangeRef.current;
+                if (!editor || !range) return;
+                editor
+                  .chain()
+                  .focus()
+                  .deleteRange(range)
+                  .insertContent(`@${person.name} `)
+                  .run();
+                mentionRangeRef.current = null;
+                setMentionQuery(null);
+              }}
+              className={clsx(
+                "flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left",
+                index === mentionIndex
+                  ? "bg-[#0a84ff]/10"
+                  : "hover:bg-slate-50",
+              )}
+            >
+              <span
+                className="grid size-7 shrink-0 place-items-center overflow-hidden rounded-full text-[9px] font-bold text-white"
+                style={{ background: person.color }}
+              >
+                {person.avatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={person.avatarUrl} alt="" className="size-full object-cover" />
+                ) : (
+                  person.initials
+                )}
+              </span>
+              <span className="min-w-0">
+                <strong className="block truncate text-[11px] text-slate-800">
+                  {person.name}
+                </strong>
+                <span className="block truncate text-[9px] text-slate-400">
+                  {person.email}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
       {editable && <div className="flex min-h-8 items-center justify-between gap-3 border-t border-slate-200 bg-slate-50/70 px-3 py-1.5 text-[10px] text-slate-500">
         <span>{uploading ? "Insertando imagen…" : "Pegá o arrastrá imágenes directamente en el texto"}</span>
         <span
