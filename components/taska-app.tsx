@@ -8351,8 +8351,9 @@ function SettingsModal({
     "archive" | "delete" | "remove" | null
   >(null);
   const [removeUserId, setRemoveUserId] = useState<string | null>(null);
-  const canManage = workspace.role === "owner" || workspace.role === "admin";
   const currentMember = members.find((member) => member.user.id === currentPerson?.id);
+  const canManage =
+    workspace.role === "owner" || Boolean(currentMember?.accessPermissions.administer);
   const canManageCosts = workspace.role === "owner" || Boolean(currentMember?.financialPermissions.manageCosts);
   const canAssignFinancialPermissions = workspace.role === "owner";
 
@@ -9439,6 +9440,8 @@ export function TaskaApp() {
         member.user.id === currentUserId,
     ) ?? null;
   const isWorkspaceOwner = activeWorkspace?.role === "owner";
+  const canAdministerWorkspace =
+    isWorkspaceOwner || Boolean(currentMembership?.accessPermissions.administer);
   const canManageCosts = isWorkspaceOwner || Boolean(currentMembership?.financialPermissions.manageCosts);
   const canManageBilling = isWorkspaceOwner || Boolean(currentMembership?.financialPermissions.manageBilling);
   const canViewProfitability = isWorkspaceOwner || Boolean(
@@ -9446,7 +9449,8 @@ export function TaskaApp() {
     currentMembership?.financialPermissions.manageCosts ||
     currentMembership?.financialPermissions.manageBilling,
   );
-  const canAuditTime = canViewProfitability;
+  const canAuditTime =
+    isWorkspaceOwner || Boolean(currentMembership?.accessPermissions.auditTime);
   const isProjectLimited = currentMembership?.projectLimited ?? false;
   const editableProjectIds = useMemo(() => {
     if (!isProjectLimited) {
@@ -9526,7 +9530,10 @@ export function TaskaApp() {
   const canCommentSelectedTask = Array.from(selectedTaskProjectIds).some(
     (candidateProjectId) => commentableProjectIds.has(candidateProjectId),
   );
-  const canTrackTime = canEditSelectedTask;
+  const canTrackTime =
+    Boolean(
+      isWorkspaceOwner || currentMembership?.accessPermissions.trackTime,
+    ) && canEditSelectedTask;
   const focusedProject =
     projectId === "todos"
       ? null
@@ -9998,8 +10005,7 @@ export function TaskaApp() {
               projectInvitations={projectInvitations}
               currentUserId={currentUserId}
               canManageSharing={
-                activeWorkspace?.role === "owner" ||
-                activeWorkspace?.role === "admin" ||
+                canAdministerWorkspace ||
                 projectMembers.some(
                   (member) =>
                     member.projectId === focusedProject.id &&
@@ -10553,8 +10559,7 @@ export function TaskaApp() {
           canAuditTime={canAuditTime}
           canManageBilling={canManageBilling}
           canApproveTask={
-            activeWorkspace?.role === "owner" ||
-            activeWorkspace?.role === "admin" ||
+            canAdministerWorkspace ||
             projectMembers.some((member) =>
               selectedTask.projects.some((project) => project.id === member.projectId) &&
               member.user.id === currentUserId && member.role === "admin"
@@ -10832,7 +10837,7 @@ export function TaskaApp() {
           tasks={activeTasks}
           timeEntries={timeEntries}
           workspaceId={activeWorkspace.id}
-          canManage={["owner", "admin"].includes(activeWorkspace.role)}
+          canManage={canAdministerWorkspace}
           canViewProfitability={canViewProfitability}
           canManageFinancial={canManageCosts || canManageBilling}
           onClose={() => setClientsOpen(false)}

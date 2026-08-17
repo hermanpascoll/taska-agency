@@ -36,7 +36,7 @@ import type {
   PlatformAdminUser,
   PlatformAdminWorkspace,
 } from "@/lib/admin-types";
-import type { TeamRole } from "@/lib/types";
+import type { RolePermissions, TeamRole } from "@/lib/types";
 
 const roleLabels: Record<TeamRole, string> = {
   owner: "Propietario",
@@ -44,6 +44,33 @@ const roleLabels: Record<TeamRole, string> = {
   agent: "Integrante",
   viewer: "Sólo lectura",
 };
+
+const permissionLabels: Array<{
+  key: keyof RolePermissions;
+  title: string;
+  description: string;
+}> = [
+  {
+    key: "administer",
+    title: "Administración",
+    description: "Gestionar integrantes, proyectos y configuración del espacio.",
+  },
+  {
+    key: "billing",
+    title: "Facturación y rentabilidad",
+    description: "Ver costos, márgenes y administrar datos de facturación.",
+  },
+  {
+    key: "trackTime",
+    title: "Registrar tiempo",
+    description: "Usar timers y cargar horas propias manualmente.",
+  },
+  {
+    key: "auditTime",
+    title: "Auditar tiempo del equipo",
+    description: "Ver, corregir y exportar horas de otros integrantes.",
+  },
+];
 
 function initials(name: string) {
   return name
@@ -104,6 +131,8 @@ export function AdminPanel({
   const [managingWorkspaceId, setManagingWorkspaceId] = useState<string | null>(
     null,
   );
+  const [managingPermissionsWorkspaceId, setManagingPermissionsWorkspaceId] =
+    useState<string | null>(null);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] =
     useState<Exclude<TeamRole, "owner">>("agent");
@@ -116,7 +145,7 @@ export function AdminPanel({
     name: string;
   } | null>(null);
   const [sensitiveAction, setSensitiveAction] = useState<{
-    kind: "superadmin" | "status";
+    kind: "superadmin" | "status" | "delete";
     user: PlatformAdminUser;
   } | null>(null);
   const [sensitiveConfirmation, setSensitiveConfirmation] = useState("");
@@ -248,7 +277,7 @@ export function AdminPanel({
   }, [overview?.workspaces, query, workspaceStatusFilter]);
 
   function requestSensitiveAction(
-    kind: "superadmin" | "status",
+    kind: "superadmin" | "status" | "delete",
     user: PlatformAdminUser,
   ) {
     setSensitiveAction({ kind, user });
@@ -266,7 +295,13 @@ export function AdminPanel({
     }
     const { kind, user } = sensitiveAction;
     const result =
-      kind === "superadmin"
+      kind === "delete"
+        ? await mutate(
+            "DELETE",
+            { userId: user.id, confirmation: user.email },
+            "Usuario eliminado definitivamente",
+          )
+        : kind === "superadmin"
         ? await mutate(
             "PATCH",
             {
@@ -301,6 +336,10 @@ export function AdminPanel({
   const managingWorkspace =
     overview?.workspaces.find(
       (workspace) => workspace.id === managingWorkspaceId,
+    ) ?? null;
+  const managingPermissionsWorkspace =
+    overview?.workspaces.find(
+      (workspace) => workspace.id === managingPermissionsWorkspaceId,
     ) ?? null;
   const usersOutsideWorkspace = (overview?.users ?? []).filter(
     (user) =>
@@ -728,6 +767,25 @@ export function AdminPanel({
                             )}
                             {user.suspended ? "Reactivar" : "Suspender"}
                           </button>
+                          <button
+                            onClick={() => requestSensitiveAction("delete", user)}
+                            disabled={
+                              saving ||
+                              user.superAdmin ||
+                              user.id === overview?.currentUserId
+                            }
+                            title={
+                              user.superAdmin
+                                ? "Primero quitá el acceso de superadministrador"
+                                : user.id === overview?.currentUserId
+                                  ? "No podés eliminar tu propio usuario"
+                                  : "Eliminar definitivamente el usuario"
+                            }
+                            className="focus-ring flex items-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-[9px] font-semibold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            <Trash2 className="size-3.5" />
+                            Eliminar usuario
+                          </button>
                         </div>
                       </div>
 
@@ -858,6 +916,16 @@ export function AdminPanel({
                         </button>
                         <button
                           onClick={() =>
+                            setManagingPermissionsWorkspaceId(workspace.id)
+                          }
+                          disabled={saving}
+                          className="focus-ring flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-[9px] font-semibold text-violet-700 hover:bg-violet-100 disabled:opacity-50"
+                        >
+                          <KeyRound className="size-3.5" />
+                          Permisos por rol
+                        </button>
+                        <button
+                          onClick={() =>
                             void mutate(
                               "PATCH",
                               {
@@ -903,6 +971,121 @@ export function AdminPanel({
           </main>
         </div>
       </section>
+
+      {managingPermissionsWorkspace && (
+        <div className="fixed inset-0 z-[105] grid place-items-center bg-slate-950/45 p-3 backdrop-blur-sm sm:p-6">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Permisos de ${managingPermissionsWorkspace.name}`}
+            className="mac-window flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-black/10 bg-[#f7f8fa] shadow-2xl"
+          >
+            <header className="flex items-center border-b border-black/[0.07] bg-white/95 px-5 py-4">
+              <span className="grid size-10 place-items-center rounded-xl bg-violet-100 text-violet-700">
+                <KeyRound className="size-5" />
+              </span>
+              <div className="ml-3 min-w-0">
+                <p className="text-[9px] font-bold uppercase tracking-wide text-violet-700">
+                  Permisos por rol
+                </p>
+                <h3 className="truncate text-[14px] font-bold text-slate-900">
+                  {managingPermissionsWorkspace.name}
+                </h3>
+              </div>
+              <button
+                onClick={() => setManagingPermissionsWorkspaceId(null)}
+                className="focus-ring ml-auto rounded-lg p-2 text-slate-400 hover:bg-slate-100"
+                aria-label="Cerrar permisos"
+              >
+                <X className="size-4" />
+              </button>
+            </header>
+            <div className="soft-scrollbar min-h-0 overflow-y-auto p-4 sm:p-6">
+              <div className="mb-4 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-[10px] leading-5 text-violet-800">
+                Los cambios se aplican inmediatamente a todos los integrantes actuales y futuros que tengan ese rol. El propietario conserva siempre todos los permisos.
+              </div>
+              <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+                <table className="w-full min-w-[720px] border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50">
+                      <th className="px-4 py-3 text-left text-[9px] font-bold uppercase tracking-wide text-slate-500">
+                        Permiso
+                      </th>
+                      {(Object.keys(roleLabels) as TeamRole[]).map((role) => (
+                        <th
+                          key={role}
+                          className="px-4 py-3 text-center text-[9px] font-bold uppercase tracking-wide text-slate-500"
+                        >
+                          {roleLabels[role]}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {permissionLabels.map((permission) => (
+                      <tr key={permission.key} className="border-b border-slate-100 last:border-0">
+                        <td className="px-4 py-4">
+                          <p className="text-[11px] font-bold text-slate-800">
+                            {permission.title}
+                          </p>
+                          <p className="mt-1 max-w-sm text-[9px] leading-4 text-slate-500">
+                            {permission.description}
+                          </p>
+                        </td>
+                        {(Object.keys(roleLabels) as TeamRole[]).map((role) => {
+                          const permissions =
+                            managingPermissionsWorkspace.rolePermissions[role];
+                          const checked = permissions[permission.key];
+                          const locked = role === "owner";
+                          return (
+                            <td key={role} className="px-4 py-4 text-center">
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={checked}
+                                aria-label={`${permission.title} para ${roleLabels[role]}`}
+                                disabled={saving || locked}
+                                onClick={() => {
+                                  const nextPermissions = {
+                                    ...permissions,
+                                    [permission.key]: !checked,
+                                  };
+                                  void mutate(
+                                    "PATCH",
+                                    {
+                                      action: "role-permissions",
+                                      workspaceId: managingPermissionsWorkspace.id,
+                                      role,
+                                      permissions: nextPermissions,
+                                    },
+                                    `Permisos de ${roleLabels[role]} actualizados`,
+                                  );
+                                }}
+                                className={clsx(
+                                  "focus-ring relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:cursor-not-allowed",
+                                  checked ? "bg-violet-600" : "bg-slate-200",
+                                  locked && "opacity-60",
+                                )}
+                              >
+                                <span
+                                  className={clsx(
+                                    "inline-block size-4 rounded-full bg-white shadow transition-transform",
+                                    checked ? "translate-x-6" : "translate-x-1",
+                                  )}
+                                />
+                              </button>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
 
       {managingWorkspace && (
         <div className="fixed inset-0 z-[100] grid place-items-center bg-slate-950/40 p-3 backdrop-blur-sm sm:p-6">
@@ -1203,10 +1386,22 @@ export function AdminPanel({
         <div className="fixed inset-0 z-[115] grid place-items-center bg-slate-950/50 p-4 backdrop-blur-sm">
           <form
             onSubmit={(event) => void confirmSensitiveAction(event)}
-            className="mac-window w-full max-w-md rounded-2xl border border-amber-200 bg-white p-6 shadow-2xl"
+            className={clsx(
+              "mac-window w-full max-w-md rounded-2xl border bg-white p-6 shadow-2xl",
+              sensitiveAction.kind === "delete"
+                ? "border-rose-300"
+                : "border-amber-200",
+            )}
           >
-            <span className="grid size-11 place-items-center rounded-xl bg-amber-50 text-amber-700">
-              {sensitiveAction.kind === "superadmin" ? (
+            <span className={clsx(
+              "grid size-11 place-items-center rounded-xl",
+              sensitiveAction.kind === "delete"
+                ? "bg-rose-50 text-rose-700"
+                : "bg-amber-50 text-amber-700",
+            )}>
+              {sensitiveAction.kind === "delete" ? (
+                <Trash2 className="size-5" />
+              ) : sensitiveAction.kind === "superadmin" ? (
                 <Crown className="size-5" />
               ) : sensitiveAction.user.suspended ? (
                 <CheckCircle2 className="size-5" />
@@ -1215,7 +1410,9 @@ export function AdminPanel({
               )}
             </span>
             <h3 className="mt-4 text-[15px] font-bold text-slate-900">
-              {sensitiveAction.kind === "superadmin"
+              {sensitiveAction.kind === "delete"
+                ? "Eliminar usuario definitivamente"
+                : sensitiveAction.kind === "superadmin"
                 ? sensitiveAction.user.superAdmin
                   ? "Revocar acceso global"
                   : "Otorgar acceso de superadministrador"
@@ -1224,7 +1421,9 @@ export function AdminPanel({
                   : "Suspender usuario"}
             </h3>
             <p className="mt-2 text-[10px] leading-5 text-slate-500">
-              {sensitiveAction.kind === "superadmin"
+              {sensitiveAction.kind === "delete"
+                ? "Esta acción no se puede deshacer. Se eliminará el acceso y también pueden desaparecer comentarios, registros de tiempo y archivos creados por esta persona. Si es propietaria de un espacio, primero tendrás que transferir la propiedad."
+                : sensitiveAction.kind === "superadmin"
                 ? "Este permiso permite administrar todos los usuarios, espacios y roles de la plataforma."
                 : sensitiveAction.user.suspended
                   ? "La persona volverá a poder iniciar sesión y acceder a sus espacios."
@@ -1242,7 +1441,12 @@ export function AdminPanel({
                   setSensitiveConfirmation(event.target.value)
                 }
                 autoComplete="off"
-                className="mac-input focus-ring w-full rounded-xl border border-amber-200 px-3 py-3 text-[11px]"
+                className={clsx(
+                  "mac-input focus-ring w-full rounded-xl border px-3 py-3 text-[11px]",
+                  sensitiveAction.kind === "delete"
+                    ? "border-rose-300"
+                    : "border-amber-200",
+                )}
               />
             </label>
             <div className="mt-6 flex justify-end gap-2">
@@ -1259,9 +1463,18 @@ export function AdminPanel({
                   sensitiveConfirmation.trim().toLowerCase() !==
                     sensitiveAction.user.email.toLowerCase()
                 }
-                className="focus-ring rounded-lg bg-amber-600 px-4 py-2.5 text-[10px] font-bold text-white disabled:opacity-40"
+                className={clsx(
+                  "focus-ring rounded-lg px-4 py-2.5 text-[10px] font-bold text-white disabled:opacity-40",
+                  sensitiveAction.kind === "delete"
+                    ? "bg-rose-600"
+                    : "bg-amber-600",
+                )}
               >
-                {saving ? "Aplicando…" : "Confirmar cambio"}
+                {saving
+                  ? "Aplicando…"
+                  : sensitiveAction.kind === "delete"
+                    ? "Eliminar definitivamente"
+                    : "Confirmar cambio"}
               </button>
             </div>
           </form>

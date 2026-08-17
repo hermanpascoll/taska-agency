@@ -4,6 +4,7 @@ import type {
   PlatformAdminOverview,
   PlatformAdminUser,
   PlatformAdminWorkspace,
+  WorkspaceRolePermissions,
 } from "@/lib/admin-types";
 import {
   createPlatformAdminClient,
@@ -52,6 +53,24 @@ type InvitationRow = {
 type PlatformAdminRow = {
   user_id: string;
 };
+
+type RolePermissionRow = {
+  team_id: string;
+  role: TeamRole;
+  can_administer: boolean;
+  can_manage_billing: boolean;
+  can_track_time: boolean;
+  can_audit_time: boolean;
+};
+
+function defaultRolePermissions(): WorkspaceRolePermissions {
+  return {
+    owner: { administer: true, billing: true, trackTime: true, auditTime: true },
+    admin: { administer: true, billing: true, trackTime: true, auditTime: true },
+    agent: { administer: false, billing: false, trackTime: true, auditTime: false },
+    viewer: { administer: false, billing: false, trackTime: false, auditTime: false },
+  };
+}
 
 function isSuspended(user: User) {
   return Boolean(
@@ -117,6 +136,7 @@ export async function GET() {
     tasksResult,
     invitationsResult,
     platformAdminsResult,
+    rolePermissionsResult,
   ] = await Promise.all([
     admin.auth.admin.listUsers({ page: 1, perPage: 1000 }),
     admin
@@ -136,6 +156,11 @@ export async function GET() {
         "id, team_id, email, role, token, created_at, expires_at, accepted_at",
       ),
     admin.from("platform_admins").select("user_id"),
+    admin
+      .from("team_role_permissions")
+      .select(
+        "team_id, role, can_administer, can_manage_billing, can_track_time, can_audit_time",
+      ),
   ]);
 
   const firstError =
@@ -146,7 +171,8 @@ export async function GET() {
     projectsResult.error ??
     tasksResult.error ??
     invitationsResult.error ??
-    platformAdminsResult.error;
+    platformAdminsResult.error ??
+    rolePermissionsResult.error;
   if (firstError) {
     return NextResponse.json({ error: firstError.message }, { status: 500 });
   }
@@ -156,6 +182,7 @@ export async function GET() {
   const memberships = (membershipsResult.data ?? []) as MembershipRow[];
   const invitations = (invitationsResult.data ?? []) as InvitationRow[];
   const platformAdmins = (platformAdminsResult.data ?? []) as PlatformAdminRow[];
+  const rolePermissions = (rolePermissionsResult.data ?? []) as RolePermissionRow[];
   const platformAdminIds = new Set(
     platformAdmins.map((platformAdmin) => platformAdmin.user_id),
   );
@@ -281,6 +308,17 @@ export async function GET() {
             expiresAt: invitation.expires_at,
           }))
           .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+        rolePermissions: rolePermissions
+          .filter((permission) => permission.team_id === workspace.id)
+          .reduce((permissions, permission) => {
+            permissions[permission.role] = {
+              administer: permission.can_administer,
+              billing: permission.can_manage_billing,
+              trackTime: permission.can_track_time,
+              auditTime: permission.can_audit_time,
+            };
+            return permissions;
+          }, defaultRolePermissions()),
       };
     })
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -314,6 +352,7 @@ export async function PATCH(request: Request) {
       | "workspace-invite"
       | "invitation-revoke"
       | "workspace-status"
+      | "role-permissions"
       | "profile";
     userId?: string;
     workspaceId?: string;
@@ -325,7 +364,52 @@ export async function PATCH(request: Request) {
     name?: string;
     title?: string;
     email?: string;
+    permissions?: {
+      administer?: boolean;
+      billing?: boolean;
+      trackTime?: boolean;
+      auditTime?: boolean;
+    };
   };
+
+  if (
+    body.action === "role-permissions" &&
+    body.workspaceId &&
+    body.role &&
+    ["admin", "agent", "viewer"].includes(body.role) &&
+    body.permissions
+  ) {
+    const permissions = body.permissions;
+    if (
+      [
+        permissions.administer,
+        permissions.billing,
+        permissions.trackTime,
+        permissions.auditTime,
+      ].some((value) => typeof value !== "boolean")
+    ) {
+      return NextResponse.json(
+        { error: "La configuración de permisos está incompleta." },
+        { status: 400 },
+      );
+    }
+    const result = await admin.from("team_role_permissions").upsert(
+      {
+        team_id: body.workspaceId,
+        role: body.role,
+        can_administer: permissions.administer,
+        can_manage_billing: permissions.billing,
+        can_track_time: permissions.trackTime,
+        can_audit_time: permissions.auditTime,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "team_id,role" },
+    );
+    if (result.error) {
+      return NextResponse.json({ error: result.error.message }, { status: 400 });
+    }
+    return NextResponse.json({ ok: true });
+  }
 
   if (body.action === "user-status" && body.userId) {
     const target = await admin.auth.admin.getUserById(body.userId);
@@ -698,14 +782,82 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   const authorization = await authorize();
-  if (authorization.response || !authorization.admin) {
+  if (authorization.response || !authorization.admin || !authorization.user) {
     return authorization.response;
   }
   const admin = authorization.admin;
   const body = (await request.json()) as {
     workspaceId?: string;
+    userId?: string;
     confirmation?: string;
   };
+
+  if (body.userId) {
+    const target = await admin.auth.admin.getUserById(body.userId);
+    if (target.error || !target.data.user) {
+      return NextResponse.json({ error: "El usuario no existe." }, { status: 404 });
+    }
+    const email = target.data.user.email ?? "";
+    if (!body.confirmation || body.confirmation.trim().toLowerCase() !== email.toLowerCase()) {
+      return NextResponse.json(
+        { error: "El correo de confirmación no coincide." },
+        { status: 400 },
+      );
+    }
+    if (body.userId === authorization.user.id) {
+      return NextResponse.json(
+        { error: "No podés eliminar tu propio usuario." },
+        { status: 400 },
+      );
+    }
+    const persistentAdmin = await admin
+      .from("platform_admins")
+      .select("user_id")
+      .eq("user_id", body.userId)
+      .maybeSingle();
+    if (isPlatformAdminEmail(email) || Boolean(persistentAdmin.data)) {
+      return NextResponse.json(
+        { error: "Primero revocá el acceso de superadministrador." },
+        { status: 400 },
+      );
+    }
+    const [createdWorkspaces, ownerMemberships] = await Promise.all([
+      admin.from("teams").select("id, name").eq("created_by", body.userId),
+      admin
+        .from("team_members")
+        .select("team_id, teams(name)")
+        .eq("user_id", body.userId)
+        .eq("role", "owner"),
+    ]);
+    if (createdWorkspaces.error || ownerMemberships.error) {
+      return NextResponse.json(
+        { error: createdWorkspaces.error?.message ?? ownerMemberships.error?.message },
+        { status: 400 },
+      );
+    }
+    if ((createdWorkspaces.data?.length ?? 0) > 0 || (ownerMemberships.data?.length ?? 0) > 0) {
+      return NextResponse.json(
+        {
+          error:
+            "Este usuario es propietario de uno o más espacios. Transferí la propiedad antes de eliminarlo.",
+        },
+        { status: 400 },
+      );
+    }
+
+    if (email) {
+      await Promise.all([
+        admin.from("team_invitations").delete().eq("email", email),
+        admin.from("project_invitations").delete().eq("email", email),
+      ]);
+    }
+    const deleted = await admin.auth.admin.deleteUser(body.userId, false);
+    if (deleted.error) {
+      return NextResponse.json({ error: deleted.error.message }, { status: 400 });
+    }
+    return NextResponse.json({ ok: true });
+  }
+
   if (!body.workspaceId || !body.confirmation) {
     return NextResponse.json(
       { error: "Confirmación requerida." },

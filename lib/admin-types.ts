@@ -1,4 +1,6 @@
-import type { TeamRole } from "@/lib/types";
+import type { RolePermissions, TeamRole } from "@/lib/types";
+
+export type WorkspaceRolePermissions = Record<TeamRole, RolePermissions>;
 
 export type PlatformAdminMembership = {
   workspaceId: string;
@@ -56,6 +58,7 @@ export type PlatformAdminWorkspace = {
   taskCount: number;
   members: PlatformAdminWorkspaceMember[];
   invitations: PlatformAdminInvitation[];
+  rolePermissions: WorkspaceRolePermissions;
 };
 
 export type PlatformAdminOverview = {

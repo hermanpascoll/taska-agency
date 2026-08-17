@@ -200,7 +200,15 @@ export type WorkspaceMember = {
   projectLimited: boolean;
   joinedAt: string;
   hourlyRate: number;
+  accessPermissions: RolePermissions;
   financialPermissions: FinancialPermissions;
+};
+
+export type RolePermissions = {
+  administer: boolean;
+  billing: boolean;
+  trackTime: boolean;
+  auditTime: boolean;
 };
 
 export type FinancialPermissions = {

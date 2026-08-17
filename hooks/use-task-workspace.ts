@@ -1483,6 +1483,12 @@ export function useTaskWorkspace() {
           projectLimited: false,
           joinedAt: "Ahora",
           hourlyRate: 0,
+          accessPermissions: {
+            administer: true,
+            billing: true,
+            trackTime: true,
+            auditTime: true,
+          },
           financialPermissions: {
             manageCosts: true,
             manageBilling: true,

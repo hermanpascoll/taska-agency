@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AdminPanel } from "@/components/admin-panel";
@@ -81,6 +81,12 @@ const overview: PlatformAdminOverview = {
       memberCount: 2,
       projectCount: 3,
       taskCount: 8,
+      rolePermissions: {
+        owner: { administer: true, billing: true, trackTime: true, auditTime: true },
+        admin: { administer: true, billing: true, trackTime: true, auditTime: true },
+        agent: { administer: false, billing: false, trackTime: true, auditTime: false },
+        viewer: { administer: false, billing: false, trackTime: false, auditTime: false },
+      },
       members: [
         {
           userId: "user-root",
@@ -123,6 +129,7 @@ function jsonResponse(payload: unknown) {
 }
 
 afterEach(() => {
+  cleanup();
   vi.unstubAllGlobals();
 });
 
@@ -244,6 +251,71 @@ describe("Panel global de administración", () => {
         workspaceId: "workspace-1",
         email: "nuevo@taska.test",
         role: "agent",
+      });
+    });
+  });
+
+  it("configura permisos por rol y permite eliminar un usuario con confirmación", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() => jsonResponse(overview));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+
+    render(<AdminPanel open onClose={vi.fn()} notify={vi.fn()} />);
+    await screen.findByRole("heading", { name: "Administración de plataforma" });
+
+    await user.click(screen.getByRole("button", { name: /Espacios/ }));
+    await user.click(screen.getByRole("button", { name: "Permisos por rol" }));
+    const permissionsDialog = screen.getByRole("dialog", {
+      name: "Permisos de Agencia Test",
+    });
+    await user.click(
+      within(permissionsDialog).getByRole("switch", {
+        name: "Facturación y rentabilidad para Integrante",
+      }),
+    );
+    await waitFor(() => {
+      const permissionsCall = fetchMock.mock.calls.find(([, options]) =>
+        String((options as RequestInit | undefined)?.body ?? "").includes(
+          '"role-permissions"',
+        ),
+      );
+      expect(permissionsCall).toBeTruthy();
+      expect(
+        JSON.parse(String((permissionsCall?.[1] as RequestInit)?.body)),
+      ).toMatchObject({
+        action: "role-permissions",
+        workspaceId: "workspace-1",
+        role: "agent",
+        permissions: { billing: true },
+      });
+    });
+
+    await user.click(within(permissionsDialog).getByLabelText("Cerrar permisos"));
+    await user.click(screen.getByRole("button", { name: /Usuarios/ }));
+    const anaCard = screen.getByRole("heading", { name: "Ana Equipo" }).closest("article");
+    expect(anaCard).not.toBeNull();
+    await user.click(
+      within(anaCard as HTMLElement).getByRole("button", {
+        name: "Eliminar usuario",
+      }),
+    );
+    await user.type(
+      screen.getByRole("textbox", {
+        name: /Escribí ana@taska.test para confirmar/i,
+      }),
+      "ana@taska.test",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Eliminar definitivamente" }),
+    );
+    await waitFor(() => {
+      const deleteCall = fetchMock.mock.calls.find(
+        ([, options]) => (options as RequestInit | undefined)?.method === "DELETE",
+      );
+      expect(deleteCall).toBeTruthy();
+      expect(JSON.parse(String((deleteCall?.[1] as RequestInit)?.body))).toEqual({
+        userId: "user-2",
+        confirmation: "ana@taska.test",
       });
     });
   });

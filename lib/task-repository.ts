@@ -193,6 +193,9 @@ type RemoteMembership = {
   can_manage_costs: boolean;
   can_manage_billing: boolean;
   can_view_profitability: boolean;
+  can_administer: boolean;
+  can_track_time: boolean;
+  can_audit_time: boolean;
   profiles: RemotePerson | RemotePerson[] | null;
 };
 
@@ -530,7 +533,7 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     supabase
       .from("team_members")
       .select(
-        "team_id, user_id, role, project_limited, joined_at, hourly_rate, can_manage_costs, can_manage_billing, can_view_profitability, profiles(id, full_name, email, role, avatar_url)",
+        "team_id, user_id, role, project_limited, joined_at, hourly_rate, can_manage_costs, can_manage_billing, can_view_profitability, can_administer, can_track_time, can_audit_time, profiles(id, full_name, email, role, avatar_url)",
       ),
     supabase
       .from("clients")
@@ -635,6 +638,18 @@ export async function loadWorkspace(): Promise<LoadedWorkspace | null> {
     role: membership.role,
     projectLimited: membership.project_limited,
     hourlyRate: Number(membership.hourly_rate),
+    accessPermissions: {
+      administer: membership.role === "owner" || Boolean(membership.can_administer),
+      billing:
+        membership.role === "owner" ||
+        Boolean(
+          membership.can_manage_costs ||
+            membership.can_manage_billing ||
+            membership.can_view_profitability,
+        ),
+      trackTime: membership.role === "owner" || Boolean(membership.can_track_time),
+      auditTime: membership.role === "owner" || Boolean(membership.can_audit_time),
+    },
     financialPermissions: {
       manageCosts: Boolean(membership.can_manage_costs),
       manageBilling: Boolean(membership.can_manage_billing),
