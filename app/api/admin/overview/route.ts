@@ -71,6 +71,12 @@ function defaultRolePermissions(): WorkspaceRolePermissions {
   return {
     owner: { administer: true, billing: true, trackTime: true, auditTime: true },
     admin: { administer: true, billing: true, trackTime: true, auditTime: true },
+    controller: {
+      administer: false,
+      billing: true,
+      trackTime: true,
+      auditTime: true,
+    },
     agent: { administer: false, billing: false, trackTime: true, auditTime: false },
     viewer: { administer: false, billing: false, trackTime: false, auditTime: false },
   };
@@ -387,7 +393,7 @@ export async function PATCH(request: Request) {
     body.action === "role-permissions" &&
     body.workspaceId &&
     body.role &&
-    ["admin", "agent", "viewer"].includes(body.role) &&
+    ["admin", "controller", "agent", "viewer"].includes(body.role) &&
     body.permissions
   ) {
     const permissions = body.permissions;
@@ -513,7 +519,9 @@ export async function PATCH(request: Request) {
     body.userId &&
     body.workspaceId &&
     body.role &&
-    ["owner", "admin", "agent", "viewer"].includes(body.role)
+    ["owner", "admin", "controller", "agent", "viewer"].includes(
+      body.role,
+    )
   ) {
     const current = await admin
       .from("team_members")
@@ -613,7 +621,7 @@ export async function PATCH(request: Request) {
     body.workspaceId &&
     body.email?.trim() &&
     body.role &&
-    ["admin", "agent", "viewer"].includes(body.role)
+    ["admin", "controller", "agent", "viewer"].includes(body.role)
   ) {
     const email = body.email.trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {

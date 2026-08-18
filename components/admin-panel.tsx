@@ -41,6 +41,7 @@ import type { RolePermissions, TeamRole } from "@/lib/types";
 const roleLabels: Record<TeamRole, string> = {
   owner: "Propietario",
   admin: "Administrador",
+  controller: "Control de gestión",
   agent: "Integrante",
   viewer: "Sólo lectura",
 };
@@ -1155,6 +1156,7 @@ export function AdminPanel({
                     className="mac-input focus-ring rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-[10px]"
                   >
                     <option value="admin">Administrador</option>
+                    <option value="controller">Control de gestión</option>
                     <option value="agent">Integrante</option>
                     <option value="viewer">Sólo lectura</option>
                   </select>

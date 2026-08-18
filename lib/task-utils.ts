@@ -302,5 +302,5 @@ export function buildTimeReportCsv(entries: TimeEntry[], currency: string) {
 }
 
 export function canAuditTimeReports(role: TeamRole | undefined) {
-  return role === "owner" || role === "admin";
+  return role === "owner" || role === "admin" || role === "controller";
 }

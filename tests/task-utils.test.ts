@@ -123,6 +123,7 @@ describe("task utils", () => {
     expect(csv).toContain("117.00");
     expect(canAuditTimeReports("owner")).toBe(true);
     expect(canAuditTimeReports("admin")).toBe(true);
+    expect(canAuditTimeReports("controller")).toBe(true);
     expect(canAuditTimeReports("agent")).toBe(false);
     expect(canAuditTimeReports("viewer")).toBe(false);
   });

@@ -90,6 +90,12 @@ const overview: PlatformAdminOverview = {
       rolePermissions: {
         owner: { administer: true, billing: true, trackTime: true, auditTime: true },
         admin: { administer: true, billing: true, trackTime: true, auditTime: true },
+        controller: {
+          administer: false,
+          billing: true,
+          trackTime: true,
+          auditTime: true,
+        },
         agent: { administer: false, billing: false, trackTime: true, auditTime: false },
         viewer: { administer: false, billing: false, trackTime: false, auditTime: false },
       },

@@ -228,6 +228,7 @@ const commentTypeLabels: Record<CommentType, string> = {
 const teamRoleLabels: Record<TeamRole, string> = {
   owner: "Dueño",
   admin: "Administrador",
+  controller: "Control de gestión",
   agent: "Integrante",
   viewer: "Solo lectura",
 };
@@ -9210,6 +9211,7 @@ function SettingsModal({
                       className="mac-input focus-ring rounded-lg border border-slate-200 bg-white px-2 py-2.5 text-[10px]"
                     >
                       <option value="admin">Admin</option>
+                      <option value="controller">Control de gestión</option>
                       <option value="agent">Integrante</option>
                       <option value="viewer">Solo lectura</option>
                     </select>
@@ -9275,6 +9277,7 @@ function SettingsModal({
                       >
                         <option value="owner">Dueño</option>
                         <option value="admin">Admin</option>
+                        <option value="controller">Control de gestión</option>
                         <option value="agent">Integrante</option>
                         <option value="viewer">Solo lectura</option>
                       </select>

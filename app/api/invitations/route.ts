@@ -72,7 +72,7 @@ export async function POST(request: Request) {
   if (
     !body.workspaceId ||
     !body.email ||
-    !["admin", "agent", "viewer"].includes(role)
+    !["admin", "controller", "agent", "viewer"].includes(role)
   ) {
     return NextResponse.json(
       { error: "Datos de invitación inválidos." },

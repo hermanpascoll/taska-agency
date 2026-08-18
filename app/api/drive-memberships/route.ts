@@ -65,7 +65,9 @@ export async function PATCH(request: Request) {
     !body.workspaceId ||
     !body.userId ||
     !body.role ||
-    !["owner", "admin", "agent", "viewer"].includes(body.role)
+    !["owner", "admin", "controller", "agent", "viewer"].includes(
+      body.role,
+    )
   ) {
     return NextResponse.json({ error: "Datos de rol inválidos." }, { status: 400 });
   }
@@ -84,6 +86,7 @@ export async function PATCH(request: Request) {
   });
   return NextResponse.json({ ok: true, drive });
 }
+
 
 export async function DELETE(request: Request) {
   const context = await authenticatedClients();
@@ -111,4 +114,3 @@ export async function DELETE(request: Request) {
   });
   return NextResponse.json({ ok: true, drive });
 }
-

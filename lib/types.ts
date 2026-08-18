@@ -20,7 +20,12 @@ export type BillingStatus =
   | "collected"
   | "observed"
   | "cancelled";
-export type TeamRole = "owner" | "admin" | "agent" | "viewer";
+export type TeamRole =
+  | "owner"
+  | "admin"
+  | "controller"
+  | "agent"
+  | "viewer";
 export type ProjectRole = "admin" | "editor" | "commenter" | "viewer";
 export type CommentType =
   | "comment"
