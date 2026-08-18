@@ -4425,7 +4425,7 @@ function TaskDrawer({
       className={clsx(
         "fixed z-[70] flex",
         embedded
-          ? "inset-y-0 right-0 w-full max-w-[760px] border-l border-slate-200 bg-white lg:top-[56px] lg:w-[48vw]"
+          ? "inset-y-0 right-0 w-full border-l border-slate-200 bg-white lg:top-[56px] lg:w-[min(56vw,1180px)]"
           : "inset-0 items-center justify-center p-0 sm:p-3 lg:p-5",
       )}
       data-testid="task-detail"
@@ -10163,8 +10163,8 @@ export function TaskaApp() {
         id="main-content"
         className={clsx(
           "min-w-0 flex-1 transition-[margin] duration-200",
-          selectedTask && "lg:mr-[48vw]",
-          showNewTask && "lg:mr-[48vw]",
+          selectedTask && "lg:mr-[min(56vw,1180px)]",
+          showNewTask && "lg:mr-[min(56vw,1180px)]",
         )}
         tabIndex={-1}
       >

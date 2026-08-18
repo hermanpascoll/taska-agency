@@ -32,6 +32,7 @@ import {
   Unlink,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { clsx } from "clsx";
 import {
   isRichTextDescription,
@@ -224,6 +225,10 @@ export function TaskRichTextEditor({
   const mentionIndexRef = useRef(0);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
+  const [mentionPosition, setMentionPosition] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
 
   const mentionCandidates = useMemo(() => {
     if (mentionQuery === null) return [];
@@ -249,6 +254,7 @@ export function TaskRichTextEditor({
     if (!empty) {
       mentionRangeRef.current = null;
       setMentionQuery(null);
+      setMentionPosition(null);
       return;
     }
     const start = Math.max(0, from - 100);
@@ -257,6 +263,7 @@ export function TaskRichTextEditor({
     if (!match) {
       mentionRangeRef.current = null;
       setMentionQuery(null);
+      setMentionPosition(null);
       return;
     }
     mentionRangeRef.current = {
@@ -265,6 +272,24 @@ export function TaskRichTextEditor({
     };
     setMentionQuery(match[1]);
     setMentionIndex(0);
+
+    try {
+      const cursor = currentEditor.view.coordsAtPos(from);
+      const menuWidth = 336;
+      const menuHeight = 280;
+      const viewportPadding = 12;
+      const left = Math.max(
+        viewportPadding,
+        Math.min(cursor.left, window.innerWidth - menuWidth - viewportPadding),
+      );
+      const top =
+        cursor.bottom + menuHeight + viewportPadding <= window.innerHeight
+          ? cursor.bottom + 8
+          : Math.max(viewportPadding, cursor.top - menuHeight - 8);
+      setMentionPosition({ left, top });
+    } catch {
+      setMentionPosition(null);
+    }
   }, []);
 
   useEffect(() => {
@@ -424,6 +449,7 @@ export function TaskRichTextEditor({
               .run();
             mentionRangeRef.current = null;
             setMentionQuery(null);
+            setMentionPosition(null);
           }
           return true;
         }
@@ -431,6 +457,7 @@ export function TaskRichTextEditor({
           event.preventDefault();
           mentionRangeRef.current = null;
           setMentionQuery(null);
+          setMentionPosition(null);
           return true;
         }
         return false;
@@ -633,8 +660,15 @@ export function TaskRichTextEditor({
         />
       </div>}
       <EditorContent editor={editor} />
-      {mentionQuery !== null && mentionCandidates.length > 0 && (
-        <div className="relative z-30 mx-3 mb-2 max-w-sm overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 shadow-2xl">
+      {mentionQuery !== null &&
+        mentionCandidates.length > 0 &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="fixed z-[100] max-h-[280px] w-[min(336px,calc(100vw-24px))] overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-2xl"
+            style={mentionPosition ?? { left: 12, top: 12 }}
+            data-testid="mention-menu"
+          >
           <p className="px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-slate-400">
             Mencionar a
           </p>
@@ -654,6 +688,7 @@ export function TaskRichTextEditor({
                   .run();
                 mentionRangeRef.current = null;
                 setMentionQuery(null);
+                setMentionPosition(null);
               }}
               className={clsx(
                 "flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left",
@@ -683,8 +718,9 @@ export function TaskRichTextEditor({
               </span>
             </button>
           ))}
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
       {editable && <div className="flex min-h-8 items-center justify-between gap-3 border-t border-slate-200 bg-slate-50/70 px-3 py-1.5 text-[10px] text-slate-500">
         <span>{uploading ? "Insertando imagen…" : "Pegá o arrastrá imágenes directamente en el texto"}</span>
         <span

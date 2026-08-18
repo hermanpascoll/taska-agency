@@ -108,4 +108,26 @@ describe("editor enriquecido", () => {
     expect(screen.queryByText("Guardado")).not.toBeInTheDocument();
     expect(editor).toHaveTextContent("Cambio sin permisos");
   });
+
+  it("muestra las menciones en una capa anclada al cursor", async () => {
+    const user = userEvent.setup();
+    render(
+      <TaskRichTextEditor
+        task={{ ...initialTasks[0], description: "", attachments: [] }}
+        onUpdate={vi.fn()}
+        onUpload={vi.fn().mockResolvedValue([])}
+        onOpen={vi.fn()}
+        people={people}
+      />,
+    );
+
+    const editor = screen.getByLabelText("Descripción de la tarea");
+    await user.click(editor);
+    await user.type(editor, "@");
+
+    const menu = await screen.findByTestId("mention-menu");
+    expect(menu).toHaveClass("fixed");
+    expect(menu).not.toHaveClass("relative");
+    expect(screen.getByText("Mencionar a")).toBeInTheDocument();
+  });
 });

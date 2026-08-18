@@ -245,7 +245,7 @@ export function NewTaskModal({
   };
 
   return (
-    <div className="fixed inset-y-0 right-0 z-[70] flex w-full max-w-[760px] border-l border-slate-200 bg-white lg:top-[56px] lg:w-[48vw]">
+    <div className="fixed inset-y-0 right-0 z-[70] flex w-full border-l border-slate-200 bg-white lg:top-[56px] lg:w-[min(56vw,1180px)]">
       <form
         aria-label="Nueva tarea"
         role="dialog"
