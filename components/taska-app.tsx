@@ -163,6 +163,7 @@ import type {
   ProjectInvitation,
   ProjectMember,
   ProjectRole,
+  ProjectSharingPermission,
   Task,
   TaskAttachment,
   TaskPriority,
@@ -2562,6 +2563,7 @@ function ProjectWorkspaceView({
   projectInvitations,
   currentUserId,
   canManageSharing,
+  canConfigureSharing,
   canEditProject,
   tab,
   selectedTaskId,
@@ -2575,6 +2577,7 @@ function ProjectWorkspaceView({
   onProjectMemberRemove,
   onProjectInvite,
   onProjectInvitationRevoke,
+  onProjectUpdate,
   notify,
 }: {
   project: Project;
@@ -2585,6 +2588,7 @@ function ProjectWorkspaceView({
   projectInvitations: ProjectInvitation[];
   currentUserId: string;
   canManageSharing: boolean;
+  canConfigureSharing: boolean;
   canEditProject: boolean;
   tab: ProjectTab;
   selectedTaskId: string | null;
@@ -2611,6 +2615,10 @@ function ProjectWorkspaceView({
     notifyOnNewTasks: boolean,
   ) => Promise<{ invitation: ProjectInvitation; emailed: boolean }>;
   onProjectInvitationRevoke: (id: string) => Promise<void>;
+  onProjectUpdate: (
+    projectId: string,
+    input: UpdateProjectInput,
+  ) => Promise<void>;
   notify: (message: string) => void;
 }) {
   const [shareOpen, setShareOpen] = useState(false);
@@ -2882,11 +2890,13 @@ function ProjectWorkspaceView({
           )}
           currentUserId={currentUserId}
           canManage={canManageSharing}
+          canConfigure={canConfigureSharing}
           onClose={() => setShareOpen(false)}
           onMemberUpsert={onProjectMemberUpsert}
           onMemberRemove={onProjectMemberRemove}
           onInvite={onProjectInvite}
           onInvitationRevoke={onProjectInvitationRevoke}
+          onProjectUpdate={onProjectUpdate}
           notify={notify}
         />
       )}
@@ -2908,11 +2918,13 @@ function ProjectShareModal({
   invitations,
   currentUserId,
   canManage,
+  canConfigure,
   onClose,
   onMemberUpsert,
   onMemberRemove,
   onInvite,
   onInvitationRevoke,
+  onProjectUpdate,
   notify,
 }: {
   project: Project;
@@ -2921,6 +2933,7 @@ function ProjectShareModal({
   invitations: ProjectInvitation[];
   currentUserId: string;
   canManage: boolean;
+  canConfigure: boolean;
   onClose: () => void;
   onMemberUpsert: (
     projectId: string,
@@ -2936,6 +2949,10 @@ function ProjectShareModal({
     notifyOnNewTasks: boolean,
   ) => Promise<{ invitation: ProjectInvitation; emailed: boolean }>;
   onInvitationRevoke: (id: string) => Promise<void>;
+  onProjectUpdate: (
+    projectId: string,
+    input: UpdateProjectInput,
+  ) => Promise<void>;
   notify: (message: string) => void;
 }) {
   const [query, setQuery] = useState("");
@@ -3122,12 +3139,50 @@ function ProjectShareModal({
           </form>
           {!canManage && (
             <p className="mt-3 text-[9px] text-amber-600">
-              Sólo los administradores pueden invitar o cambiar accesos.
+              Este proyecto permite compartir únicamente a sus administradores.
             </p>
           )}
         </div>
 
         <div className="px-6 py-6">
+          <div className="mb-4 rounded-xl border border-slate-200 bg-white px-4 py-3">
+            <label className="flex items-center justify-between gap-4">
+              <span>
+                <strong className="block text-[11px] text-slate-700">
+                  Quién puede compartir este proyecto
+                </strong>
+                <span className="mt-1 block text-[9px] text-slate-400">
+                  Los administradores del proyecto pueden cambiar esta opción.
+                </span>
+              </span>
+              <select
+                value={project.sharingPermission ?? "admins_editors"}
+                disabled={!canConfigure || saving}
+                onChange={(event) => {
+                  const sharingPermission = event.target
+                    .value as ProjectSharingPermission;
+                  setSaving(true);
+                  void onProjectUpdate(project.id, { sharingPermission })
+                    .then(() => notify("Permiso para compartir actualizado"))
+                    .catch((error: unknown) =>
+                      notify(
+                        error instanceof Error
+                          ? error.message
+                          : "No se pudo actualizar el permiso",
+                      ),
+                    )
+                    .finally(() => setSaving(false));
+                }}
+                className="focus-ring max-w-56 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[9px] font-semibold text-slate-600 disabled:opacity-60"
+                aria-label="Quién puede compartir este proyecto"
+              >
+                <option value="admins_editors">
+                  Administradores y editores
+                </option>
+                <option value="admins_only">Solo administradores</option>
+              </select>
+            </label>
+          </div>
           <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
             <div className="flex items-center gap-3">
               <UsersRound className="size-4 text-slate-500" />
@@ -9796,6 +9851,23 @@ export function TaskaApp() {
     projectId === "todos"
       ? null
       : (projects.find((project) => project.id === projectId) ?? null);
+  const canConfigureFocusedProjectSharing = Boolean(
+    focusedProject &&
+      (canAdministerWorkspace ||
+        projectMembers.some(
+          (member) =>
+            member.projectId === focusedProject.id &&
+            member.user.id === currentUserId &&
+            member.role === "admin",
+        )),
+  );
+  const canManageFocusedProjectSharing = Boolean(
+    focusedProject &&
+      (canConfigureFocusedProjectSharing ||
+        ((focusedProject.sharingPermission ?? "admins_editors") ===
+          "admins_editors" &&
+          editableProjectIds.has(focusedProject.id))),
+  );
   const focusedProjectTasks = useMemo(
     () =>
       focusedProject
@@ -10275,15 +10347,8 @@ export function TaskaApp() {
               projectMembers={projectMembers}
               projectInvitations={projectInvitations}
               currentUserId={currentUserId}
-              canManageSharing={
-                canAdministerWorkspace ||
-                projectMembers.some(
-                  (member) =>
-                    member.projectId === focusedProject.id &&
-                    member.user.id === currentUserId &&
-                    member.role === "admin",
-                )
-              }
+              canManageSharing={canManageFocusedProjectSharing}
+              canConfigureSharing={canConfigureFocusedProjectSharing}
               canEditProject={editableProjectIds.has(focusedProject.id)}
               tab={projectTab}
               selectedTaskId={selectedTaskId}
@@ -10323,6 +10388,7 @@ export function TaskaApp() {
               onProjectMemberRemove={removeProjectMember}
               onProjectInvite={inviteProjectMember}
               onProjectInvitationRevoke={revokeProjectInvitation}
+              onProjectUpdate={updateProject}
               notify={notify}
             />
           ) : view === "inbox" ? (

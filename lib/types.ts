@@ -27,6 +27,7 @@ export type TeamRole =
   | "agent"
   | "viewer";
 export type ProjectRole = "admin" | "editor" | "commenter" | "viewer";
+export type ProjectSharingPermission = "admins_editors" | "admins_only";
 export type CommentType =
   | "comment"
   | "internal_note"
@@ -130,6 +131,7 @@ export type Project = {
   clientName: string | null;
   clientCategory: string | null;
   archived: boolean;
+  sharingPermission?: ProjectSharingPermission;
 };
 
 export type TaskComment = {
@@ -422,6 +424,7 @@ export type UpdateProjectInput = {
   clientId?: string | null;
   clientCategory?: string | null;
   archived?: boolean;
+  sharingPermission?: ProjectSharingPermission;
 };
 
 export type NewClientInput = {
